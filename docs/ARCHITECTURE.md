@@ -41,8 +41,26 @@ The engine keeps transport behind `tls::connect` / `tls::accept` and generic
 adversarial tests run over in-memory pipes). Adding Iroh for remote mode means
 providing another stream source plus its peer identity, not changing sessions.
 
-Still to do for the PRD's P0-012: benchmark Quinn and Iroh on real Wi-Fi and
-Ethernet with the same corpus.
+### Benchmark: TCP + TLS 1.3 against QUIC (P0-012)
+
+`cargo run --release -p dexdrop-bench -- 1024 5` sends 1 GiB one way, five
+interleaved rounds, over each transport with the same Ed25519 identities,
+rustls (ring) and TLS 1.3, one stream, no hashing or disk:
+
+| Transport | Median throughput | CPU per GB, both ends |
+|---|---|---|
+| TCP + TLS 1.3 (tokio-rustls) | 1,747 MB/s | 0.99 s |
+| QUIC (quinn 0.11, the QUIC stack under Iroh) | 519 MB/s | 4.48 s |
+
+On this machine TCP + TLS moves data about 3.4x faster at about a quarter of
+the CPU per GB, which also matters for battery on phones. Caveats:
+loopback has no loss or latency, where QUIC's loss recovery and lack of
+head-of-line blocking help; QUIC can use UDP segmentation offload on real
+network cards, which loopback in this container does not exercise; and
+QUIC's real advantage, NAT traversal and connection migration for remote
+mode, is out of scope for local transfers. The container has no `netem`,
+so the lossy Wi-Fi comparison still has to be run on real hardware with
+the same bench. The decision stands for the local-network MVP.
 
 ## Measured performance
 

@@ -34,6 +34,9 @@ fn provider() -> Arc<CryptoProvider> {
 pub struct TlsContext {
     pub acceptor: TlsAcceptor,
     pub connector: TlsConnector,
+    /// The same configurations, for other transports over TLS 1.3 (QUIC).
+    pub server_config: Arc<rustls::ServerConfig>,
+    pub client_config: Arc<rustls::ClientConfig>,
 }
 
 impl TlsContext {
@@ -56,9 +59,12 @@ impl TlsContext {
             .with_client_auth_cert(vec![cert], key())?;
         client.alpn_protocols = vec![ALPN.to_vec()];
 
+        let (server, client) = (Arc::new(server), Arc::new(client));
         Ok(Self {
-            acceptor: TlsAcceptor::from(Arc::new(server)),
-            connector: TlsConnector::from(Arc::new(client)),
+            acceptor: TlsAcceptor::from(server.clone()),
+            connector: TlsConnector::from(client.clone()),
+            server_config: server,
+            client_config: client,
         })
     }
 }

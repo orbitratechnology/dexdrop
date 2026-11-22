@@ -67,5 +67,5 @@ on Linux; other platforms are built in CI but not yet run on devices.
    NSH packaging extension), then device testing.
 3. iOS: Network-framework Bonjour adapter; Files/Photos picker; simulator tests.
 4. Store the identity key in the OS keystore.
-5. Benchmarks on real Wi-Fi/Ethernet against Quinn and Iroh (P0-012).
+5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
 6. Remote mode (Iroh with a project-owned relay) as a separately gated phase.

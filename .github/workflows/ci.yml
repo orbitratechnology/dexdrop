@@ -35,6 +35,9 @@ jobs:
       - run: cargo clippy -p dexdrop-core -p dexdrop-net -p dexdrop-cli --all-targets -- -D warnings
       - run: cargo test -p dexdrop-core -p dexdrop-net -p dexdrop-cli
       - run: cargo run --release -p dexdrop-cli -- bench --mb 512
+      - name: Transport benchmark (TCP + TLS against QUIC)
+        if: runner.os == 'Linux'
+        run: cargo run --release -p dexdrop-bench -- 512 3
 
   # The NSH app's headless UI tests (GTK 4 is needed to link the desktop crate).
   app-tests:
