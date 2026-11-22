@@ -275,10 +275,12 @@ pub async fn run_sender<S>(
     chunk_size: u32,
     live: LiveCell,
     mut control: watch::Receiver<Control>,
+    max_rate: Option<u64>,
 ) -> Result<SessionEnd, SessionError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let mut pacer = Pacer::new(max_rate);
     let (rd, mut wr) = tokio::io::split(stream);
     let (tx, mut rx) = mpsc::unbounded_channel::<Result<Message, WireError>>();
     let peer_stopped = Arc::new(Stop::default());
@@ -358,6 +360,7 @@ where
                     &live,
                     &control,
                     &peer_stopped,
+                    &mut pacer,
                 )
                 .await
                 {
@@ -431,6 +434,7 @@ async fn stream_file<W: AsyncWrite + Unpin>(
     live: &LiveCell,
     control: &watch::Receiver<Control>,
     peer_stopped: &Stop,
+    pacer: &mut Pacer,
 ) -> Result<u64, SessionError> {
     let (Some(source), EntryKind::File) = (&entry.source, entry.wire.kind) else {
         return Err(protocol_err("request for a folder"));
@@ -511,6 +515,7 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         pos += n as u64;
         counted += n as u64;
         lock(live).bytes_done += n as u64;
+        pacer.pace(n as u64).await;
     }
     if !unchanged(&file, entry).await {
         wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
@@ -525,6 +530,33 @@ async fn stream_file<W: AsyncWrite + Unpin>(
     )
     .await?;
     Ok(counted)
+}
+
+/// An optional cap on the sending rate (bytes per second).
+struct Pacer {
+    max: Option<u64>,
+    start: Instant,
+    sent: u64,
+}
+
+impl Pacer {
+    fn new(max: Option<u64>) -> Self {
+        Self {
+            max: max.filter(|m| *m > 0),
+            start: Instant::now(),
+            sent: 0,
+        }
+    }
+
+    async fn pace(&mut self, n: u64) {
+        let Some(max) = self.max else { return };
+        self.sent += n;
+        let due = Duration::from_secs_f64(self.sent as f64 / max as f64);
+        let elapsed = self.start.elapsed();
+        if due > elapsed {
+            tokio::time::sleep(due - elapsed).await;
+        }
+    }
 }
 
 /// How long a chunk write may block before the session is considered lost.

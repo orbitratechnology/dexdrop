@@ -1,11 +1,14 @@
-//! The engine's public commands, events and snapshots.
+//! The engine's public contract: commands in, events and snapshots out.
+//!
+//! It lives in the core crate so a UI can be compiled where the engine cannot
+//! run (the web preview), and is re-exported by `dexdrop-net`.
 
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
 };
 
-use dexdrop_core::{
+use crate::{
     PeerId,
     naming::ConflictPolicy,
     protocol::TransferId,

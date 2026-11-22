@@ -170,7 +170,11 @@ async fn skip_policy_keeps_existing_files() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pauses_and_resumes_without_starting_over() {
     // Small chunks so there are many chunks to pause between.
-    let mut a = Node::start_with("Alice", |c| c.chunk_size = 64 * 1024).await;
+    let mut a = Node::start_with("Alice", |c| {
+        c.chunk_size = 64 * 1024;
+        c.max_send_rate = Some(24_000_000);
+    })
+    .await;
     let mut b = Node::start("Bob").await;
     let src = tempfile::tempdir().unwrap();
     let size = 48 * 1024 * 1024;
@@ -251,7 +255,11 @@ async fn pauses_and_resumes_without_starting_over() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelling_removes_partial_files() {
-    let mut a = Node::start_with("Alice", |c| c.chunk_size = 64 * 1024).await;
+    let mut a = Node::start_with("Alice", |c| {
+        c.chunk_size = 64 * 1024;
+        c.max_send_rate = Some(24_000_000);
+    })
+    .await;
     let mut b = Node::start("Bob").await;
     let src = tempfile::tempdir().unwrap();
     write_file(&src.path().join("big.bin"), 32 * 1024 * 1024, 5);

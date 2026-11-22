@@ -16,7 +16,11 @@ use std::net::SocketAddr;
 use data_encoding::BASE32_NOPAD;
 use serde::{Deserialize, Serialize};
 
-use crate::{PeerId, protocol::Pairing, random_bytes, unix_now};
+use crate::PeerId;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::protocol::Pairing;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{random_bytes, unix_now};
 
 /// How long a new invitation or code stays valid, in seconds.
 pub const DEFAULT_TTL_SECS: u64 = 10 * 60;
@@ -115,6 +119,7 @@ pub fn display_code(code: &str) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn new_code() -> String {
     random_bytes::<CODE_LEN>()
         .iter()
@@ -122,10 +127,12 @@ fn new_code() -> String {
         .collect()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 struct Open {
     token: [u8; 16],
@@ -134,12 +141,14 @@ struct Open {
 }
 
 /// The receiver's open invitations and codes.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Default)]
 pub struct InvitationBook {
     open: Vec<Open>,
     code_failures: u32,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl InvitationBook {
     /// Opens a QR/link invitation for `ttl` seconds.
     pub fn create(

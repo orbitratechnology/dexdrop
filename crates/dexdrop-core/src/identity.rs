@@ -4,11 +4,16 @@
 //! certificate for it. TLS presents the certificate; peers identify each
 //! other by the BLAKE3 hash of its SubjectPublicKeyInfo, never by name or IP.
 
-use std::{fmt, io, path::Path, str::FromStr};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::{fmt, io, str::FromStr};
 
-use data_encoding::{BASE32_NOPAD, BASE64};
+use data_encoding::BASE32_NOPAD;
+#[cfg(not(target_arch = "wasm32"))]
+use data_encoding::BASE64;
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fsutil;
 
 /// A peer's stable identifier: BLAKE3 of its certificate's public key info.
@@ -17,6 +22,7 @@ pub struct PeerId(pub [u8; 32]);
 
 impl PeerId {
     /// The peer ID of the certificate `cert_der`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_cert_der(cert_der: &[u8]) -> Result<Self, IdentityError> {
         let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
             .map_err(|e| IdentityError::Certificate(e.to_string()))?;
@@ -75,6 +81,7 @@ pub enum IdentityError {
 }
 
 /// This device's key pair and certificate.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 pub struct Identity {
     key_pkcs8: Vec<u8>,
@@ -82,6 +89,7 @@ pub struct Identity {
     peer_id: PeerId,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Serialize, Deserialize)]
 struct StoredIdentity {
     version: u32,
@@ -89,6 +97,7 @@ struct StoredIdentity {
     cert_der: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Identity {
     /// A new random identity.
     pub fn generate() -> Result<Self, IdentityError> {
@@ -159,6 +168,7 @@ impl Identity {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl fmt::Debug for Identity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Never print the private key.

@@ -1,0 +1,38 @@
+[package]
+name = "dexdrop-app"
+description = "The DexDrop app: a Native Shell (NSH) Rust application."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "dexdrop_app"
+
+[[bin]]
+name = "dexdrop-app"
+path = "src/main.rs"
+
+[dependencies]
+nsh-core = "=0.6.1"
+nsh-base = "=0.6.1"
+dexdrop-core = { path = "../crates/dexdrop-core" }
+log = "0.4"
+env_logger = "0.11"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dexdrop-net = { path = "../crates/dexdrop-net" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nsh-platform-linux = { version = "=0.6.1", default-features = false, features = ["svg"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nsh-platform-macos = { version = "=0.6.1", default-features = false, features = ["svg"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nsh-platform-windows = { version = "=0.6.1", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+nsh-engine = "=0.6.1"
+nsh-testing = "=0.6.1"
+tempfile = "3"

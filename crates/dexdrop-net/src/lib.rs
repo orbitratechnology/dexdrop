@@ -11,8 +11,10 @@ mod incoming;
 mod outgoing;
 pub mod session;
 pub mod tls;
-pub mod types;
 pub mod wire;
 
+pub use dexdrop_core::api::*;
 pub use engine::{Engine, EngineConfig, EngineError, EngineHandle, spawn, summary};
-pub use types::*;
+
+/// The engine's event stream.
+pub type Events = tokio::sync::mpsc::UnboundedReceiver<dexdrop_core::api::Event>;

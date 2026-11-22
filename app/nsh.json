@@ -1,0 +1,20 @@
+{
+  "name": "DexDrop",
+  "id": "dev.dexdrop.app",
+  "version": "0.1.0",
+  "build": 1,
+  "icon": "icon.png",
+  "rust": ".",
+  "root": "App",
+  "theme": "theme.json",
+  "appearance": "system",
+  "ios": {
+    "infoPlist": {
+      "NSLocalNetworkUsageDescription": "DexDrop finds your other devices on this network and sends files to them directly.",
+      "NSBonjourServices": ["_dexdrop._tcp"]
+    }
+  },
+  "android": {
+    "targetSdk": 35
+  }
+}

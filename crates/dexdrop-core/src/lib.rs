@@ -13,6 +13,7 @@
 //! - [`store`]: settings, trusted devices and history, stored locally.
 //! - [`format`]: human-readable sizes, rates and durations.
 
+pub mod api;
 pub mod format;
 pub mod fsutil;
 pub mod identity;
@@ -24,7 +25,9 @@ pub mod pathsafe;
 pub mod protocol;
 pub mod store;
 
-pub use identity::{Identity, PeerId};
+#[cfg(not(target_arch = "wasm32"))]
+pub use identity::Identity;
+pub use identity::PeerId;
 
 /// The application's display name.
 pub const APP_NAME: &str = "DexDrop";
@@ -35,6 +38,7 @@ pub const APP_NAME: &str = "DexDrop";
 pub const SERVICE_TYPE: &str = "_dexdrop._tcp.local.";
 
 /// Random bytes from the operating system.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn random_bytes<const N: usize>() -> [u8; N] {
     let mut out = [0u8; N];
     getrandom::fill(&mut out).expect("the operating system's random source is available");
@@ -42,6 +46,7 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
 }
 
 /// A random 128-bit identifier (transfer IDs, invitation tokens).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn random_id() -> [u8; 16] {
     random_bytes::<16>()
 }
@@ -52,9 +57,16 @@ pub fn hex(bytes: &[u8]) -> String {
 }
 
 /// The current time as Unix seconds.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// The current time as Unix seconds (the browser has no `SystemTime`).
+#[cfg(target_arch = "wasm32")]
+pub fn unix_now() -> u64 {
+    0
 }

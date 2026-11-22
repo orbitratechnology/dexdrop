@@ -35,8 +35,8 @@ use crate::{
     incoming, outgoing,
     session::{Control, Live, LiveCell, SessionEnd},
     tls::TlsContext,
-    types::*,
 };
+use dexdrop_core::api::*;
 
 /// How the engine is set up.
 #[derive(Clone, Debug)]
@@ -56,6 +56,8 @@ pub struct EngineConfig {
     /// Overrides the settings' port.
     pub port: Option<u16>,
     pub chunk_size: u32,
+    /// Caps the sending rate, in bytes per second (`None`: no cap).
+    pub max_send_rate: Option<u64>,
 }
 
 impl EngineConfig {
@@ -73,6 +75,7 @@ impl EngineConfig {
             listen: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             port: None,
             chunk_size: DEFAULT_CHUNK_SIZE,
+            max_send_rate: None,
         }
     }
 }
@@ -209,6 +212,7 @@ pub async fn spawn(
         state: state.clone(),
         platform: config.platform.clone(),
         chunk_size: config.chunk_size,
+        max_send_rate: config.max_send_rate,
         settings: Mutex::new(settings.clone()),
         invitations: Mutex::new(InvitationBook::default()),
         peers: Mutex::new(HashMap::new()),
@@ -273,6 +277,7 @@ pub(crate) struct Ctx {
     pub state: StateDir,
     pub platform: String,
     pub chunk_size: u32,
+    pub max_send_rate: Option<u64>,
     pub settings: Mutex<Settings>,
     pub invitations: Mutex<InvitationBook>,
     pub peers: Mutex<HashMap<PeerId, Discovered>>,

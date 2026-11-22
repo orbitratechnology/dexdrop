@@ -16,9 +16,9 @@ use crate::{
     engine::{Ctx, Internal, lock},
     session::{self, Answer, Control, LiveCell, SessionEnd},
     tls::{self, ClientStream, PeerSession},
-    types::{Target, TransferState},
     wire,
 };
+use dexdrop_core::api::*;
 
 /// Reconnection attempts before waiting for the user.
 const MAX_RETRIES: u32 = 8;
@@ -139,6 +139,13 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
                     "The device that answered is not the one expected.".into(),
                 );
             }
+            // A code that no nearby device shows will not appear by
+            // waiting: codes are single-use and expire.
+            Err(ConnectError::Unreachable(reason)) if route.code.is_some() => {
+                return TransferState::Failed(format!(
+                    "{reason} Check the code, or ask for a new one."
+                ));
+            }
             Err(ConnectError::Unreachable(reason)) => {
                 match retry(ctx, job, &mut failures, &reason).await {
                     Some(end) => return end,
@@ -219,6 +226,7 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
             ctx.chunk_size,
             job.live.clone(),
             job.control.clone(),
+            ctx.max_send_rate,
         )
         .await;
         match ended {
