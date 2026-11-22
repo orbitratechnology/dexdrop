@@ -55,7 +55,8 @@ pub enum Variant {
 /// A labelled button.
 pub fn btn(label: impl Into<SharedString>, variant: Variant) -> ButtonElement {
     let label: SharedString = label.into();
-    let (bg, fg): (fn() -> AdaptiveColor, fn() -> AdaptiveColor) = match variant {
+    type Color = fn() -> AdaptiveColor;
+    let (bg, fg): (Color, Color) = match variant {
         Variant::Primary => (|| theme().primary, || theme().primary_foreground),
         Variant::Secondary => (|| theme().secondary, || theme().secondary_foreground),
         Variant::Ghost => (|| theme().background.opacity(0.0), || theme().foreground),
@@ -69,7 +70,7 @@ pub fn btn(label: impl Into<SharedString>, variant: Variant) -> ButtonElement {
         .justify_center()
         .gap(px(space::S))
         .rounded(move || theme().radius)
-        .bg(move || bg())
+        .bg(bg)
         .disabled_style(|s| s.opacity(0.45))
         .active(|s| s.opacity(0.75));
     if variant == Variant::Ghost {
@@ -85,7 +86,7 @@ pub fn btn(label: impl Into<SharedString>, variant: Variant) -> ButtonElement {
             .text_size(px(size::BODY))
             .font_weight(FontWeight::MEDIUM)
             .number_of_lines(1)
-            .text_color(move || fg()),
+            .text_color(fg),
     )
 }
 

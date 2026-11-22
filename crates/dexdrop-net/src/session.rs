@@ -416,8 +416,13 @@ where
                     }
                     Err(err) => {
                         // A peer that paused or cancelled stops reading; its
-                        // message explains the failed write.
-                        while let Ok(Ok(msg)) = rx.try_recv() {
+                        // message explains the failed write. The reader flags
+                        // the stop before it queues that message, so wait
+                        // briefly for it rather than only looking.
+                        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+                        while let Ok(Some(Ok(msg))) =
+                            tokio::time::timeout_at(deadline, rx.recv()).await
+                        {
                             match msg {
                                 Message::Pause => return Ok(SessionEnd::Paused { by_peer: true }),
                                 Message::OutOfSpace => {
@@ -789,15 +794,28 @@ pub fn plan_renames(
     destination: &Path,
 ) -> std::collections::BTreeMap<String, String> {
     let mut renames = std::collections::BTreeMap::new();
+    // Names this transfer itself puts at the top level, and names already
+    // chosen: a renamed folder must not merge into one of them.
+    let mut taken: std::collections::HashSet<String> = offer
+        .components
+        .iter()
+        .filter_map(|c| c.first().map(|n| n.to_lowercase()))
+        .collect();
     for (entry, comps) in offer.entries.iter().zip(offer.components.iter()) {
         if entry.kind == EntryKind::Folder
             && comps.len() == 1
             && destination.join(&comps[0]).exists()
         {
-            let free = naming::first_free(destination, &comps[0]);
-            if let Some(name) = free.file_name() {
-                renames.insert(comps[0].clone(), name.to_string_lossy().into_owned());
-            }
+            let name = &comps[0];
+            let free = (1..)
+                .map(|n| naming::numbered(name, n))
+                .find(|candidate| {
+                    !taken.contains(&candidate.to_lowercase())
+                        && std::fs::symlink_metadata(destination.join(candidate)).is_err()
+                })
+                .expect("a free name");
+            taken.insert(free.to_lowercase());
+            renames.insert(name.clone(), free);
         }
     }
     renames

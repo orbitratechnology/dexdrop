@@ -50,15 +50,32 @@ on Linux; other platforms are built in CI but not yet run on devices.
 
 ## Tests
 
-- `dexdrop-core`: 33 unit tests (protocol bounds, path traversal and reserved
-  names, invitations and codes, journals, naming, manifests, identity).
-- `dexdrop-net`: 15 end-to-end tests over real TLS on loopback (consent, decline,
-  no silent overwrite, skip policy, pause/resume from the verified offset,
-  cancel cleanup, wrong-peer pinning, trusted auto-accept, invalid
-  invitations, a used code reported and refused a second time, 500 small files byte-for-byte, a source edited or deleted mid-transfer never saved and reported the same on both sides, automatic resume through a link that drops mid-transfer, and a destination disk that fills up mid-transfer on a real RAM disk) and 5 adversarial session tests (malicious manifests, oversized
-  frames, out-of-place chunks, corruption retried once, persistent corruption
-  never saved).
+- `dexdrop-core`: 34 unit tests (protocol bounds, path traversal and reserved
+  names including `CONIN$` and `COM¹`, invitations and codes, journals,
+  bounded "keep both" naming, manifests, identity).
+- `dexdrop-net`: 19 end-to-end tests over real TLS on loopback (consent,
+  decline, no silent overwrite, skip policy, "keep both" never merging into a
+  folder of the same transfer, pause/resume from the verified offset, cancel
+  cleanup, wrong-peer pinning, trusted auto-accept, invalid invitations, code
+  pairing by SPAKE2 including a fake device over real mDNS, 500 small files
+  byte-for-byte, a source edited or deleted mid-transfer, automatic resume
+  through a link that drops mid-transfer, and a destination disk that fills
+  up on a real RAM disk), 10 adversarial tests (malicious manifests and
+  names, oversized frames, offer floods, out-of-place chunks and results,
+  symbolic links planted at temporary names, corruption retried once and
+  never saved) and 2 pairing unit tests.
 - `dexdrop-app`: 6 headless UI tests on NSH's engine (phone layout), including keyboard shortcuts and a 44 pt minimum hit-target check.
+
+## Security review follow-up
+
+All findings of the internal review are fixed and covered by tests, except:
+
+- The receive journal is rewritten whole every 2 s; for manifests with
+  hundreds of thousands of files this costs CPU. An append-only log would fix it.
+- A local user who can swap folders inside the destination between the
+  symbolic-link check and the final rename could redirect one file. Temporary
+  files are created with `O_EXCL | O_NOFOLLOW`; a full fix needs `openat`-style
+  directory handles on every platform.
 
 ## Known gaps worth doing next
 

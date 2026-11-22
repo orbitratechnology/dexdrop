@@ -1125,8 +1125,21 @@ impl Actor {
 
     fn discovery_event(&mut self, event: DiscoveryEvent) {
         match event {
-            DiscoveryEvent::Found(found) => {
-                lock(&self.ctx.peers).insert(found.peer_id, found);
+            DiscoveryEvent::Found(mut found) => {
+                // Addresses are added to, not replaced: an announcement
+                // claiming a device's ID with another address cannot make
+                // the real one unreachable (the TLS identity is checked at
+                // each address anyway).
+                let mut peers = lock(&self.ctx.peers);
+                if let Some(known) = peers.get(&found.peer_id) {
+                    for addr in &known.addrs {
+                        if !found.addrs.contains(addr) && found.addrs.len() < 8 {
+                            found.addrs.push(*addr);
+                        }
+                    }
+                }
+                peers.insert(found.peer_id, found);
+                drop(peers);
                 self.emit_peers();
             }
             DiscoveryEvent::Lost(id) => {

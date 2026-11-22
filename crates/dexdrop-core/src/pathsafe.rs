@@ -112,11 +112,20 @@ fn is_windows_reserved(name: &str) -> bool {
         .unwrap_or("")
         .trim_end()
         .to_ascii_uppercase();
-    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
-            && stem.len() == 4
-            && stem.as_bytes()[3].is_ascii_digit()
-            && stem.as_bytes()[3] != b'0')
+    if matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
+    }
+    // COM1–COM9 and LPT1–LPT9, and the superscript digits Windows also
+    // reserves (COM¹, LPT³).
+    let mut chars = stem.chars();
+    let prefix: String = chars.by_ref().take(3).collect();
+    let rest: Vec<char> = chars.collect();
+    (prefix == "COM" || prefix == "LPT")
+        && rest.len() == 1
+        && matches!(rest[0], '1'..='9' | '¹' | '²' | '³')
 }
 
 fn truncate_component(name: &str) -> String {
@@ -218,6 +227,11 @@ mod tests {
         assert_eq!(sanitize("nul.txt").unwrap(), vec!["_nul.txt"]);
         assert_eq!(sanitize("COM1.log").unwrap(), vec!["_COM1.log"]);
         assert_eq!(sanitize("COM0.log").unwrap(), vec!["COM0.log"]);
+        assert_eq!(sanitize("CONIN$").unwrap(), vec!["_CONIN$"]);
+        assert_eq!(sanitize("conout$.txt").unwrap(), vec!["_conout$.txt"]);
+        assert_eq!(sanitize("COM¹.txt").unwrap(), vec!["_COM¹.txt"]);
+        assert_eq!(sanitize("LPT³").unwrap(), vec!["_LPT³"]);
+        assert_eq!(sanitize("COMPUTER.txt").unwrap(), vec!["COMPUTER.txt"]);
         assert_eq!(sanitize("name. ").unwrap(), vec!["name"]);
         assert_eq!(sanitize("...").unwrap(), vec!["_"]);
         assert_eq!(sanitize("a\\b").unwrap(), vec!["a_b"]);

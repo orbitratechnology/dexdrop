@@ -254,7 +254,7 @@ async fn pauses_and_resumes_without_starting_over() {
     let average = end.average_rate.expect("a measured average");
     assert!((10e6..30e6).contains(&average), "average {average}");
     assert!(
-        lowest == u64::MAX || lowest >= verified,
+        lowest != u64::MAX && lowest >= verified,
         "resumed at {lowest}, verified {verified}"
     );
     a.wait_state("sender completed", |s| *s == TransferState::Completed)
@@ -1024,4 +1024,28 @@ async fn a_device_faking_an_open_code_gets_nothing() {
         !offered.load(std::sync::atomic::Ordering::SeqCst),
         "the impostor was offered the files"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn keep_both_never_merges_into_a_folder_of_the_same_transfer() {
+    let a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("A/one.txt"), 10, 1);
+    write_file(&src.path().join("A (1)/two.txt"), 10, 2);
+    std::fs::create_dir_all(b.downloads().join("A")).unwrap();
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("A"), src.path().join("A (1)")],
+    });
+    let request = b.wait_request().await;
+    b.send(accept(request.id));
+    b.wait_state("completed", |s| *s == TransferState::Completed)
+        .await;
+    let dl = b.downloads();
+    // "A" exists, so it becomes "A (2)", not "A (1)" which this transfer
+    // brings itself.
+    assert!(dl.join("A (2)/one.txt").exists());
+    assert!(dl.join("A (1)/two.txt").exists());
+    assert!(!dl.join("A (1)/one.txt").exists());
 }

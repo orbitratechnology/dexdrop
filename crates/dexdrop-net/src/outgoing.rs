@@ -400,7 +400,10 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
     for addr in addrs {
         match connect_one(ctx, addr, route.pinned, route.pairing.clone()).await {
             Ok(c) => return Ok(c),
-            Err(err @ (ConnectError::Rejected(_) | ConnectError::WrongPeer)) => return Err(err),
+            Err(err @ ConnectError::Rejected(_)) => return Err(err),
+            // Another device answered at this address (a stale or spoofed
+            // announcement): the expected one may be at the next address.
+            Err(ConnectError::WrongPeer) => last = ConnectError::WrongPeer,
             Err(err) => last = err,
         }
     }

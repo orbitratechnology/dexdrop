@@ -158,10 +158,14 @@ fn apply(event: Event) {
                 m.requests.push(request);
             });
             // A system notification, for when the window is in the background.
-            let _ = show_notification(nsh_core::notifications::Notification::new(
-                "dexdrop-request",
-                "Incoming transfer",
-                text,
+            // The notification is posted now; the answer (whether the system
+            // showed it) is not needed.
+            drop(show_notification(
+                nsh_core::notifications::Notification::new(
+                    "dexdrop-request",
+                    "Incoming transfer",
+                    text,
+                ),
             ));
         }
         Event::RequestClosed(id) => model().update(|m| m.requests.retain(|r| r.id != id)),
@@ -216,9 +220,13 @@ fn notify_finished(t: &dexdrop_core::api::TransferSnapshot) {
         TransferState::Cancelled { .. } => return,
         other => (format!("Transfer of {} stopped", t.label), other.label()),
     };
-    let _ = show_notification(nsh_core::notifications::Notification::new(
-        format!("dexdrop-{}", dexdrop_core::hex(&t.id)),
-        title,
-        body,
+    // The notification is posted now; the answer (whether the system
+    // showed it) is not needed.
+    drop(show_notification(
+        nsh_core::notifications::Notification::new(
+            format!("dexdrop-{}", dexdrop_core::hex(&t.id)),
+            title,
+            body,
+        ),
     ));
 }

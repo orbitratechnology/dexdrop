@@ -42,13 +42,21 @@ pub fn first_free(dir: &Path, name: &str) -> PathBuf {
     if !exists(&candidate) {
         return candidate;
     }
-    for n in 1..10_000 {
+    // Bounded: many files of one name cannot cost thousands of lookups each.
+    for n in 1..=100 {
         let candidate = dir.join(numbered(name, n));
         if !exists(&candidate) {
             return candidate;
         }
     }
-    dir.join(numbered(name, crate::unix_now() as u32))
+    let mut n = 101 + (crate::unix_now() % 1_000_000) as u32;
+    loop {
+        let candidate = dir.join(numbered(name, n));
+        if !exists(&candidate) {
+            return candidate;
+        }
+        n = n.wrapping_mul(31).wrapping_add(7) % 100_000_000 + 101;
+    }
 }
 
 fn exists(path: &Path) -> bool {
