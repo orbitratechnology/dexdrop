@@ -247,11 +247,10 @@ struct State {
     own_id: PeerId,
     events: mpsc::UnboundedSender<DiscoveryEvent>,
     services: HashMap<String, Service>,
-    /// The daemon confirmed the current registration.
+    /// The daemon confirmed the current registration: from then on a
+    /// changed TXT record is updated in place (updating one it has not
+    /// confirmed can leave it unannounced).
     registered: bool,
-    /// A TXT record to apply once the registration is confirmed: updating
-    /// a registration before that can leave it unannounced.
-    pending_txt: Option<Vec<u8>>,
 }
 
 impl State {
@@ -485,7 +484,7 @@ extern "C" fn on_addr(
 }
 
 extern "C" fn on_register(
-    sd: DNSServiceRef,
+    _sd: DNSServiceRef,
     _flags: u32,
     err: i32,
     _name: *const c_char,
@@ -500,22 +499,6 @@ extern "C" fn on_register(
         return;
     }
     state.registered = true;
-    if let Some(txt) = state.pending_txt.take() {
-        // SAFETY: the registration this reply is for, under the lock.
-        let err = unsafe {
-            DNSServiceUpdateRecord(
-                sd,
-                ptr::null_mut(),
-                0,
-                txt.len() as u16,
-                txt.as_ptr() as *const c_void,
-                0,
-            )
-        };
-        if err != ERR_NO_ERROR {
-            state.unavailable(err);
-        }
-    }
 }
 
 // ------------------------------------------------------------ the adapter
@@ -556,7 +539,6 @@ impl Discovery {
             events,
             services: HashMap::new(),
             registered: false,
-            pending_txt: None,
         });
         let regtype = regtype();
         let mut browse = main;
@@ -610,18 +592,12 @@ impl Discovery {
         let txt = encode_txt(&txt_entries(ad));
         {
             let mut conn = lock(&self.conn);
+            // A registration the daemon has not confirmed was never
+            // announced: it is simply registered again below. A confirmed
+            // one is updated in place.
             let confirmed = conn.state.registered;
-            if let Some((_, current)) = &mut conn.registered
-                && current.peer_id == ad.peer_id
-                && current.port == ad.port
-                && !confirmed
-            {
-                // Not announced yet: applied when the daemon confirms it.
-                *current = ad.clone();
-                conn.state.pending_txt = Some(txt);
-                return Ok(());
-            }
             if let Some((sd, current)) = &mut conn.registered
+                && confirmed
                 && current.peer_id == ad.peer_id
                 && current.port == ad.port
             {
@@ -647,7 +623,6 @@ impl Discovery {
         let regtype = regtype();
         let mut conn = lock(&self.conn);
         conn.state.registered = false;
-        conn.state.pending_txt = None;
         let main = conn.state.main;
         let context = &mut *conn.state as *mut State as *mut c_void;
         let mut sd = main;
@@ -752,10 +727,16 @@ fn run(fd: c_int, conn: Arc<Mutex<Conn>>, stop: Arc<AtomicBool>) {
 mod tests {
     use super::*;
 
+    /// The Bonjour tests share the Mac's mDNSResponder: one at a time, so
+    /// each sees only its own devices.
+    #[cfg(target_os = "macos")]
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// Two instances on one Mac find each other through mDNSResponder.
     #[cfg(target_os = "macos")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn finds_another_instance() {
+        let _one = ONE_AT_A_TIME.lock().await;
         let (a_tx, mut a_rx) = mpsc::unbounded_channel();
         let (b_tx, mut b_rx) = mpsc::unbounded_channel();
         let a_id = PeerId([1; 32]);
@@ -821,8 +802,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_update_right_after_registering_is_announced() {
+        let _one = ONE_AT_A_TIME.lock().await;
         let (a_tx, mut a_rx) = mpsc::unbounded_channel();
-        let (b_tx, _b_rx) = mpsc::unbounded_channel();
+        let (b_tx, mut b_rx) = mpsc::unbounded_channel();
         let a_id = PeerId([3; 32]);
         let b_id = PeerId([4; 32]);
         let _a = Discovery::start(a_id, a_tx).expect("browse A");
@@ -846,6 +828,9 @@ mod tests {
                 return;
             }
             seen.push(format!("{event:?}"));
+        }
+        while let Ok(event) = b_rx.try_recv() {
+            seen.push(format!("B: {event:?}"));
         }
         panic!("A never saw B's open code; events: {seen:#?}");
     }

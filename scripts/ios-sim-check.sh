@@ -67,8 +67,11 @@ print(max(found)[3] if found else "")
 [ -n "$udid" ] || fail "no iPhone simulator available"
 xcrun simctl bootstatus "$udid" -b >/dev/null || fail "the simulator did not boot"
 note "- Simulator: $(xcrun simctl list devices -j | python3 -c "import json,sys; print(next(d['name'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['udid']=='$udid'))") ($udid), booted in $(($(date +%s) - t0)) s"
-ad install "$bundle" "$app" || fail "the app did not install"
-ad prepare ios-runner --timeout 600000 || fail "agent-device could not prepare its runner"
+# agent-device's daemon can stall while a CI host is busy: one retry.
+ad install "$bundle" "$app" || { sleep 20; ad install "$bundle" "$app"; } ||
+  fail "the app did not install"
+ad prepare ios-runner --timeout 600000 || { sleep 20; ad prepare ios-runner --timeout 600000; } ||
+  fail "agent-device could not prepare its runner"
 note "- App installed, agent-device runner ready at $(($(date +%s) - t0)) s"
 
 ad open "$bundle" || fail "the app did not open"
