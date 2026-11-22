@@ -188,7 +188,7 @@ jobs:
           path: ~/.agent-device/apple-runner/derived
           key: agent-device-runner-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
           restore-keys: agent-device-runner-${{ runner.os }}-
-      - run: npm install -g agent-device@latest && agent-device doctor || true
+      - run: npm install -g agent-device@latest
       - name: iOS Simulator check (agent-device)
         run: scripts/ios-sim-check.sh dist/ios-simulator target/release/dexdrop dist/ios-screens
       - uses: actions/upload-artifact@v4

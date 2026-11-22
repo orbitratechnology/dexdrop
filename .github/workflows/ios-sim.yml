@@ -1,0 +1,67 @@
+# Runs only the iOS Simulator check (scripts/ios-sim-check.sh) against the
+# latest simulator build and CLI that CI uploaded, so the check can be
+# changed and rerun in minutes instead of rebuilding the app.
+name: iOS Simulator check
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/ios-sim-check.sh
+      - .github/workflows/ios-sim.yml
+concurrency:
+  group: ios-sim-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find the latest builds
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for name in dexdrop-ios-simulator dexdrop-macos-arm64-unsigned; do
+            id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=1" --jq '.artifacts[0].workflow_run.id')
+            echo "$name from run $id"
+            echo "${name//-/_}=$id" >> "$GITHUB_OUTPUT"
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          name: dexdrop-ios-simulator
+          path: dist/ios-simulator
+          run-id: ${{ steps.find.outputs.dexdrop_ios_simulator }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dexdrop-macos-arm64-unsigned
+          path: dist/mac
+          run-id: ${{ steps.find.outputs.dexdrop_macos_arm64_unsigned }}
+          github-token: ${{ github.token }}
+      # Artifacts do not keep the executable bit.
+      - run: |
+          find dist/ios-simulator -maxdepth 2 -name '*.app' -type d | while read -r app; do
+            chmod +x "$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+          done
+          cli=$(find dist/mac -name dexdrop -type f | head -1)
+          chmod +x "$cli" && echo "CLI=$cli" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache@v4
+        with:
+          path: ~/.agent-device/apple-runner/derived
+          key: agent-device-runner-${{ runner.os }}-${{ hashFiles('.github/workflows/ios-sim.yml') }}
+          restore-keys: agent-device-runner-${{ runner.os }}-
+      - run: npm install -g agent-device@latest
+      - name: iOS Simulator check (agent-device)
+        run: scripts/ios-sim-check.sh dist/ios-simulator "$CLI" dist/ios-screens
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-screens
+          path: dist/ios-screens

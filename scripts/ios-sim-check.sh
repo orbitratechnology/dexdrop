@@ -19,10 +19,12 @@ summary="$out/summary.md"
 note() { echo "$*" | tee -a "$summary"; }
 fail() {
   note "FAILED: $*"
+  # agent-device's own request logs explain a failed command.
+  cp -R "$HOME/.agent-device/sessions" "$out/agent-device-sessions" 2>/dev/null || true
   [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$summary" >>"$GITHUB_STEP_SUMMARY"
   exit 1
 }
-ad() { agent-device "$@" --platform ios; }
+ad() { agent-device "$@" --platform ios --udid "$udid"; }
 step() { # step <name>: screenshot and full accessibility snapshot
   ad screenshot "$out/$1.png" >/dev/null 2>&1 || note "(no screenshot for $1)"
   ad snapshot >"$out/$1.txt" 2>&1 || true
@@ -40,10 +42,26 @@ note ""
 note "- App: \`$(basename "$app")\` ($bundle)"
 
 t0=$(date +%s)
-ad boot --pick newest --timeout 300000 || fail "the simulator did not boot"
+# Boot with simctl (about a minute on a fresh runner): a simulator already
+# booted, else an iPhone 16, else any iPhone, on the newest iOS runtime.
+udid=$(xcrun simctl list devices available -j | python3 -c '
+import json, sys
+found = []
+for runtime, devices in json.load(sys.stdin)["devices"].items():
+    if "iOS" not in runtime:
+        continue
+    version = tuple(int(p) for p in runtime.rsplit("iOS-", 1)[1].split("-") if p.isdigit())
+    for d in devices:
+        if "iPhone" in d["name"]:
+            found.append((d["state"] == "Booted", d["name"] == "iPhone 16", version, d["udid"]))
+print(max(found)[3] if found else "")
+')
+[ -n "$udid" ] || fail "no iPhone simulator available"
+xcrun simctl bootstatus "$udid" -b >/dev/null || fail "the simulator did not boot"
+note "- Simulator: $(xcrun simctl list devices -j | python3 -c "import json,sys; print(next(d['name'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['udid']=='$udid'))") ($udid), booted in $(($(date +%s) - t0)) s"
 ad install "$bundle" "$app" || fail "the app did not install"
 ad prepare ios-runner --timeout 600000 || fail "agent-device could not prepare its runner"
-note "- Simulator booted, app installed, runner ready in $(($(date +%s) - t0)) s"
+note "- App installed, agent-device runner ready at $(($(date +%s) - t0)) s"
 
 ad open "$bundle" || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
