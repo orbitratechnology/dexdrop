@@ -85,6 +85,10 @@ rstate=$(mktemp -d)
 rdir=$(mktemp -d)
 "$cli" --state "$rstate" receive --name "CI Mac" --dir "$rdir" >"$out/cli-receive.log" 2>&1 &
 receiver=$!
+# What the Mac's own Bonjour (mDNSResponder) sees meanwhile: "CI Mac", and
+# the app if its announcements leave the simulator.
+dns-sd -B _dexdrop._tcp local. >"$out/dns-sd-browse.log" 2>&1 &
+browser=$!
 if ad wait text "CI Mac" 20000 >/dev/null 2>&1; then
   note "- Discovery: the app sees the Mac (\"CI Mac\")"
   step 02-nearby-sees-mac
@@ -92,6 +96,8 @@ else
   note "- WARNING: discovery: the app does not see the Mac (\"CI Mac\")"
   step 02-nearby-no-mac
 fi
+kill "$browser" 2>/dev/null
+note "- Bonjour on the Mac lists: $(awk '/_dexdrop/ {for (i = 7; i <= NF; i++) printf "%s ", $i; print ""}' "$out/dns-sd-browse.log" | sort -u | tr '\n' ';' | sed 's/ ;/;/g')"
 kill "$receiver" 2>/dev/null
 wait "$receiver" 2>/dev/null
 
