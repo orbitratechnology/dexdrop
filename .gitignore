@@ -25,3 +25,5 @@ rustc-ice-*.txt
 
 # NSH generated output
 .nsh/
+/dist/
+__pycache__/
