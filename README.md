@@ -20,6 +20,10 @@ Built as a Rust-only [Native Shell (NSH)](https://nsh.dev) app (pinned to NSH
 | iOS | Simulator build job ready (no paid Apple membership needed); waits on a macOS runner | `nsh package app --target ios-simulator` |
 | CLI (`dexdrop`) | Linux verified; tests and bench pass on Windows in CI | `cargo build --release -p dexdrop-cli` |
 
+Having trouble finding a device or finishing a transfer? See
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). What changed and what was
+tested: [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md).
+
 See [docs/STATUS.md](docs/STATUS.md) for the PRD requirement-by-requirement
 status, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and
 the transport decision.
