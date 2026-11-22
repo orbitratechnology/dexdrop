@@ -177,3 +177,22 @@ jobs:
         with:
           name: dexdrop-ios-simulator
           path: dist/ios-simulator
+      # Drive the simulator build with agent-device: launch, walk the tabs,
+      # and receive a file sent by the CLI on the same Mac (no stream, no
+      # tunnel: the runner itself hosts the simulator).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache@v4
+        with:
+          path: ~/.agent-device/apple-runner/derived
+          key: agent-device-runner-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: agent-device-runner-${{ runner.os }}-
+      - run: npm install -g agent-device@latest && agent-device doctor || true
+      - name: iOS Simulator check (agent-device)
+        run: scripts/ios-sim-check.sh dist/ios-simulator target/release/dexdrop dist/ios-screens
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-screens
+          path: dist/ios-screens

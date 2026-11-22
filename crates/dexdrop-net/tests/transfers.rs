@@ -1064,7 +1064,10 @@ async fn identical_files_already_there_are_not_sent_again() {
     write_file(&dl.join("same.txt"), 3000, 1);
     write_file(&dl.join("same-big.bin"), 3 * 1024 * 1024, 2);
     write_file(&dl.join("differs.txt"), 3000, 9);
-    let untouched = std::fs::metadata(dl.join("same-big.bin")).unwrap().modified().unwrap();
+    let untouched = std::fs::metadata(dl.join("same-big.bin"))
+        .unwrap()
+        .modified()
+        .unwrap();
 
     a.send(Command::SendFiles {
         target: b.target(),
@@ -1094,14 +1097,23 @@ async fn identical_files_already_there_are_not_sent_again() {
     // Only the file that differs was kept twice.
     assert_eq!(
         names,
-        ["differs (1).txt", "differs.txt", "new.txt", "same-big.bin", "same.txt"]
+        [
+            "differs (1).txt",
+            "differs.txt",
+            "new.txt",
+            "same-big.bin",
+            "same.txt"
+        ]
     );
     assert_eq!(
         std::fs::read(dl.join("differs (1).txt")).unwrap(),
         std::fs::read(src.path().join("differs.txt")).unwrap()
     );
     assert_eq!(
-        std::fs::metadata(dl.join("same-big.bin")).unwrap().modified().unwrap(),
+        std::fs::metadata(dl.join("same-big.bin"))
+            .unwrap()
+            .modified()
+            .unwrap(),
         untouched
     );
 }
