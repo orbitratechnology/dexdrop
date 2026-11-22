@@ -255,6 +255,11 @@ pub fn switch_row(
                 .checked(checked)
                 .on_change(move |on: &bool| on_change(*on))
                 .accessibility_label(title)
+                // The track is drawn 24 pt tall; the touch target is the
+                // platform minimum (PRD 7.7).
+                .min_h(px(hit()))
+                .min_w(px(hit()))
+                .justify_center()
                 .track_class("w-11 rounded-full bg-muted p-0.5 transition-colors checked:bg-primary")
                 .thumb_class("size-5 rounded-full bg-background shadow transition-transform checked:translate-x-5"),
         )

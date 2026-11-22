@@ -101,3 +101,49 @@ fn keyboard_shortcuts_switch_sections_and_close_sheets() {
     app.wait_for_gone("role:button[Paste]", Duration::from_secs(5))
         .unwrap();
 }
+
+/// Every control on the phone layout is at least 44 × 44 pt (PRD 7.7; the
+/// headless engine is an iPhone, where 44 pt is the minimum).
+#[test]
+fn phone_controls_meet_the_minimum_hit_target() {
+    let (mut app, _dir) = start();
+    wait_for_text(&mut app, "is visible to nearby devices");
+    let mut too_small = Vec::new();
+    let mut check = |app: &mut Headless, selectors: &[&str]| {
+        let nodes = app.screen().layout_nodes();
+        for selector in selectors {
+            let id = app
+                .screen()
+                .id(selector)
+                .unwrap_or_else(|e| panic!("{selector}: {e}"));
+            let node = nodes.iter().find(|n| n.id == id).expect("laid out");
+            let (w, h) = (node.bounds.size.width.0, node.bounds.size.height.0);
+            if w < 44.0 || h < 44.0 {
+                too_small.push(format!("{selector}: {w:.0} × {h:.0} pt"));
+            }
+        }
+    };
+    check(
+        &mut app,
+        &[
+            "role:tab[Nearby]",
+            "role:tab[Transfers]",
+            "role:tab[Settings]",
+            "role:button[Choose files]",
+            "role:button[Receive with a code]",
+            "role:button[Send with a code]",
+        ],
+    );
+    app.press("role:tab[Settings]").unwrap();
+    app.wait_for("PRIVACY AND STORAGE").unwrap();
+    check(
+        &mut app,
+        &[
+            "role:button[Rename]",
+            "role:button[Export diagnostics]",
+            "role:switch[Visible to nearby devices]",
+            "role:switch[Keep transfer history]",
+        ],
+    );
+    assert!(too_small.is_empty(), "controls under 44 pt: {too_small:#?}");
+}
