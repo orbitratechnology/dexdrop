@@ -97,6 +97,20 @@ else
   step 02-nearby-no-mac
 fi
 kill "$browser" 2>/dev/null
+# Evidence for discovery problems: what the app declares, what a browser
+# inside the simulator sees, and what the system logged.
+plutil -p "$app/Info.plist" >"$out/Info.plist.txt" 2>&1 || true
+grep -q '_dexdrop._tcp' "$out/Info.plist.txt" ||
+  note "- WARNING: Info.plist does not declare _dexdrop._tcp in NSBonjourServices"
+xcrun simctl spawn "$udid" dns-sd -B _dexdrop._tcp local. >"$out/sim-dns-sd-browse.log" 2>&1 &
+sim_browser=$!
+sleep 4
+kill "$sim_browser" 2>/dev/null
+xcrun simctl spawn "$udid" log show --last 5m --style compact \
+  --predicate 'process == "DexDrop" OR process == "mDNSResponder" OR subsystem == "com.apple.mDNSResponder"' \
+  >"$out/sim-log.txt" 2>&1 || true
+log show --last 5m --style compact --predicate 'process == "mDNSResponder"' 2>/dev/null |
+  grep -i -E 'dexdrop|PolicyDenied|denied' | tail -200 >"$out/mac-mdns-log.txt" || true
 note "- Bonjour on the Mac lists: $(awk '/_dexdrop/ {for (i = 7; i <= NF; i++) printf "%s ", $i; print ""}' "$out/dns-sd-browse.log" | sort -u | tr '\n' ';' | sed 's/ ;/;/g')"
 kill "$receiver" 2>/dev/null
 wait "$receiver" 2>/dev/null
