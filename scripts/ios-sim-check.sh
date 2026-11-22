@@ -80,6 +80,21 @@ for tab in Transfers Settings; do
 done
 tap Nearby || fail "could not return to Nearby"
 
+# Discovery the other way: does the app list a receiver running on this Mac?
+rstate=$(mktemp -d)
+rdir=$(mktemp -d)
+"$cli" --state "$rstate" receive --name "CI Mac" --dir "$rdir" >"$out/cli-receive.log" 2>&1 &
+receiver=$!
+if ad wait text "CI Mac" 20000 >/dev/null 2>&1; then
+  note "- Discovery: the app sees the Mac (\"CI Mac\")"
+  step 02-nearby-sees-mac
+else
+  note "- WARNING: discovery: the app does not see the Mac (\"CI Mac\")"
+  step 02-nearby-no-mac
+fi
+kill "$receiver" 2>/dev/null
+wait "$receiver" 2>/dev/null
+
 # A real transfer. The app shows a pairing code and an invitation link; the
 # CLI on this Mac sends a file with one of them and the app accepts it.
 tap "Receive with a code" || fail "could not open Receive with a code"
