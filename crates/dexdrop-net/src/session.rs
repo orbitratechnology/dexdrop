@@ -356,6 +356,7 @@ where
     // Each file is resolved at most once; anything else is a violation.
     let mut requested = vec![false; manifest.entries.len()];
     let mut resolved = vec![false; manifest.entries.len()];
+    let mut probed = vec![false; manifest.entries.len()];
     loop {
         let next = tokio::select! {
             biased;
@@ -437,6 +438,33 @@ where
                         return Err(err);
                     }
                 }
+            }
+            Message::Probe { index } => {
+                let i = index as usize;
+                let entry = manifest
+                    .entries
+                    .get(i)
+                    .ok_or_else(|| protocol_err("probe of an unknown file"))?;
+                // At most once per file, and only before it is requested:
+                // a receiver cannot make this side hash a file again and again.
+                if entry.wire.kind != EntryKind::File
+                    || requested[i]
+                    || resolved[i]
+                    || std::mem::replace(&mut probed[i], true)
+                {
+                    return Err(protocol_err("a probe out of place"));
+                }
+                let hash = match entry.source.clone() {
+                    Some(source) => {
+                        let expected = entry.wire.clone();
+                        tokio::task::spawn_blocking(move || source_hash(&source, &expected))
+                            .await
+                            .ok()
+                            .flatten()
+                    }
+                    None => None,
+                };
+                wire::write_msg(&mut wr, &Message::FileHash { index, hash }).await?;
             }
             Message::Skip {
                 index,
@@ -716,6 +744,37 @@ fn read_small(source: &Path, expected: &WireEntry) -> Result<Vec<u8>, FileFailur
     Ok(data)
 }
 
+/// The BLAKE3 hash of a source file, if it still is as offered.
+fn source_hash(source: &Path, expected: &WireEntry) -> Option<[u8; 32]> {
+    let matches =
+        |meta: &std::fs::Metadata| meta.len() == expected.size && mtime_of(meta) == expected.mtime;
+    let file = std::fs::File::open(source).ok()?;
+    if !file.metadata().is_ok_and(|m| matches(&m)) {
+        return None;
+    }
+    let hash = file_hash(&file)?;
+    file.metadata().is_ok_and(|m| matches(&m)).then_some(hash)
+}
+
+/// The BLAKE3 hash of an open file's content.
+fn file_hash(file: &std::fs::File) -> Option<[u8; 32]> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update_reader(file).ok()?;
+    Some(*hasher.finalize().as_bytes())
+}
+
+/// The hash of a file already at the destination, if it is a regular file
+/// of `size` bytes (not a link).
+fn existing_hash(path: &Path, size: u64) -> Option<[u8; 32]> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_file() || meta.len() != size {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let hash = file_hash(&file)?;
+    (file.metadata().ok()?.len() == size).then_some(hash)
+}
+
 async fn unchanged(file: &File, entry: &dexdrop_core::manifest::SourceEntry) -> bool {
     match file.metadata().await {
         Ok(meta) => meta.len() == entry.wire.size && mtime_of(&meta) == entry.wire.mtime,
@@ -747,6 +806,9 @@ struct Planned {
 
 struct Shared {
     requested: Mutex<HashMap<u32, Planned>>,
+    /// Files whose sender hash was asked for, with this side's hash of the
+    /// file already at the destination.
+    probing: Mutex<HashMap<u32, (Planned, [u8; 32])>>,
     resolved: AtomicU64,
     total_files: u64,
     completed: AtomicBool,
@@ -771,6 +833,10 @@ impl Shared {
 
     fn requested(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Planned>> {
         self.requested.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn probing(&self) -> std::sync::MutexGuard<'_, HashMap<u32, (Planned, [u8; 32])>> {
+        self.probing.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -869,6 +935,7 @@ where
         .count() as u64;
     let shared = Arc::new(Shared {
         requested: Mutex::new(HashMap::new()),
+        probing: Mutex::new(HashMap::new()),
         resolved: AtomicU64::new(0),
         total_files,
         completed: AtomicBool::new(false),
@@ -1025,20 +1092,38 @@ async fn plan_requests(
                 {
                     offset = progress.verified;
                 }
+                // A file of this name and size is already there: if it is
+                // the same, there is nothing to send (FR-059).
+                let existing = if offset == 0 {
+                    let (path, size) = (target.clone(), entry.size);
+                    tokio::task::spawn_blocking(move || existing_hash(&path, size))
+                        .await
+                        .ok()
+                        .flatten()
+                } else {
+                    None
+                };
                 let Ok(permit) = shared.permits.acquire().await else {
                     return;
                 };
                 permit.forget();
-                shared.requested().insert(
-                    index,
-                    Planned {
-                        planned: target,
-                        temp,
-                        offset,
-                        retried: false,
-                    },
-                );
-                if shared.writer.send(Message::Want { index, offset }).is_err() {
+                let planned = Planned {
+                    planned: target,
+                    temp,
+                    offset,
+                    retried: false,
+                };
+                let msg = match existing {
+                    Some(ours) => {
+                        shared.probing().insert(index, (planned, ours));
+                        Message::Probe { index }
+                    }
+                    None => {
+                        shared.requested().insert(index, planned);
+                        Message::Want { index, offset }
+                    }
+                };
+                if shared.writer.send(msg).is_err() {
                     return;
                 }
             }
@@ -1208,6 +1293,7 @@ impl Receiver<'_> {
                 Message::Chunk(header) => self.chunk(&mut rd, header).await,
                 Message::FileEnd { index, hash } => self.end_file(index, hash).await,
                 Message::FileError { index, failure } => self.file_error(index, failure).await,
+                Message::FileHash { index, hash } => self.file_hash(index, hash),
                 Message::Pause => {
                     self.save_progress().await;
                     return Ok(SessionEnd::Paused { by_peer: true });
@@ -1221,6 +1307,43 @@ impl Receiver<'_> {
                 return Err(err);
             }
         }
+    }
+
+    /// The sender's hash of a file this side already has a copy of.
+    fn file_hash(&mut self, index: u32, hash: Option<[u8; 32]>) -> Result<(), SessionError> {
+        let (planned, ours) = self
+            .shared
+            .probing()
+            .remove(&index)
+            .ok_or_else(|| protocol_err("a hash not asked for"))?;
+        if hash != Some(ours) {
+            self.shared.requested().insert(index, planned);
+            let _ = self.shared.writer.send(Message::Want { index, offset: 0 });
+            return Ok(());
+        }
+        // The same file is already there: keep it, write nothing.
+        let size = self.entry(index)?.size;
+        let _ = self.shared.writer.send(Message::Skip {
+            index,
+            already_received: true,
+        });
+        {
+            let mut l = lock(self.live);
+            l.bytes_done += size;
+            l.files_done += 1;
+        }
+        self.fin.journal().set_file(
+            index,
+            FileProgress {
+                verified: size,
+                state: FileState::Done,
+                temp: None,
+                saved: Some(planned.planned),
+            },
+        );
+        self.shared.permits.add_permits(1);
+        self.shared.resolve_one();
+        Ok(())
     }
 
     fn entry(&self, index: u32) -> Result<&WireEntry, SessionError> {

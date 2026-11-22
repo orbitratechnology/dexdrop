@@ -114,6 +114,17 @@ requests with at most 64 outstanding, chunk headers carrying BLAKE3 followed by
 raw bytes, and `FileEnd` with the whole-file hash. The receiver acknowledges
 each file and sends `Complete`.
 
+Duplicate detection (FR-059) costs nothing unless it can pay off. Only when
+the destination already holds a regular file of the same name and size does
+the receiver hash its copy and send `Probe`. The sender answers with
+`FileHash`, the hash of its source, and the receiver decides: the same, and
+the file is kept as it is (`Skip`, counted as received); different, and it
+asks with `Want` as usual. The receiver compares, so a sender learns only
+whether the receiver took the file, never the hash of the receiver's copy.
+Each file can be probed once and only before it is requested. With "keep
+both", a folder that already exists is renamed as a whole, so this applies
+to files at the top level and to "replace".
+
 ## Receiving and resume
 
 Each file is written to a hidden `.<name>.<id>-<n>.dexdrop-part` sibling, so

@@ -420,6 +420,98 @@ async fn senders_refuse_results_for_files_never_sent() {
     assert!(end.unwrap_err().to_string().contains("not sent"));
 }
 
+#[tokio::test]
+async fn hashes_never_asked_for_are_refused() {
+    let (mut sender, session, _dir) = receiving(vec![file("a", 10)]).await;
+    wire::send(
+        &mut sender,
+        &Message::FileHash {
+            index: 0,
+            hash: Some([0; 32]),
+        },
+    )
+    .await
+    .unwrap();
+    let (end, _) = session.await.expect("no panic");
+    assert!(end.unwrap_err().to_string().contains("not asked for"));
+}
+
+#[tokio::test]
+async fn senders_hash_a_file_once_and_only_before_sending_it() {
+    let src = tempfile::tempdir().unwrap();
+    std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
+    std::fs::create_dir(src.path().join("d")).unwrap();
+    let paths = [src.path().join("a.txt"), src.path().join("d")];
+    for probes in [
+        // The same file twice.
+        vec![Message::Probe { index: 0 }, Message::Probe { index: 0 }],
+        // A folder.
+        vec![Message::Probe { index: 1 }],
+        // A file already requested.
+        vec![
+            Message::Want {
+                index: 0,
+                offset: 0,
+            },
+            Message::Probe { index: 0 },
+        ],
+    ] {
+        let manifest = Arc::new(dexdrop_core::manifest::Manifest::build(&paths).unwrap());
+        let file_index = manifest
+            .entries
+            .iter()
+            .position(|e| e.wire.kind == EntryKind::File)
+            .unwrap() as u32;
+        let folder_index = 1 - file_index;
+        let (sender_side, mut receiver_side) = tokio::io::duplex(1 << 20);
+        let live = Arc::new(std::sync::Mutex::new(Live::default()));
+        let (_control_tx, control) = watch::channel(Control::Run);
+        let session = tokio::spawn(session::run_sender(
+            sender_side,
+            manifest,
+            protocol::MIN_CHUNK_SIZE,
+            live,
+            control,
+            None,
+        ));
+        for msg in &probes {
+            let msg = match *msg {
+                Message::Probe { index: 0 } => Message::Probe { index: file_index },
+                Message::Probe { .. } => Message::Probe {
+                    index: folder_index,
+                },
+                Message::Want { offset, .. } => Message::Want {
+                    index: file_index,
+                    offset,
+                },
+                ref other => other.clone(),
+            };
+            wire::send(&mut receiver_side, &msg).await.unwrap();
+        }
+        // An honest first probe is answered with the right hash.
+        if probes.len() == 2 && matches!(probes[0], Message::Probe { .. }) {
+            match wire::read_msg_within(&mut receiver_side, Duration::from_secs(5))
+                .await
+                .unwrap()
+            {
+                Message::FileHash { index, hash } => {
+                    assert_eq!(index, file_index);
+                    assert_eq!(hash, Some(*blake3::hash(b"hello").as_bytes()));
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        let end = tokio::time::timeout(Duration::from_secs(5), session)
+            .await
+            .expect("ends")
+            .unwrap();
+        assert!(
+            end.unwrap_err().to_string().contains("probe out of place"),
+            "{probes:?}"
+        );
+    }
+}
+
 /// Sends one small file through a hand-driven session.
 #[cfg(unix)]
 async fn send_one(sender: &mut tokio::io::DuplexStream, data: &[u8]) {

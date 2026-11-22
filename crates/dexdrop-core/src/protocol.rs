@@ -277,6 +277,19 @@ pub enum Message {
     OutOfSpace,
     /// Sender, after a PAKE reply: its proof that it knows the code.
     PairingConfirm([u8; 32]),
+    /// Receiver: it already has a file of this name and size; asks for the
+    /// BLAKE3 hash of file `index` to tell whether it is the same (FR-059).
+    /// The receiver compares, so the sender never learns the hash of the
+    /// receiver's copy.
+    Probe {
+        index: u32,
+    },
+    /// Sender: the whole-file hash of file `index`; `None` when the source
+    /// cannot be read as offered (the receiver then asks for it as usual).
+    FileHash {
+        index: u32,
+        hash: Option<[u8; 32]>,
+    },
 }
 
 /// Errors decoding a frame.
@@ -339,6 +352,8 @@ impl Message {
             Message::Cancel(_) => "Cancel",
             Message::OutOfSpace => "OutOfSpace",
             Message::PairingConfirm(_) => "PairingConfirm",
+            Message::Probe { .. } => "Probe",
+            Message::FileHash { .. } => "FileHash",
         }
     }
 }

@@ -1049,3 +1049,59 @@ async fn keep_both_never_merges_into_a_folder_of_the_same_transfer() {
     assert!(dl.join("A (1)/two.txt").exists());
     assert!(!dl.join("A (1)/one.txt").exists());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn identical_files_already_there_are_not_sent_again() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let src = tempfile::tempdir().unwrap();
+    // Small (one chunk) and large files, identical, different, and new.
+    write_file(&src.path().join("same.txt"), 3000, 1);
+    write_file(&src.path().join("same-big.bin"), 3 * 1024 * 1024, 2);
+    write_file(&src.path().join("differs.txt"), 3000, 3);
+    write_file(&src.path().join("new.txt"), 10, 4);
+    let dl = b.downloads();
+    write_file(&dl.join("same.txt"), 3000, 1);
+    write_file(&dl.join("same-big.bin"), 3 * 1024 * 1024, 2);
+    write_file(&dl.join("differs.txt"), 3000, 9);
+    let untouched = std::fs::metadata(dl.join("same-big.bin")).unwrap().modified().unwrap();
+
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: ["same.txt", "same-big.bin", "differs.txt", "new.txt"]
+            .iter()
+            .map(|n| src.path().join(n))
+            .collect(),
+    });
+    let request = b.wait_request().await;
+    b.send(accept(request.id));
+    let end = b
+        .wait_state("receiver completed", |s| *s == TransferState::Completed)
+        .await;
+    let sent = a
+        .wait_state("sender completed", |s| *s == TransferState::Completed)
+        .await;
+    for t in [&end, &sent] {
+        assert_eq!(t.files_done, 4, "{t:?}");
+        assert_eq!(t.files_failed + t.files_skipped, 0, "{t:?}");
+        assert_eq!(t.bytes_done, t.total_bytes, "{t:?}");
+    }
+    let mut names: Vec<String> = walk(&dl)
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    // Only the file that differs was kept twice.
+    assert_eq!(
+        names,
+        ["differs (1).txt", "differs.txt", "new.txt", "same-big.bin", "same.txt"]
+    );
+    assert_eq!(
+        std::fs::read(dl.join("differs (1).txt")).unwrap(),
+        std::fs::read(src.path().join("differs.txt")).unwrap()
+    );
+    assert_eq!(
+        std::fs::metadata(dl.join("same-big.bin")).unwrap().modified().unwrap(),
+        untouched
+    );
+}

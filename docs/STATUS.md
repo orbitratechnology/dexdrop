@@ -42,7 +42,7 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | FR-050 – FR-056 Lifecycle | Done | Queue states, throttled progress, rate after samples, ETA after 3 s, pause/resume, reconnect with backoff, cancel cleans temp files, verify-and-retry |
 | FR-057 Many files | Done for 250k entries | Paged manifest, 250k entry cap; 20,000 files transfer with 40 MB peak memory for both ends (`dexdrop bench --files 20000`) |
 | FR-058 Concurrent streams | Done (adapted) | One encrypted stream per transfer with up to 64 pipelined file requests; files that fit in one chunk are read, written, synced and committed in single blocking calls, 8 commits in parallel |
-| FR-059 Duplicate detection | Open | |
+| FR-059 Duplicate detection | Done | Only for a name and size already at the destination; the receiver compares hashes, the sender never sees the receiver's |
 | FR-060 History | Done | Local, capped, clearable |
 | FR-070 – FR-074 Settings | Done | Metered-data switch is stored but not yet enforced |
 | FR-075 Diagnostics | Done | No names, paths or keys |
@@ -53,15 +53,16 @@ on Linux; other platforms are built in CI but not yet run on devices.
 - `dexdrop-core`: 36 unit tests (protocol bounds, path traversal and reserved
   names including `CONIN$` and `COM¹`, invitations and codes, journals (log replay, stale and torn lines),
   bounded "keep both" naming, manifests, identity).
-- `dexdrop-net`: 19 end-to-end tests over real TLS on loopback (consent,
-  decline, no silent overwrite, skip policy, "keep both" never merging into a
+- `dexdrop-net`: 20 end-to-end tests over real TLS on loopback (consent,
+  decline, no silent overwrite, skip policy, identical files already
+  there not sent again, "keep both" never merging into a
   folder of the same transfer, pause/resume from the verified offset, cancel
   cleanup, wrong-peer pinning, trusted auto-accept, invalid invitations, code
   pairing by SPAKE2 including a fake device over real mDNS, 500 small files
   byte-for-byte, a source edited or deleted mid-transfer, automatic resume
   through a link that drops mid-transfer, and a destination disk that fills
-  up on a real RAM disk), 10 adversarial tests (malicious manifests and
-  names, oversized frames, offer floods, out-of-place chunks and results,
+  up on a real RAM disk), 12 adversarial tests (malicious manifests and
+  names, oversized frames, offer floods, out-of-place chunks, results, probes and hashes,
   symbolic links planted at temporary names, corruption retried once and
   never saved) and 2 pairing unit tests.
 - `dexdrop-app`: 6 headless UI tests on NSH's engine (phone layout), including keyboard shortcuts and a 44 pt minimum hit-target check.
