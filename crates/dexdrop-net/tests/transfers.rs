@@ -352,6 +352,12 @@ async fn trusted_devices_can_auto_accept() {
         auto_accept: true,
     });
     b.send(Command::SetAutoAcceptTrusted(true));
+    // Both settings are applied (in order) before the second offer arrives.
+    b.wait("auto-accept on", |e| match e {
+        Event::Settings(s) if s.auto_accept_trusted => Some(()),
+        _ => None,
+    })
+    .await;
     a.send(Command::SendFiles {
         target: b.target(),
         paths: vec![src.path().join("2.txt")],
