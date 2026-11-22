@@ -114,6 +114,9 @@ container=$(xcrun simctl get_app_container "$udid" "$bundle" data)
 # be changing (a device leaving), which can move the button under a tap.
 open_sheet() {
   local _
+  # The button is on Nearby; accepting a transfer leaves the app on
+  # Transfers.
+  tap Nearby >/dev/null 2>&1 || true
   for _ in 1 2 3; do
     ad wait 'label="Receive with a code"' 5000 >/dev/null 2>&1 || true
     if tap "Receive with a code" && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
