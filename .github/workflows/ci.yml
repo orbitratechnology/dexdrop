@@ -72,6 +72,8 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      # The CLI describes the crate with a native helper, which links GTK.
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - name: Install NSH
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
@@ -97,8 +99,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-35" "build-tools;35.0.1" "platform-tools" "ndk;${NDK_VERSION}"
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      # The runner image ships the Android SDK; add what NSH packages with.
+      - run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.1" "platform-tools" "ndk;${NDK_VERSION}"
       - run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
       - name: Install NSH
         run: |
