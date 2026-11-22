@@ -124,34 +124,8 @@ fn choose_staged() {
 
 fn file_paths(uris: &[String]) -> Vec<PathBuf> {
     uris.iter()
-        .filter_map(|uri| uri.strip_prefix("file://"))
-        .map(|path| PathBuf::from(percent_decode(path)))
+        .filter_map(|uri| dexdrop_core::fsutil::file_uri_to_path(uri))
         .collect()
-}
-
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
-        {
-            out.push(v);
-            i += 3;
-            continue;
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    // Windows: `file:///C:/x` → `C:/x`.
-    let decoded = String::from_utf8_lossy(&out).into_owned();
-    if decoded.len() > 2 && decoded.starts_with('/') && decoded.as_bytes()[2] == b':' {
-        decoded[1..].to_owned()
-    } else {
-        decoded
-    }
 }
 
 fn selection_text() -> String {
