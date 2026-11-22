@@ -699,12 +699,14 @@ async fn resumes_on_its_own_after_the_connection_drops() {
     let proxy = common::CuttingProxy::start(b.addr(), 12 * 1024 * 1024).await;
     let src = tempfile::tempdir().unwrap();
     write_file(&src.path().join("video.mp4"), 40 * 1024 * 1024, 9);
+    // Saved before the drop; the resumed session must not count it twice.
+    write_file(&src.path().join("a-note.txt"), 1000, 3);
     a.send(Command::SendFiles {
         target: Target::Address {
             addr: proxy.addr,
             peer_id: Some(b.status.peer_id),
         },
-        paths: vec![src.path().join("video.mp4")],
+        paths: vec![src.path().join("a-note.txt"), src.path().join("video.mp4")],
     });
     let request = b.wait_request().await;
     let id = request.id;
@@ -732,13 +734,17 @@ async fn resumes_on_its_own_after_the_connection_drops() {
     assert_eq!(sent.state, TransferState::Completed, "{sent:?}");
     let got = b.wait_state("receiver finished", |s| s.is_finished()).await;
     assert_eq!(got.state, TransferState::Completed, "{got:?}");
+    for t in [&sent, &got] {
+        assert_eq!(t.files_done, 2, "{t:?}");
+        assert_eq!(t.bytes_done, t.total_bytes, "{t:?}");
+    }
     assert_eq!(
         std::fs::read(b.downloads().join("video.mp4")).unwrap(),
         std::fs::read(src.path().join("video.mp4")).unwrap()
     );
     // The resumed session did not start over: the link carried the file
     // about once, not the part before the drop plus the whole file again.
-    let size = 40 * 1024 * 1024u64;
+    let size = 40 * 1024 * 1024u64 + 1000;
     let moved = proxy.moved.load(std::sync::atomic::Ordering::SeqCst);
     assert!(
         moved < size + size / 8,

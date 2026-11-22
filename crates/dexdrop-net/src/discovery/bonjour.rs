@@ -374,7 +374,7 @@ extern "C" fn on_browse(
 extern "C" fn on_resolve(
     _sd: DNSServiceRef,
     _flags: u32,
-    interface: u32,
+    _interface: u32,
     err: i32,
     _fullname: *const c_char,
     host: *const c_char,
@@ -422,12 +422,14 @@ extern "C" fn on_resolve(
             key: key.clone(),
         });
         let mut lookup = main;
-        // SAFETY: as for the resolve; `host` is NUL-terminated.
+        // SAFETY: as for the resolve; `host` is NUL-terminated. On every
+        // interface: a service on this Mac is often seen first on loopback,
+        // where its host name may have no address.
         let started = unsafe {
             DNSServiceGetAddrInfo(
                 &mut lookup,
                 FLAGS_SHARE_CONNECTION,
-                interface,
+                0,
                 PROTOCOL_IPV4 | PROTOCOL_IPV6,
                 host,
                 on_addr,

@@ -117,8 +117,20 @@ wait "$receiver" 2>/dev/null
 
 # A real transfer. The app shows a pairing code and an invitation link; the
 # CLI on this Mac sends a file with one of them and the app accepts it.
-tap "Receive with a code" || fail "could not open Receive with a code"
-ad wait text "Pairing code" 10000 >/dev/null 2>&1 || true
+# The device list may still be changing (a device leaving), which can move
+# the button under a tap: retry until the sheet shows.
+opened=no
+for _ in 1 2 3; do
+  ad wait 'label="Receive with a code"' 5000 >/dev/null 2>&1 || true
+  if tap "Receive with a code" && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
+    opened=yes
+    break
+  fi
+done
+[ "$opened" = yes ] || {
+  step 03-no-sheet
+  fail "the receive sheet did not open"
+}
 step 03-receive-code
 # The code as screen readers get it ("Pairing code: 9 S V Y, W F X Y").
 code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/03-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')

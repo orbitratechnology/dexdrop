@@ -312,6 +312,9 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut pacer = Pacer::new(max_rate);
+    // Every session counts from zero: the receiver reports again what an
+    // earlier session already saved (as skipped "already received").
+    *lock(&live) = Live::default();
     let (rd, mut wr) = tokio::io::split(stream);
     // Bounded: a receiver that floods messages is slowed down by TCP rather
     // than growing this side's memory. A legitimate one has at most a few
@@ -944,10 +947,9 @@ where
         writer: writer_tx,
     });
 
-    {
-        let mut l = lock(&live);
-        l.bytes_done = 0;
-    }
+    // Every session counts from zero; the planner counts again what an
+    // earlier session saved.
+    *lock(&live) = Live::default();
     let planner = tokio::spawn(plan_requests(
         offer.clone(),
         journal.clone(),
