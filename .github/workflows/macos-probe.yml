@@ -1,0 +1,24 @@
+# Checks which GitHub-hosted macOS runners this repository can use, and
+# whether an iOS Simulator boots on them. Run by hand.
+name: macOS runner probe
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/macos-probe.yml]
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - run: sw_vers && uname -m && xcodebuild -version
+      - run: xcrun simctl list runtimes
+      - name: Boot a simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl io "$udid" screenshot shot.png && ls -l shot.png
