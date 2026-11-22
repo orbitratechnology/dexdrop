@@ -5,6 +5,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to the same branch cancels the run still going for the older
+# commit, so packaging is not repeated for outdated commits.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NSH_VERSION: v0.6.1
   CARGO_TERM_COLOR: always
