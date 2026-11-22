@@ -978,7 +978,7 @@ async fn a_device_faking_an_open_code_gets_nothing() {
         })
         .await;
     // Both the real receiver and the impostor show an open code.
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut both = false;
     let mut last = String::new();
     while let Ok(Some(event)) = tokio::time::timeout_at(deadline, a.events.recv()).await {

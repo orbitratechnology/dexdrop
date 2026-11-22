@@ -345,12 +345,14 @@ extern "C" fn on_browse(
     });
     let mut resolve = state.main;
     // SAFETY: a subordinate ref on the shared connection; `ctx` lives in the
-    // Service as long as the ref.
+    // Service as long as the ref. On every interface: a service on this Mac
+    // is announced on loopback too, and a resolve on loopback alone may
+    // never answer.
     let started = unsafe {
         DNSServiceResolve(
             &mut resolve,
             FLAGS_SHARE_CONNECTION,
-            interface,
+            0,
             name,
             regtype,
             domain,
