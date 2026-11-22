@@ -27,8 +27,9 @@ tokio = { version = "1.54.1", features = ["full", "test-util"] }
 [target."cfg(unix)".dependencies]
 libc = "0.2.191"
 
-# Apple platforms discover through the system's Bonjour service instead.
-[target."cfg(not(target_vendor = \"apple\"))".dependencies]
+# Apple platforms discover through the system's Bonjour service instead,
+# except the iOS Simulator (see src/discovery.rs).
+[target."cfg(any(not(target_vendor = \"apple\"), all(target_os = \"ios\", target_abi = \"sim\")))".dependencies]
 mdns-sd = { version = "0.22.0", features = ["async"] }
 
 [lints.rust]

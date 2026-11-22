@@ -713,7 +713,7 @@ mod tests {
     use super::*;
 
     /// Two instances on one Mac find each other through mDNSResponder.
-    #[cfg(target_vendor = "apple")]
+    #[cfg(target_os = "macos")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn finds_another_instance() {
         let (a_tx, mut a_rx) = mpsc::unbounded_channel();

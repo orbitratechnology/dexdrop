@@ -8,11 +8,13 @@
 //!
 //! Two adapters implement the same [`DiscoveryEvent`] contract:
 //!
-//! - Apple platforms (macOS, iOS) use the system's DNS-SD service,
-//!   mDNSResponder, through the `dns_sd` C API ([`bonjour`]). On a Mac a
+//! - Apple platforms (macOS, iOS devices) use the system's DNS-SD service,
+//!   mDNSResponder, through the `dns_sd` C API (`bonjour`). On a Mac a
 //!   second responder cannot share the mDNS port with the system's, and iOS
-//!   apps get local-network discovery only through the system's service.
-//! - Everywhere else, the pure-Rust `mdns-sd` responder ([`mdns`]).
+//!   apps get local-network discovery only through the system's service
+//!   (`NSBonjourServices` and the user's local-network permission).
+//! - Everywhere else, and in the iOS Simulator, the pure-Rust `mdns-sd`
+//!   responder (`mdns`).
 //!
 //! Android's `NsdManager` would be a third adapter.
 
@@ -20,14 +22,32 @@ use std::net::{IpAddr, SocketAddr};
 
 use dexdrop_core::{PeerId, protocol::PROTOCOL_VERSION};
 
-#[cfg(any(target_vendor = "apple", dexdrop_check_bonjour))]
+// Apple devices and Macs use Bonjour. The iOS Simulator uses mdns-sd: the
+// Mac's mDNSResponder applies its local-network trust check to simulator
+// apps and, on CI, cannot read their bundle record, so it ignores them.
+#[cfg(any(
+    all(
+        target_vendor = "apple",
+        not(all(target_os = "ios", target_abi = "sim"))
+    ),
+    dexdrop_check_bonjour
+))]
 pub mod bonjour;
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(any(
+    not(target_vendor = "apple"),
+    all(target_os = "ios", target_abi = "sim")
+))]
 pub mod mdns;
 
-#[cfg(target_vendor = "apple")]
+#[cfg(all(
+    target_vendor = "apple",
+    not(all(target_os = "ios", target_abi = "sim"))
+))]
 pub use bonjour::Discovery;
-#[cfg(not(target_vendor = "apple"))]
+#[cfg(any(
+    not(target_vendor = "apple"),
+    all(target_os = "ios", target_abi = "sim")
+))]
 pub use mdns::Discovery;
 
 /// A device found nearby.
