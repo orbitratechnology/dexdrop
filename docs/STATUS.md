@@ -13,7 +13,7 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
 | Windows | Done in CI (`nsh package --target windows`) | Engine tests and throughput bench pass on Windows in CI; the app has not been run interactively | |
 | macOS | CI on `macos-15` (free for this public repository) | Building in CI; not yet run by hand | Unsigned, local use only |
-| iOS | CI on `macos-15` (`ios-simulator`) | Simulator boots on GitHub's macOS runners; app not yet launched there | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
+| iOS | CI on `macos-15` (`ios-simulator`) | Verified in the iOS Simulator by agent-device on every CI run: launch, tabs, and a 3 MB file from the CLI received byte-identical (`scripts/ios-sim-check.sh`, screenshots in `docs/screenshots/ios/`) | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
 
 ## Functional requirements
 
@@ -81,7 +81,7 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 ## Known gaps worth doing next
 
-1. Launch the iOS simulator build on a GitHub macOS runner and drive it (serve-sim or native-sim); run the Windows build interactively.
+1. Run the macOS app and the Windows build interactively; extend the iOS Simulator check (sending from the app, pause/resume).
 2. Android: a native NSD/multicast-lock bridge and SAF file access (needs an
    NSH packaging extension), then device testing.
 3. iOS: Network-framework Bonjour adapter; Files/Photos picker; simulator tests.

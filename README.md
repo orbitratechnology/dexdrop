@@ -17,7 +17,7 @@ Built as a Rust-only [Native Shell (NSH)](https://nsh.dev) app (pinned to NSH
 | Web | **Builds and runs** (here and in CI) as a browser preview that explains its limits (no LAN discovery or direct sockets in browsers) | `nsh package app --target web` |
 | Windows | **Engine tests and throughput bench pass in CI; the app packages in CI**; not yet run interactively | `nsh package app --target windows` |
 | macOS | Built in CI on GitHub's `macos-15` runners (free for public repositories) | `nsh package app --target macos` |
-| iOS | Simulator build in CI on `macos-15` (no paid Apple membership needed) | `nsh package app --target ios-simulator` |
+| iOS | Simulator build in CI on `macos-15`, driven by agent-device: receives a file from the CLI byte-identical (no paid Apple membership needed) | `nsh package app --target ios-simulator` |
 | CLI (`dexdrop`) | Linux verified; tests and bench pass on Windows in CI | `cargo build --release -p dexdrop-cli` |
 
 Having trouble finding a device or finishing a transfer? See
