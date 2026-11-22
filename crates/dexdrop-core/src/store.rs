@@ -167,7 +167,7 @@ pub enum Outcome {
 
 /// A finished transfer. Holds no file names unless the user keeps history,
 /// and never file contents or full paths of the other device.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub transfer_id: String,
     pub direction: Direction,
@@ -180,10 +180,16 @@ pub struct HistoryEntry {
     pub finished: u64,
     /// The local folder the files went to (incoming only).
     pub saved_to: Option<PathBuf>,
+    /// The other device, when known.
+    #[serde(default)]
+    pub peer_id: Option<PeerId>,
+    /// Measured average speed in bytes per second, for larger transfers.
+    #[serde(default)]
+    pub average_rate: Option<f64>,
 }
 
 /// The transfer history, newest first, capped.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct History {
     pub entries: Vec<HistoryEntry>,
 }
@@ -258,6 +264,8 @@ mod tests {
                 outcome: Outcome::Completed,
                 finished: i as u64,
                 saved_to: None,
+                peer_id: None,
+                average_rate: None,
             });
         }
         assert_eq!(history.entries.len(), History::CAP);

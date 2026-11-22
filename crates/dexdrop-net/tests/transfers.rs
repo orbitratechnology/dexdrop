@@ -235,6 +235,9 @@ async fn pauses_and_resumes_without_starting_over() {
         })
         .await;
     assert_eq!(end.state, TransferState::Completed, "{end:?}");
+    // The measured average reflects the 24 MB/s cap, not the paused time.
+    let average = end.average_rate.expect("a measured average");
+    assert!((10e6..30e6).contains(&average), "average {average}");
     assert!(
         lowest == u64::MAX || lowest >= verified,
         "resumed at {lowest}, verified {verified}"

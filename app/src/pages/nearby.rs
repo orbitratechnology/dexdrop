@@ -271,6 +271,10 @@ fn device_row(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
             if p.trusted {
                 parts.push("Trusted".into());
             }
+            // Measured on the last transfer with it; never guessed (FR-016).
+            if let Some(rate) = p.last_rate {
+                parts.push(format!("last {}", format::rate(rate)));
+            }
             parts.join(" · ")
         })
     };

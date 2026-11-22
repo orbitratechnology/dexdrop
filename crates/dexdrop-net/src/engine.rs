@@ -376,11 +376,33 @@ struct RateMeter {
     last: Option<(Instant, u64)>,
     rate: Option<f64>,
     since: Option<Instant>,
+    /// Time spent transferring and bytes moved in it, over all sessions:
+    /// the measured average (FR-016), excluding waits and pauses.
+    tick: Option<(Instant, u64)>,
+    active: Duration,
+    moved: u64,
 }
 
 impl RateMeter {
+    /// Adds the time and bytes since the last tick while transferring.
+    fn accumulate(&mut self, now: Instant, bytes: u64, active: bool) {
+        if let Some((at, before)) = self.tick {
+            self.active += now.duration_since(at);
+            self.moved += bytes.saturating_sub(before);
+        }
+        self.tick = active.then_some((now, bytes));
+    }
+
+    /// The average rate, once enough was measured to mean something.
+    fn average(&mut self, final_bytes: u64) -> Option<f64> {
+        self.accumulate(Instant::now(), final_bytes, false);
+        (self.active >= Duration::from_millis(800) && self.moved >= 1_000_000)
+            .then(|| self.moved as f64 / self.active.as_secs_f64())
+    }
+
     fn sample(&mut self, bytes: u64, active: bool) -> (Option<f64>, bool) {
         let now = Instant::now();
+        self.accumulate(now, bytes, active);
         if !active {
             self.last = None;
             self.since = None;
@@ -1045,6 +1067,9 @@ impl Actor {
                 };
                 t.running = false;
                 apply_live(&mut t.snap, &t.live);
+                if state.is_finished() {
+                    t.snap.average_rate = t.rate.average(t.snap.bytes_done);
+                }
                 t.snap.state = state;
                 t.snap.rate = None;
                 t.snap.eta = None;
@@ -1213,6 +1238,9 @@ impl Actor {
         };
         t.running = false;
         apply_live(&mut t.snap, &t.live);
+        if matches!(result, Ok(SessionEnd::Completed)) {
+            t.snap.average_rate = t.rate.average(t.snap.bytes_done);
+        }
         t.snap.rate = None;
         t.snap.eta = None;
         t.snap.current = None;
@@ -1341,6 +1369,12 @@ impl Actor {
                 fingerprint: d.peer_id.fingerprint(),
                 trusted: self.trust.get(&d.peer_id).is_some(),
                 code_open: d.code_open,
+                last_rate: self
+                    .history
+                    .entries
+                    .iter()
+                    .find(|e| e.peer_id == Some(d.peer_id) && e.average_rate.is_some())
+                    .and_then(|e| e.average_rate),
             })
             .collect();
         peers.sort_by(|a, b| {
@@ -1377,9 +1411,13 @@ impl Actor {
             outcome,
             finished: unix_now(),
             saved_to: snap.saved_to.clone(),
+            peer_id: snap.peer_id,
+            average_rate: snap.average_rate,
         });
         let _ = self.history.save(&self.ctx.state.history());
         self.emit(Event::History(self.history.entries.clone()));
+        // A new measurement may change what nearby devices show.
+        self.emit_peers();
     }
 
     /// An anonymized report: no file names, paths, keys or tokens (FR-075).
@@ -1457,6 +1495,7 @@ fn blank_snapshot(id: TransferId, direction: Direction) -> TransferSnapshot {
         failures: Vec::new(),
         current: None,
         started: unix_now(),
+        average_rate: None,
     }
 }
 

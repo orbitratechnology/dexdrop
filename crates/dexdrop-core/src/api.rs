@@ -94,7 +94,7 @@ pub struct Status {
 }
 
 /// A device the user can send to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub name: String,
@@ -102,6 +102,9 @@ pub struct PeerInfo {
     pub fingerprint: String,
     pub trusted: bool,
     pub code_open: bool,
+    /// The average speed of the last measured transfer with this device
+    /// (bytes per second); only measured data, never estimated (FR-016).
+    pub last_rate: Option<f64>,
 }
 
 /// Where a transfer stands.
@@ -200,6 +203,8 @@ pub struct TransferSnapshot {
     pub failures: Vec<(String, String)>,
     pub current: Option<String>,
     pub started: u64,
+    /// The measured average speed while transferring, once finished.
+    pub average_rate: Option<f64>,
 }
 
 impl TransferSnapshot {

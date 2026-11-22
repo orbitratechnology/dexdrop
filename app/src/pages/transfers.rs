@@ -294,16 +294,20 @@ fn status_line(t: &TransferSnapshot) -> String {
             }
             line
         }
-        TransferState::Completed => match t.direction {
-            Direction::Incoming => format!(
-                "{} received and verified",
+        TransferState::Completed => {
+            let verb = match t.direction {
+                Direction::Incoming => "received",
+                Direction::Outgoing => "sent",
+            };
+            let mut line = format!(
+                "{} {verb} and verified",
                 format::item_count(t.files, t.folders)
-            ),
-            Direction::Outgoing => format!(
-                "{} sent and verified",
-                format::item_count(t.files, t.folders)
-            ),
-        },
+            );
+            if let Some(rate) = t.average_rate {
+                line += &format!(" · average {}", format::rate(rate));
+            }
+            line
+        }
         TransferState::CompletedWithIssues => format!(
             "{} done · {} failed · {} skipped",
             t.files_done, t.files_failed, t.files_skipped
