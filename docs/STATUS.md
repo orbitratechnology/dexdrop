@@ -12,8 +12,8 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a, debug-signed, targetSdk 35) | Open: no device or emulator available | Manifest has `INTERNET`; mDNS needs `CHANGE_WIFI_MULTICAST_STATE` + a multicast lock or an NSD bridge, which NSH's standalone packaging cannot declare yet (P0-015). Invitations and direct addresses work without discovery. |
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
 | Windows | Done in CI (`nsh package --target windows`) | Engine tests and throughput bench pass on Windows in CI; the app has not been run interactively | |
-| macOS | CI job ready | Open: no macOS runner is available to the repository's account | Unsigned, local use only |
-| iOS | CI job ready (`ios-simulator`) | Open: waits on a macOS runner | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
+| macOS | CI on `macos-15` (free for this public repository) | Building in CI; not yet run by hand | Unsigned, local use only |
+| iOS | CI on `macos-15` (`ios-simulator`) | Simulator boots on GitHub's macOS runners; app not yet launched there | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
 
 ## Functional requirements
 
@@ -81,7 +81,7 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 ## Known gaps worth doing next
 
-1. Get a macOS runner (or a Mac) for the macOS app and the iOS simulator build; run the Windows build interactively.
+1. Launch the iOS simulator build on a GitHub macOS runner and drive it (serve-sim or native-sim); run the Windows build interactively.
 2. Android: a native NSD/multicast-lock bridge and SAF file access (needs an
    NSH packaging extension), then device testing.
 3. iOS: Network-framework Bonjour adapter; Files/Photos picker; simulator tests.

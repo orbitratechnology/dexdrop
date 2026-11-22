@@ -16,8 +16,8 @@ Built as a Rust-only [Native Shell (NSH)](https://nsh.dev) app (pinned to NSH
 | Android | **APK builds**, here and in CI (arm64-v8a, armeabi-v7a); not yet run on a device; nearby discovery needs a native NSD bridge (see [status](docs/STATUS.md)) | `nsh package app --target android` |
 | Web | **Builds and runs** (here and in CI) as a browser preview that explains its limits (no LAN discovery or direct sockets in browsers) | `nsh package app --target web` |
 | Windows | **Engine tests and throughput bench pass in CI; the app packages in CI**; not yet run interactively | `nsh package app --target windows` |
-| macOS | CI job ready; no macOS runner is available to this repository's account yet | `nsh package app --target macos` |
-| iOS | Simulator build job ready (no paid Apple membership needed); waits on a macOS runner | `nsh package app --target ios-simulator` |
+| macOS | Built in CI on GitHub's `macos-15` runners (free for public repositories) | `nsh package app --target macos` |
+| iOS | Simulator build in CI on `macos-15` (no paid Apple membership needed) | `nsh package app --target ios-simulator` |
 | CLI (`dexdrop`) | Linux verified; tests and bench pass on Windows in CI | `cargo build --release -p dexdrop-cli` |
 
 Having trouble finding a device or finishing a transfer? See
