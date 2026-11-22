@@ -8,7 +8,7 @@ use dexdrop_core::{
     store::{Direction, HistoryEntry, Outcome},
 };
 use nsh_base::{alert_dialog, theme};
-use nsh_core::prelude::*;
+use nsh_core::{prelude::*, share::ShareRequest};
 
 use crate::{
     bridge,
@@ -410,6 +410,33 @@ fn transfer_card(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
                     move || {
                         btn("Cancel", Variant::Danger)
                             .on_press(move || bridge::send(Command::Cancel(id())))
+                    },
+                ))
+                // Phones keep received files in app storage: share or save
+                // them elsewhere through the system share sheet (FR-042).
+                .child(when(
+                    move || {
+                        !desktop_platform()
+                            && s().direction == Direction::Incoming
+                            && !s().saved_files.is_empty()
+                    },
+                    move || {
+                        btn("Share or save", Variant::Primary).on_press(move || {
+                            let snap = s();
+                            let mut request = ShareRequest::new().title(snap.label.clone());
+                            for file in snap.saved_files {
+                                request = request.file(file);
+                            }
+                            let shared = share(request);
+                            spawn(async move {
+                                if let Err(err) = shared.await {
+                                    crate::state::toast(
+                                        dexdrop_core::api::NoticeKind::Error,
+                                        format!("Could not open the share sheet: {err:?}"),
+                                    );
+                                }
+                            });
+                        })
                     },
                 ))
                 .child(when(

@@ -205,6 +205,9 @@ pub struct TransferSnapshot {
     pub started: u64,
     /// The measured average speed while transferring, once finished.
     pub average_rate: Option<f64>,
+    /// Incoming, completed: the files saved (up to 100), to share or
+    /// export them from app-private storage on phones (FR-042).
+    pub saved_files: Vec<std::path::PathBuf>,
 }
 
 impl TransferSnapshot {

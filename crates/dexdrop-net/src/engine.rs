@@ -448,6 +448,9 @@ struct Actor {
 }
 
 const MAX_PENDING_REQUESTS: usize = 3;
+/// Saved files listed on a finished incoming transfer (a share sheet takes
+/// at most 100).
+const MAX_SAVED_LISTED: usize = 100;
 const STALE_JOURNAL_SECS: u64 = 7 * 24 * 3600;
 
 impl Actor {
@@ -1249,6 +1252,13 @@ impl Actor {
             Ok(SessionEnd::Completed) => {
                 let _ = records.remove(&id);
                 t.snap.bytes_done = t.snap.total_bytes;
+                // What was saved, in manifest order, for sharing/exporting.
+                t.snap.saved_files = journal
+                    .files
+                    .values()
+                    .filter_map(|f| f.saved.clone())
+                    .take(MAX_SAVED_LISTED)
+                    .collect();
                 if t.snap.files_failed > 0 || t.snap.files_skipped > 0 {
                     TransferState::CompletedWithIssues
                 } else {
@@ -1496,6 +1506,7 @@ fn blank_snapshot(id: TransferId, direction: Direction) -> TransferSnapshot {
         current: None,
         started: unix_now(),
         average_rate: None,
+        saved_files: Vec::new(),
     }
 }
 

@@ -52,6 +52,21 @@ async fn sends_files_and_folders_with_consent() {
         .await;
     assert_eq!(done.direction, Direction::Incoming);
     assert_eq!(done.bytes_done, 301_234);
+    // The saved files are listed for sharing/exporting (FR-042).
+    let mut saved: Vec<_> = done
+        .saved_files
+        .iter()
+        .map(|p| p.strip_prefix(b.downloads()).unwrap().to_owned())
+        .collect();
+    saved.sort();
+    assert_eq!(
+        saved,
+        vec![
+            std::path::PathBuf::from("Project/README.md"),
+            std::path::PathBuf::from("Project/src/main.rs"),
+            std::path::PathBuf::from("photo.jpg"),
+        ]
+    );
     let sent = a
         .wait_state("sender completed", |s| *s == TransferState::Completed)
         .await;

@@ -37,7 +37,7 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | FR-036 Drag and drop | Done | Desktop drop zone |
 | Desktop shortcuts (PRD 7.3) | Done | Ctrl/Cmd+O files, Ctrl/Cmd+Shift+O folder, Ctrl/Cmd+1–3 sections, Ctrl/Cmd+, settings, Esc closes sheets |
 | System notifications (P4-006) | Done | When a transfer finishes, fails or arrives |
-| FR-040 – FR-046 Receiving | Done | Consent, details, destination, keep-both/skip/replace (confirmed), space check, path safety, atomic commit |
+| FR-040 – FR-046 Receiving | Done (phones: "Share or save" exports received files through the system share sheet) | Consent, details, destination, keep-both/skip/replace (confirmed), space check, path safety, atomic commit |
 | FR-047 Per-device receive policy | Done | |
 | FR-050 – FR-056 Lifecycle | Done | Queue states, throttled progress, rate after samples, ETA after 3 s, pause/resume, reconnect with backoff, cancel cleans temp files, verify-and-retry |
 | FR-057 Many files | Done for 250k entries | Paged manifest, 250k entry cap; 20,000 files transfer with 40 MB peak memory for both ends (`dexdrop bench --files 20000`) |
