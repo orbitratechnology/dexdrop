@@ -3,6 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use dexdrop_core::protocol::clean_name;
 use dexdrop_core::{
     protocol::{Hello, Message, RejectReason},
     unix_now,
@@ -78,7 +79,7 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
     let (decide, decision) = oneshot::channel();
     let arrived = OfferArrived {
         peer_id: peer.peer_id,
-        peer_name: hello.device_name.clone(),
+        peer_name: clean_name(&hello.device_name),
         peer_platform: hello.platform.clone(),
         sas: peer.sas.clone(),
         via_invitation,
@@ -95,17 +96,29 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
 
     // The sender sends nothing until it gets an answer: anything readable
     // means it cancelled or went away.
-    let decision = {
+    let mut decision = decision;
+    let decided = {
         let mut probe = [0u8; 1];
         tokio::select! {
-            decision = decision => decision.ok(),
+            decided = &mut decision => decided.ok(),
             _ = stream.read(&mut probe) => None,
             _ = tokio::time::sleep(DECISION) => None,
         }
     };
-    match decision {
+    // The user may have answered at the very moment the sender left or the
+    // wait ran out: an acceptance must still end the transfer it started.
+    let decided = decided.or_else(|| decision.try_recv().ok());
+    match decided {
         None => {
             let _ = ctx.internal.send(Internal::RequestGone(id));
+            Ok(())
+        }
+        Some(Decision::Accept { journal, .. }) if gone_while_deciding(&mut stream) => {
+            let _ = ctx.internal.send(Internal::IncomingEnded {
+                id,
+                result: Err("The other device left".into()),
+                journal,
+            });
             Ok(())
         }
         Some(Decision::Reject(reason)) => {
@@ -146,4 +159,21 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
             Ok(())
         }
     }
+}
+
+/// Whether the sender went away while the user was deciding: the stream
+/// already ended. (Checked without waiting.)
+fn gone_while_deciding(stream: &mut crate::tls::ServerStream) -> bool {
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, ReadBuf};
+    let waker = futures_util::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut byte = [0u8; 1];
+    let mut buf = ReadBuf::new(&mut byte);
+    // Ready with no bytes (end of stream), data (a Cancel) or an error all
+    // mean the sender is not waiting for an answer any more.
+    matches!(
+        std::pin::Pin::new(stream).poll_read(&mut cx, &mut buf),
+        Poll::Ready(_)
+    )
 }

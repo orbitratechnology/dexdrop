@@ -164,7 +164,7 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
         let _ = ctx.internal.send(Internal::OutgoingPeer {
             id: job.id,
             peer_id: c.session.peer_id,
-            name: c.hello.device_name.clone(),
+            name: dexdrop_core::protocol::clean_name(&c.hello.device_name),
             platform: c.hello.platform.clone(),
             sas: c.session.sas.clone(),
         });
@@ -172,7 +172,7 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
             version: 1,
             transfer_id: job.id,
             peer_id: c.session.peer_id,
-            peer_name: c.hello.device_name.clone(),
+            peer_name: dexdrop_core::protocol::clean_name(&c.hello.device_name),
             peer_platform: c.hello.platform.clone(),
             addrs: route.known.clone(),
             chunk_size: ctx.chunk_size,

@@ -753,3 +753,44 @@ async fn running_out_of_space_stops_cleanly_and_keeps_progress() {
         std::fs::read(src.path().join("big.bin")).unwrap()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_unanswered_request_per_device_and_withdrawn_requests_leave_no_trace() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("1.txt"), 10, 1);
+    write_file(&src.path().join("2.txt"), 10, 2);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("1.txt")],
+    });
+    let first = b.wait_request().await;
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("2.txt")],
+    });
+    // The second offer from the same device waits its turn.
+    let second = a
+        .wait("the second transfer told to wait", |e| match e {
+            Event::Transfer(t)
+                if t.label == "2.txt"
+                    && matches!(t.state, TransferState::Interrupted { retrying: true, .. }) =>
+            {
+                Some(t.id)
+            }
+            _ => None,
+        })
+        .await;
+    // The sender withdraws it; then the first is withdrawn too.
+    a.send(Command::Cancel(second));
+    a.send(Command::Cancel(first.id));
+    b.wait("the request withdrawn", |e| match e {
+        Event::TransferRemoved(id) if *id == first.id => Some(()),
+        _ => None,
+    })
+    .await;
+    // Nothing was kept on the receiving side.
+    let history = dexdrop_core::store::History::load(&b.state().join("history.json"));
+    assert!(history.entries.is_empty(), "{:?}", history.entries);
+}

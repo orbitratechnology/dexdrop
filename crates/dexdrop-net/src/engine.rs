@@ -472,7 +472,7 @@ struct Actor {
     listener_task: tokio::task::JoinHandle<()>,
 }
 
-const MAX_PENDING_REQUESTS: usize = 3;
+const MAX_PENDING_REQUESTS: usize = 8;
 /// Inbound connections at once, in total and from one address.
 const MAX_INBOUND: usize = 32;
 const MAX_INBOUND_PER_IP: usize = 6;
@@ -1025,13 +1025,13 @@ impl Actor {
                 if let Some(t) = self.transfers.get_mut(&id)
                     && t.snap.state == TransferState::Requested
                 {
-                    t.decide = None;
-                    t.request = None;
-                    t.snap.state = TransferState::Cancelled { by_peer: true };
-                    let snap = t.snap.clone();
+                    // Never answered: nothing to keep, nothing for history
+                    // (a device sending and withdrawing offers in a loop
+                    // must not grow either).
+                    self.transfers.remove(&id);
+                    self.order.retain(|x| x != &id);
                     self.emit(Event::RequestClosed(id));
-                    self.emit(Event::Transfer(snap.clone()));
-                    self.record_history(&snap);
+                    self.emit(Event::TransferRemoved(id));
                 }
             }
             Internal::IncomingEnded {
@@ -1185,12 +1185,16 @@ impl Actor {
             let _ = decide.send(Decision::Reject(RejectReason::Busy));
             return;
         }
-        let pending = self
-            .transfers
-            .values()
-            .filter(|t| t.snap.state == TransferState::Requested)
-            .count();
-        if pending >= MAX_PENDING_REQUESTS {
+        // One unanswered request per device, a few in total: a device that
+        // floods offers cannot crowd out the others.
+        let pending = || {
+            self.transfers
+                .values()
+                .filter(|t| t.snap.state == TransferState::Requested)
+        };
+        if pending().count() >= MAX_PENDING_REQUESTS
+            || pending().any(|t| t.snap.peer_id == Some(peer_id))
+        {
             let _ = decide.send(Decision::Reject(RejectReason::Busy));
             return;
         }

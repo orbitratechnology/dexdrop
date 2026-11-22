@@ -354,6 +354,18 @@ pub fn chunk_hash(data: &[u8]) -> [u8; 32] {
     *blake3::hash(data).as_bytes()
 }
 
+/// A peer's device name made safe to show and store: control characters
+/// removed, at most [`MAX_NAME_BYTES`], never empty.
+pub fn clean_name(name: &str) -> String {
+    let cleaned: String = name.chars().filter(|c| !c.is_control()).collect();
+    let cleaned = truncate(cleaned.trim(), MAX_NAME_BYTES);
+    if cleaned.is_empty() {
+        "Unnamed device".to_owned()
+    } else {
+        cleaned
+    }
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_owned();
@@ -438,6 +450,13 @@ mod tests {
         let mut other = entries.clone();
         other[0].size = 3;
         assert_ne!(a, manifest_digest(&[1; 16], DEFAULT_CHUNK_SIZE, &other));
+    }
+
+    #[test]
+    fn peer_names_are_cleaned() {
+        assert_eq!(clean_name("  Desk\u{0}\n PC "), "Desk PC");
+        assert_eq!(clean_name("\u{7}"), "Unnamed device");
+        assert!(clean_name(&"名".repeat(500)).len() <= MAX_NAME_BYTES);
     }
 
     #[test]
