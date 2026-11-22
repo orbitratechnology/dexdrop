@@ -3,7 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use dexdrop_core::protocol::clean_name;
+use dexdrop_core::protocol::{Pairing, clean_name};
 use dexdrop_core::{
     protocol::{Hello, Message, RejectReason},
     unix_now,
@@ -13,6 +13,7 @@ use tokio::{io::AsyncReadExt, net::TcpStream, sync::oneshot};
 
 use crate::{
     engine::{Ctx, Decision, Internal, OfferArrived, lock},
+    pairing::{self, Role},
     session::{self, ReceivePlan, SessionError},
     tls,
     wire::{self, WireError},
@@ -47,9 +48,15 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
         wire::send(&mut stream, &Message::Reject(RejectReason::Incompatible)).await?;
         return Ok(());
     }
-    let via_invitation = match &hello.pairing {
-        Some(pairing) => {
-            let redeemed = lock(&ctx.invitations).redeem(pairing, unix_now());
+    let mut ours = ours;
+    let mut via_invitation = false;
+    // A code attempt in progress: the code and the SPAKE2 key.
+    let mut attempt: Option<(String, [u8; 32])> = None;
+    match &hello.pairing {
+        None => {}
+        Some(Pairing::Token(_)) => {
+            let redeemed =
+                lock(&ctx.invitations).redeem(hello.pairing.as_ref().expect("some"), unix_now());
             if redeemed.is_err() {
                 wire::send(
                     &mut stream,
@@ -58,15 +65,71 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
                 .await?;
                 return Ok(());
             }
+            via_invitation = true;
             let _ = ctx.internal.send(Internal::PairingUsed {
-                code: matches!(pairing, dexdrop_core::protocol::Pairing::Code(_)),
-                by: hello.device_name.clone(),
+                code: false,
+                by: clean_name(&hello.device_name),
             });
-            true
         }
-        None => false,
-    };
+        Some(Pairing::Pake(their_msg)) => {
+            let Some(code) = lock(&ctx.invitations).begin_code_attempt(unix_now()) else {
+                wire::send(
+                    &mut stream,
+                    &Message::Reject(RejectReason::InvitationInvalid),
+                )
+                .await?;
+                return Ok(());
+            };
+            let (exchange, our_msg) = pairing::start(&code);
+            let Some(key) = exchange.finish(their_msg) else {
+                lock(&ctx.invitations).end_code_attempt(&code, false);
+                wire::send(
+                    &mut stream,
+                    &Message::Reject(RejectReason::InvitationInvalid),
+                )
+                .await?;
+                return Ok(());
+            };
+            ours.pairing = Some(Pairing::PakeReply {
+                msg: our_msg,
+                confirm: pairing::proof(&key, Role::Receiver, &peer.binding),
+            });
+            attempt = Some((code, key));
+        }
+        // Codes are never accepted in the clear, nor replies from a sender.
+        Some(_) => {
+            wire::send(
+                &mut stream,
+                &Message::Reject(RejectReason::InvitationInvalid),
+            )
+            .await?;
+            return Ok(());
+        }
+    }
     wire::send(&mut stream, &Message::Hello(ours)).await?;
+    if let Some((code, key)) = attempt {
+        // Only a correct proof from the sender uses the code; anything else
+        // (a wrong proof, silence, a disconnect) was a failed attempt.
+        let expected = pairing::proof(&key, Role::Sender, &peer.binding);
+        let proven = matches!(
+            wire::read_msg_within(&mut stream, HANDSHAKE).await,
+            Ok(Message::PairingConfirm(theirs)) if pairing::matches(&theirs, &expected)
+        );
+        lock(&ctx.invitations).end_code_attempt(&code, proven);
+        if !proven {
+            let _ = wire::send(
+                &mut stream,
+                &Message::Reject(RejectReason::InvitationInvalid),
+            )
+            .await;
+            return Ok(());
+        }
+        via_invitation = true;
+        let _ = ctx.internal.send(Internal::PairingUsed {
+            code: true,
+            by: clean_name(&hello.device_name),
+        });
+    }
 
     let offer = match session::read_offer(&mut stream).await? {
         Ok(offer) => offer,

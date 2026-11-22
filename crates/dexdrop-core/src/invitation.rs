@@ -176,9 +176,12 @@ impl InvitationBook {
         invitation
     }
 
-    /// Opens a short code for `ttl` seconds; returns it and its expiry.
+    /// Opens a short code for `ttl` seconds, closing any earlier one;
+    /// returns it and its expiry. One code at a time: code pairing (a PAKE)
+    /// needs to know which code to run with.
     pub fn create_code(&mut self, ttl: u64) -> (String, u64) {
         self.prune(unix_now());
+        self.open.retain(|o| o.code.is_none());
         self.code_failures = 0;
         let code = new_code();
         let expires = unix_now() + ttl;
@@ -188,6 +191,31 @@ impl InvitationBook {
             expires,
         });
         (code, expires)
+    }
+
+    /// Starts an attempt to prove the open code, if any. Every attempt
+    /// counts from the start, so a device that disconnects instead of
+    /// answering, or many connections at once, get at most
+    /// [`MAX_CODE_FAILURES`] guesses in total.
+    pub fn begin_code_attempt(&mut self, now: u64) -> Option<String> {
+        self.prune(now);
+        if self.code_failures >= MAX_CODE_FAILURES {
+            return None;
+        }
+        let code = self.open.iter().rev().find_map(|o| o.code.clone())?;
+        self.code_failures += 1;
+        Some(code)
+    }
+
+    /// Ends an attempt: a proven code is used up; after the last allowed
+    /// failure the code closes.
+    pub fn end_code_attempt(&mut self, code: &str, proven: bool) {
+        if proven {
+            self.open.retain(|o| o.code.as_deref() != Some(code));
+            self.code_failures = 0;
+        } else if self.code_failures >= MAX_CODE_FAILURES {
+            self.open.retain(|o| o.code.is_none());
+        }
     }
 
     /// Whether a short code is open (advertised to nearby devices).
@@ -215,6 +243,9 @@ impl InvitationBook {
                 self.open.remove(at);
                 Ok(())
             }
+            // Codes are proven with a PAKE (`current_code`, `use_code`,
+            // `code_failed`), never redeemed from a message.
+            Pairing::Pake(_) | Pairing::PakeReply { .. } => Err(InviteError::Unknown),
             Pairing::Code(typed) => {
                 if self.code_failures >= MAX_CODE_FAILURES {
                     return Err(InviteError::TooManyAttempts);

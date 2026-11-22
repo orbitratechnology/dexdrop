@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod engine;
 mod incoming;
 mod outgoing;
+pub mod pairing;
 pub mod session;
 pub mod tls;
 pub mod wire;

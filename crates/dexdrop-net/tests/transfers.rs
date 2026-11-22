@@ -415,7 +415,8 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_used_code_is_reported_and_closed() {
-    use dexdrop_core::protocol::{Hello, Message, Pairing};
+    use dexdrop_core::protocol::{Hello, Message, Pairing, RejectReason};
+    use dexdrop_net::{pairing, tls, wire};
     let mut b = Node::start("Bob").await;
     b.send(Command::CreateCode);
     let code = b
@@ -424,19 +425,61 @@ async fn a_used_code_is_reported_and_closed() {
             _ => None,
         })
         .await;
-    // Connect as a sender presenting the code (the handshake only).
     let identity = dexdrop_core::Identity::generate().unwrap();
-    let tls = dexdrop_net::tls::TlsContext::new(&identity).unwrap();
-    let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
-    let (mut stream, _) = dexdrop_net::tls::connect(&tls, tcp).await.unwrap();
-    let hello = Hello::new("Mallory", "linux", Some(Pairing::Code(code.clone())));
-    dexdrop_net::wire::send(&mut stream, &Message::Hello(hello.clone()))
-        .await
-        .unwrap();
-    assert!(matches!(
-        dexdrop_net::wire::read_msg(&mut stream).await.unwrap(),
-        Message::Hello(_)
-    ));
+    let ctx = tls::TlsContext::new(&identity).unwrap();
+
+    // Runs the sender's half of code pairing with `guess`; returns what the
+    // receiver answered after the sender's proof.
+    let addr = b.addr();
+    let attempt = |guess: String| {
+        let ctx = ctx.clone();
+        async move {
+            let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let (mut stream, session) = tls::connect(&ctx, tcp).await.unwrap();
+            let (exchange, msg) = pairing::start(&guess);
+            let hello = Hello::new("Mallory", "linux", Some(Pairing::Pake(msg)));
+            wire::send(&mut stream, &Message::Hello(hello))
+                .await
+                .unwrap();
+            let reply = wire::read_msg(&mut stream).await.unwrap();
+            let Message::Hello(Hello {
+                pairing: Some(Pairing::PakeReply { msg, confirm }),
+                ..
+            }) = reply
+            else {
+                return (false, reply);
+            };
+            let key = exchange.finish(&msg).unwrap();
+            // The receiver's proof only checks out with the right code.
+            let receiver_proven = pairing::matches(
+                &confirm,
+                &pairing::proof(&key, pairing::Role::Receiver, &session.binding),
+            );
+            let ours = pairing::proof(&key, pairing::Role::Sender, &session.binding);
+            wire::send(&mut stream, &Message::PairingConfirm(ours))
+                .await
+                .unwrap();
+            // Proven: the receiver waits for an offer; otherwise it refuses.
+            let next = tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                wire::read_msg(&mut stream),
+            )
+            .await;
+            (
+                receiver_proven,
+                next.ok().and_then(|r| r.ok()).unwrap_or(Message::Accept),
+            )
+        }
+    };
+
+    // A wrong guess: the receiver's proof does not verify and it refuses.
+    let (proven, answer) = attempt("00000000".into()).await;
+    assert!(!proven);
+    assert_eq!(answer, Message::Reject(RejectReason::InvitationInvalid));
+
+    // The right code: both proofs verify; the code is used up.
+    let (proven, _) = attempt(code.clone()).await;
+    assert!(proven);
     let (code_used, by) = b
         .wait("the code to be reported used", |e| match e {
             Event::PairingUsed { code, by } => Some((*code, by.clone())),
@@ -446,14 +489,64 @@ async fn a_used_code_is_reported_and_closed() {
     assert!(code_used);
     assert_eq!(by, "Mallory");
     // The same code does not work twice.
+    let (_, answer) = attempt(code.clone()).await;
+    assert_eq!(answer, Message::Reject(RejectReason::InvitationInvalid));
+
+    // A code sent in the clear, as before, is refused outright.
     let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
-    let (mut again, _) = dexdrop_net::tls::connect(&tls, tcp).await.unwrap();
-    dexdrop_net::wire::send(&mut again, &Message::Hello(hello))
+    let (mut stream, _) = tls::connect(&ctx, tcp).await.unwrap();
+    let hello = Hello::new("Mallory", "linux", Some(Pairing::Code(code)));
+    wire::send(&mut stream, &Message::Hello(hello))
         .await
         .unwrap();
     assert_eq!(
-        dexdrop_net::wire::read_msg(&mut again).await.unwrap(),
-        Message::Reject(dexdrop_core::protocol::RejectReason::InvitationInvalid)
+        wire::read_msg(&mut stream).await.unwrap(),
+        Message::Reject(RejectReason::InvitationInvalid)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn code_guesses_are_limited_even_when_the_guesser_hangs_up() {
+    use dexdrop_core::protocol::{Hello, Message, Pairing, RejectReason};
+    use dexdrop_net::{pairing, tls, wire};
+    let mut b = Node::start("Bob").await;
+    b.send(Command::CreateCode);
+    let code = b
+        .wait("a code", |e| match e {
+            Event::Code { code, .. } => Some(code.clone()),
+            _ => None,
+        })
+        .await;
+    let ctx = tls::TlsContext::new(&dexdrop_core::Identity::generate().unwrap()).unwrap();
+    // Five guessers check the receiver's proof and hang up without
+    // answering: each still used up an attempt.
+    for _ in 0..dexdrop_core::invitation::MAX_CODE_FAILURES {
+        let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
+        let (mut stream, _) = tls::connect(&ctx, tcp).await.unwrap();
+        let (_, msg) = pairing::start("00000000");
+        wire::send(
+            &mut stream,
+            &Message::Hello(Hello::new("M", "linux", Some(Pairing::Pake(msg)))),
+        )
+        .await
+        .unwrap();
+        let _ = wire::read_msg(&mut stream).await;
+        drop(stream);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // Now even the right code is refused: the code closed.
+    let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
+    let (mut stream, _) = tls::connect(&ctx, tcp).await.unwrap();
+    let (_, msg) = pairing::start(&code);
+    wire::send(
+        &mut stream,
+        &Message::Hello(Hello::new("M", "linux", Some(Pairing::Pake(msg)))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        wire::read_msg(&mut stream).await.unwrap(),
+        Message::Reject(RejectReason::InvitationInvalid)
     );
 }
 
@@ -793,4 +886,142 @@ async fn one_unanswered_request_per_device_and_withdrawn_requests_leave_no_trace
     // Nothing was kept on the receiving side.
     let history = dexdrop_core::store::History::load(&b.state().join("history.json"));
     assert!(history.entries.is_empty(), "{:?}", history.entries);
+}
+
+/// A fake device that advertises an open code over mDNS and records
+/// whether anyone offered it files.
+async fn impostor() -> (
+    dexdrop_core::PeerId,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    mdns_sd::ServiceDaemon,
+) {
+    use dexdrop_core::protocol::{Hello, Message, Pairing};
+    use dexdrop_net::{tls, wire};
+    let identity = dexdrop_core::Identity::generate().unwrap();
+    let id = identity.peer_id();
+    let ctx = tls::TlsContext::new(&identity).unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let offered = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen = offered.clone();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            let (ctx, seen) = (ctx.clone(), seen.clone());
+            tokio::spawn(async move {
+                let Ok((mut stream, _)) = tls::accept(&ctx, tcp).await else {
+                    return;
+                };
+                let _ = wire::read_msg(&mut stream).await; // the sender's hello
+                // Pretends to accept the code without knowing it.
+                let fake = Pairing::PakeReply {
+                    msg: vec![0x42; 33],
+                    confirm: [7; 32],
+                };
+                let _ = wire::send(
+                    &mut stream,
+                    &Message::Hello(Hello::new("Bob", "linux", Some(fake))),
+                )
+                .await;
+                while let Ok(msg) = wire::read_msg(&mut stream).await {
+                    if matches!(msg, Message::Offer(_)) {
+                        seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+    let daemon = mdns_sd::ServiceDaemon::new().unwrap();
+    let ids = id.to_string();
+    let instance = format!("dexdrop-{}", &ids[..16]);
+    let props = [
+        ("v", "1"),
+        ("id", ids.as_str()),
+        ("n", "Bob"),
+        ("p", "linux"),
+        ("c", "1"),
+    ];
+    let info = mdns_sd::ServiceInfo::new(
+        dexdrop_core::SERVICE_TYPE,
+        &instance,
+        &format!("{instance}.local."),
+        "",
+        port,
+        &props[..],
+    )
+    .unwrap()
+    .enable_addr_auto();
+    daemon.register(info).unwrap();
+    (id, offered, daemon)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_faking_an_open_code_gets_nothing() {
+    let lan = |c: &mut dexdrop_net::EngineConfig| {
+        c.discovery = true;
+        c.listen = std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
+    };
+    let mut a = Node::start_with("Alice", lan).await;
+    let mut b = Node::start_with("Bob", lan).await;
+    let (fake_id, offered, _daemon) = impostor().await;
+    b.send(Command::CreateCode);
+    let code = b
+        .wait("a code", |e| match e {
+            Event::Code { code, .. } => Some(code.clone()),
+            _ => None,
+        })
+        .await;
+    // Both the real receiver and the impostor show an open code.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    let mut both = false;
+    while let Ok(Some(event)) = tokio::time::timeout_at(deadline, a.events.recv()).await {
+        if let Event::Peers(peers) = event {
+            let open = |id| peers.iter().any(|p| p.peer_id == id && p.code_open);
+            if open(b.status.peer_id) && open(fake_id) {
+                both = true;
+                break;
+            }
+        }
+    }
+    if !both {
+        eprintln!("skipped: mDNS discovery is not available here");
+        return;
+    }
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("secret.pdf"), 50_000, 4);
+    // First a code nobody real shows: the impostor is the only candidate.
+    // It cannot prove the code, so nothing is sent and the transfer stops.
+    a.send(Command::SendFiles {
+        target: Target::Code("ZZZZ9999".into()),
+        paths: vec![src.path().join("secret.pdf")],
+    });
+    let refused = a
+        .wait_state("the impostor refused", |s| {
+            s.is_finished() || matches!(s, TransferState::Interrupted { .. })
+        })
+        .await;
+    assert!(
+        matches!(refused.state, TransferState::Declined(_)),
+        "{:?}",
+        refused.state
+    );
+    assert!(
+        !offered.load(std::sync::atomic::Ordering::SeqCst),
+        "the impostor was offered the files"
+    );
+    // Then the real code: only the real receiver can prove it.
+    a.send(Command::SendFiles {
+        target: Target::Code(code),
+        paths: vec![src.path().join("secret.pdf")],
+    });
+    // Only the device that proves the code is offered the files.
+    let request = b.wait_request().await;
+    assert_eq!(request.peer_id, a.status.peer_id);
+    assert!(request.via_invitation);
+    b.send(accept(request.id));
+    b.wait_state("received", |s| *s == TransferState::Completed)
+        .await;
+    assert!(
+        !offered.load(std::sync::atomic::Ordering::SeqCst),
+        "the impostor was offered the files"
+    );
 }

@@ -65,8 +65,16 @@ pub type TransferId = [u8; 16];
 pub enum Pairing {
     /// The token of a QR/link invitation.
     Token([u8; 16]),
-    /// A short code typed by the user.
+    /// A short code typed by the user, sent as is. No longer sent or
+    /// accepted: it revealed the code to whichever device answered. Kept so
+    /// later variants keep their wire numbers.
     Code(String),
+    /// Sender: the first SPAKE2 message for a typed code. The code itself
+    /// never crosses the network.
+    Pake(Vec<u8>),
+    /// Receiver: its SPAKE2 message and proof that it derived the same key,
+    /// bound to this TLS session.
+    PakeReply { msg: Vec<u8>, confirm: [u8; 32] },
 }
 
 /// The first message each side sends.
@@ -267,6 +275,8 @@ pub enum Message {
     /// part is kept and the transfer can resume once there is room.
     /// (Appended last: earlier variants keep their wire numbers.)
     OutOfSpace,
+    /// Sender, after a PAKE reply: its proof that it knows the code.
+    PairingConfirm([u8; 32]),
 }
 
 /// Errors decoding a frame.
@@ -328,6 +338,7 @@ impl Message {
             Message::Pause => "Pause",
             Message::Cancel(_) => "Cancel",
             Message::OutOfSpace => "OutOfSpace",
+            Message::PairingConfirm(_) => "PairingConfirm",
         }
     }
 }

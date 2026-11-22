@@ -14,6 +14,7 @@ use tokio::{net::TcpStream, sync::watch};
 
 use crate::{
     engine::{Ctx, Internal, lock},
+    pairing::{self, Role},
     session::{self, Answer, Control, LiveCell, SessionEnd},
     tls::{self, ClientStream, PeerSession},
     wire,
@@ -57,13 +58,21 @@ struct Connected {
     addr: SocketAddr,
 }
 
+/// How a sender proves it was invited.
+#[derive(Clone)]
+enum Proof {
+    Token([u8; 16]),
+    /// A typed code, proven with SPAKE2 (never sent).
+    Code(String),
+}
+
 struct Route {
     /// The peer ID the other side must have.
     pinned: Option<PeerId>,
     /// Addresses to try when discovery has none.
     known: Vec<SocketAddr>,
     /// Proof of invitation, sent on the first successful connection only.
-    pairing: Option<Pairing>,
+    pairing: Option<Proof>,
     /// For codes: try every nearby device that shows one.
     code: Option<String>,
 }
@@ -81,7 +90,7 @@ fn route_of(target: &Target) -> Result<Route, String> {
             Route {
                 pinned: Some(inv.peer_id),
                 known: inv.addrs,
-                pairing: Some(Pairing::Token(inv.token)),
+                pairing: Some(Proof::Token(inv.token)),
                 code: None,
             }
         }
@@ -355,7 +364,7 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
                     ctx,
                     *addr,
                     Some(peer.peer_id),
-                    Some(Pairing::Code(code.clone())),
+                    Some(Proof::Code(code.clone())),
                 )
                 .await
                 {
@@ -402,7 +411,7 @@ async fn connect_one(
     ctx: &Ctx,
     addr: SocketAddr,
     pinned: Option<PeerId>,
-    pairing: Option<Pairing>,
+    proof: Option<Proof>,
 ) -> Result<Connected, ConnectError> {
     let unreachable = |what: &str| {
         ConnectError::Unreachable(format!("The device could not be reached ({what})."))
@@ -418,6 +427,16 @@ async fn connect_one(
     if pinned.is_some_and(|expected| expected != session.peer_id) {
         return Err(ConnectError::WrongPeer);
     }
+    // A code is never sent: a SPAKE2 message stands in for it, and the
+    // answer must prove the device knows the same code.
+    let (pairing, exchange) = match proof {
+        None => (None, None),
+        Some(Proof::Token(token)) => (Some(Pairing::Token(token)), None),
+        Some(Proof::Code(code)) => {
+            let (exchange, msg) = pairing::start(&code);
+            (Some(Pairing::Pake(msg)), Some(exchange))
+        }
+    };
     let ours = Hello::new(&ctx.device_name(), &ctx.platform, pairing);
     wire::send(&mut stream, &Message::Hello(ours.clone()))
         .await
@@ -426,6 +445,25 @@ async fn connect_one(
         Ok(Message::Hello(hello)) => {
             if ours.negotiate(&hello).is_none() {
                 return Err(ConnectError::Rejected(RejectReason::Incompatible));
+            }
+            if let Some(exchange) = exchange {
+                // A device that cannot prove the code is not the one meant:
+                // nothing is offered to it (review #1).
+                let refused = ConnectError::Rejected(RejectReason::InvitationInvalid);
+                let Some(Pairing::PakeReply { msg, confirm }) = &hello.pairing else {
+                    return Err(refused);
+                };
+                let key = exchange.finish(msg).ok_or(refused)?;
+                if !pairing::matches(
+                    confirm,
+                    &pairing::proof(&key, Role::Receiver, &session.binding),
+                ) {
+                    return Err(ConnectError::Rejected(RejectReason::InvitationInvalid));
+                }
+                let ours = pairing::proof(&key, Role::Sender, &session.binding);
+                wire::send(&mut stream, &Message::PairingConfirm(ours))
+                    .await
+                    .map_err(|e| ConnectError::Unreachable(e.to_string()))?;
             }
             Ok(Connected {
                 stream,

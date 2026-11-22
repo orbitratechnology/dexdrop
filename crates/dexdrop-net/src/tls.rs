@@ -75,6 +75,9 @@ pub struct PeerSession {
     pub peer_id: PeerId,
     /// The 6-digit number both sides can compare (FR-023).
     pub sas: String,
+    /// Keying material unique to this TLS session, to bind proofs (code
+    /// pairing) to it.
+    pub binding: [u8; 32],
 }
 
 /// The client half of a TLS stream.
@@ -93,9 +96,13 @@ fn session_of<D>(conn: &rustls::ConnectionCommon<D>) -> Result<PeerSession, std:
     let mut material = [0u8; 32];
     conn.export_keying_material(&mut material, SAS_LABEL, None)
         .map_err(std::io::Error::other)?;
+    let mut binding = [0u8; 32];
+    conn.export_keying_material(&mut binding, b"EXPORTER-dexdrop-pairing", None)
+        .map_err(std::io::Error::other)?;
     Ok(PeerSession {
         peer_id,
         sas: sas_digits(&material),
+        binding,
     })
 }
 

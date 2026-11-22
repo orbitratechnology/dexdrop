@@ -29,7 +29,7 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | FR-014 Denied permission | Partial | Fallbacks shown; platform permission flows open |
 | FR-015 Trusted devices | Done | Trust on accept, forget, per-device auto-accept |
 | FR-016 Connection quality | Done | Measured average speed (time spent transferring only) shown on finished transfers and as "last … MB/s" on each nearby device; nothing shown until measured |
-| FR-020 – FR-023 QR, code, expiry, confirmation | Done | QR shown; single-use tokens/codes, 10 min, 5-attempt lock; SAS on both sides; the receive sheet closes a used code and offers a new one |
+| FR-020 – FR-023 QR, code, expiry, confirmation | Done | QR shown; single-use tokens; codes proven with SPAKE2 (never sent; a device faking an open code gets nothing), 10 min, 5 attempts; SAS on both sides; the receive sheet closes a used code and offers a new one |
 | FR-024 Camera QR scanning | Open | Needs a native camera bridge |
 | FR-025 QR from a picture | Done | Screenshot or photo, in the app and the CLI; paste from clipboard too |
 | FR-030 – FR-034 Selecting and sending | Done (desktop) | Native file/folder dialogs, drag and drop; phones stage picked files |

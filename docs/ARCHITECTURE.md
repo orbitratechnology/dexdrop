@@ -94,6 +94,17 @@ The private key is stored in an app-private file (mode 0600 on Unix).
 Moving it to the OS keystore (Keychain, Android Keystore, DPAPI, Secret
 Service) is open work.
 
+## Code pairing (SPAKE2)
+
+A typed code is 40 bits, too short to send to whoever claims to show one or
+to expose to offline guessing. The sender never sends it: both sides run
+SPAKE2 (`spake2` crate, Ed25519 group) with the code, and each proves it
+derived the same key with a BLAKE3 MAC over TLS exporter material of that
+session (`pairing.rs`). The sender only offers files to a device whose proof
+verifies; the receiver only counts the sender as invited after the sender's
+proof. Every attempt counts against the code from the moment it starts
+(5 in total, including ones that hang up), and a proven code is used up.
+
 ## Protocol
 
 See `crates/dexdrop-core/src/protocol.rs`. Length-prefixed postcard frames
