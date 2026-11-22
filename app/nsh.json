@@ -11,7 +11,17 @@
   "ios": {
     "infoPlist": {
       "NSLocalNetworkUsageDescription": "DexDrop finds your other devices on this network and sends files to them directly.",
-      "NSBonjourServices": ["_dexdrop._tcp"]
+      "NSBonjourServices": [
+        "_dexdrop._tcp"
+      ]
+    }
+  },
+  "macos": {
+    "infoPlist": {
+      "NSLocalNetworkUsageDescription": "DexDrop finds your other devices on this network and sends files to them directly.",
+      "NSBonjourServices": [
+        "_dexdrop._tcp"
+      ]
     }
   },
   "android": {

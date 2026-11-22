@@ -112,6 +112,40 @@ def screenshot(path: Path) -> bool:
         return False
 
 
+ALLOW_SCRIPT = """
+tell application "System Events"
+  repeat with proc in (every process)
+    try
+      repeat with w in (every window of proc)
+        if exists (button "Allow" of w) then
+          click button "Allow" of w
+          return name of proc
+        end if
+      end repeat
+    end try
+  end repeat
+end tell
+return ""
+"""
+
+
+def allow_local_network(timeout: float = 25) -> str:
+    """Answers macOS's "Allow … to find devices on local networks?" prompt,
+    as a person would the first time. Returns the process that showed it, or
+    "" when it could not be answered (no prompt, or UI scripting refused)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            res = run(["osascript", "-e", ALLOW_SCRIPT], timeout=30)
+            shown_by = res.stdout.strip()
+            if shown_by:
+                return shown_by
+        except Exception:
+            pass
+        time.sleep(2)
+    return ""
+
+
 def write_payload(src: Path) -> dict:
     """Files to send, by relative path."""
     files = {
@@ -204,6 +238,18 @@ def main() -> None:
         time.sleep(4)  # let the window render
         if screenshot(args.out / "01-started.png"):
             check.note("- Screenshot: `01-started.png`")
+        require_discovery = args.require_discovery
+        if platform.system() == "Darwin":
+            # macOS asks the user before an app may use the local network.
+            shown_by = allow_local_network()
+            if shown_by:
+                check.note(f'- Answered "Allow" to the local-network prompt ({shown_by})')
+                time.sleep(3)
+                if screenshot(args.out / "01b-allowed.png"):
+                    check.note("- Screenshot: `01b-allowed.png`")
+            else:
+                check.note("- WARNING: could not answer the local-network prompt; discovery not required")
+                require_discovery = False
 
         # Discovery: does the CLI see the app on the network?
         peers = run([cli, "--state", cli_state, "peers", "--wait", "6"])
@@ -211,7 +257,7 @@ def main() -> None:
         if APP_NAME in peers.stdout:
             target = APP_NAME
             check.note(f'- Discovery: the CLI sees "{APP_NAME}"')
-        elif args.require_discovery:
+        elif require_discovery:
             check.note(f'FAILED: discovery: the CLI does not see "{APP_NAME}" (cli-peers.log)')
             return
         else:
