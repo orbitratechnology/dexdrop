@@ -894,12 +894,12 @@ async fn one_unanswered_request_per_device_and_withdrawn_requests_leave_no_trace
     assert!(history.entries.is_empty(), "{:?}", history.entries);
 }
 
-/// A fake device that advertises an open code over mDNS and records
+/// A fake device that advertises an open code nearby and records
 /// whether anyone offered it files.
 async fn impostor() -> (
     dexdrop_core::PeerId,
     std::sync::Arc<std::sync::atomic::AtomicBool>,
-    mdns_sd::ServiceDaemon,
+    dexdrop_net::discovery::Discovery,
 ) {
     use dexdrop_core::protocol::{Hello, Message, Pairing};
     use dexdrop_net::{tls, wire};
@@ -936,28 +936,19 @@ async fn impostor() -> (
             });
         }
     });
-    let daemon = mdns_sd::ServiceDaemon::new().unwrap();
-    let ids = id.to_string();
-    let instance = format!("dexdrop-{}", &ids[..16]);
-    let props = [
-        ("v", "1"),
-        ("id", ids.as_str()),
-        ("n", "Bob"),
-        ("p", "linux"),
-        ("c", "1"),
-    ];
-    let info = mdns_sd::ServiceInfo::new(
-        dexdrop_core::SERVICE_TYPE,
-        &instance,
-        &format!("{instance}.local."),
-        "",
-        port,
-        &props[..],
-    )
-    .unwrap()
-    .enable_addr_auto();
-    daemon.register(info).unwrap();
-    (id, offered, daemon)
+    // Advertised like a real device, through this platform's discovery.
+    let (events, _) = tokio::sync::mpsc::unbounded_channel();
+    let mut discovery = dexdrop_net::discovery::Discovery::start(id, events).unwrap();
+    discovery
+        .advertise(&dexdrop_net::discovery::Advertisement {
+            peer_id: id,
+            name: "Bob".into(),
+            platform: "linux".into(),
+            port,
+            code_open: true,
+        })
+        .unwrap();
+    (id, offered, discovery)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -989,8 +980,14 @@ async fn a_device_faking_an_open_code_gets_nothing() {
         }
     }
     if !both {
-        eprintln!("skipped: mDNS discovery is not available here");
-        return;
+        // The system's Bonjour service is always there on a Mac.
+        #[cfg(target_os = "macos")]
+        panic!("Bonjour discovery found neither device");
+        #[cfg(not(target_os = "macos"))]
+        {
+            eprintln!("skipped: mDNS discovery is not available here");
+            return;
+        }
     }
     let src = tempfile::tempdir().unwrap();
     write_file(&src.path().join("secret.pdf"), 50_000, 4);
