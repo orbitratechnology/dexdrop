@@ -299,11 +299,23 @@ pub enum Event {
     Request(IncomingRequest),
     RequestClosed(TransferId),
     Invitation(InvitationView),
-    Code { code: String, expires: u64 },
+    Code {
+        code: String,
+        expires: u64,
+    },
     InvitationsClosed,
+    /// A device connected with this device's code (`code`) or its QR/link
+    /// invitation; that code or invitation no longer works.
+    PairingUsed {
+        code: bool,
+        by: String,
+    },
     Trusted(Vec<TrustedPeer>),
     History(Vec<HistoryEntry>),
-    Notice { kind: NoticeKind, text: String },
+    Notice {
+        kind: NoticeKind,
+        text: String,
+    },
     Diagnostics(String),
     Stopped,
 }

@@ -56,6 +56,10 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
                 .await?;
                 return Ok(());
             }
+            let _ = ctx.internal.send(Internal::PairingUsed {
+                code: matches!(pairing, dexdrop_core::protocol::Pairing::Code(_)),
+                by: hello.device_name.clone(),
+            });
             true
         }
         None => false,

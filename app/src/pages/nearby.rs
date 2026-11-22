@@ -406,6 +406,14 @@ pub fn receive_sheet() -> impl IntoElement {
                 .selectable(true)
                 .label("Pairing code"),
         )
+        // A code works once: after it is used, offer a fresh one.
+        .child(when(
+            move || model().with(|m| m.code.is_none()),
+            || {
+                btn("Show a new code", Variant::Secondary)
+                    .on_press(|| bridge::send(Command::CreateCode))
+            },
+        ))
         .child(dynamic(move || {
             invitation().map(|inv| {
                 view()

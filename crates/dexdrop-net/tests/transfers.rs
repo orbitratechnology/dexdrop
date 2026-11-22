@@ -394,3 +394,47 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
     out
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_used_code_is_reported_and_closed() {
+    use dexdrop_core::protocol::{Hello, Message, Pairing};
+    let mut b = Node::start("Bob").await;
+    b.send(Command::CreateCode);
+    let code = b
+        .wait("a code", |e| match e {
+            Event::Code { code, .. } => Some(code.clone()),
+            _ => None,
+        })
+        .await;
+    // Connect as a sender presenting the code (the handshake only).
+    let identity = dexdrop_core::Identity::generate().unwrap();
+    let tls = dexdrop_net::tls::TlsContext::new(&identity).unwrap();
+    let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
+    let (mut stream, _) = dexdrop_net::tls::connect(&tls, tcp).await.unwrap();
+    let hello = Hello::new("Mallory", "linux", Some(Pairing::Code(code.clone())));
+    dexdrop_net::wire::send(&mut stream, &Message::Hello(hello.clone()))
+        .await
+        .unwrap();
+    assert!(matches!(
+        dexdrop_net::wire::read_msg(&mut stream).await.unwrap(),
+        Message::Hello(_)
+    ));
+    let (code_used, by) = b
+        .wait("the code to be reported used", |e| match e {
+            Event::PairingUsed { code, by } => Some((*code, by.clone())),
+            _ => None,
+        })
+        .await;
+    assert!(code_used);
+    assert_eq!(by, "Mallory");
+    // The same code does not work twice.
+    let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
+    let (mut again, _) = dexdrop_net::tls::connect(&tls, tcp).await.unwrap();
+    dexdrop_net::wire::send(&mut again, &Message::Hello(hello))
+        .await
+        .unwrap();
+    assert_eq!(
+        dexdrop_net::wire::read_msg(&mut again).await.unwrap(),
+        Message::Reject(dexdrop_core::protocol::RejectReason::InvitationInvalid)
+    );
+}

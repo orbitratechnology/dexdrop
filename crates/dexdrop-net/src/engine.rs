@@ -321,6 +321,11 @@ pub(crate) enum Internal {
     Offer(Box<OfferArrived>),
     /// The sender of a pending request went away.
     RequestGone(TransferId),
+    /// A code or invitation was used to connect.
+    PairingUsed {
+        code: bool,
+        by: String,
+    },
     /// An incoming session ended.
     IncomingEnded {
         id: TransferId,
@@ -958,6 +963,11 @@ impl Actor {
         match message {
             Internal::Discovery(event) => self.discovery_event(event),
             Internal::Offer(arrived) => self.offer_arrived(*arrived),
+            Internal::PairingUsed { code, by } => {
+                // The code's flag leaves the advertisement at once.
+                self.readvertise();
+                self.emit(Event::PairingUsed { code, by });
+            }
             Internal::RequestGone(id) => {
                 if let Some(t) = self.transfers.get_mut(&id)
                     && t.snap.state == TransferState::Requested

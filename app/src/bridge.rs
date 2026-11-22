@@ -155,6 +155,20 @@ fn apply(event: Event) {
         Event::RequestClosed(id) => model().update(|m| m.requests.retain(|r| r.id != id)),
         Event::Invitation(view) => model().update(|m| m.invitation = Some(view)),
         Event::Code { code, expires } => model().update(|m| m.code = Some((code, expires))),
+        Event::PairingUsed { code, by } => {
+            model().update(|m| {
+                if code {
+                    m.code = None;
+                } else {
+                    m.invitation = None;
+                }
+            });
+            let what = if code { "code" } else { "invitation" };
+            toast(
+                NoticeKind::Info,
+                format!("{by} used your {what}. You'll be asked before anything is saved."),
+            );
+        }
         Event::InvitationsClosed => model().update(|m| {
             m.invitation = None;
             m.code = None;
