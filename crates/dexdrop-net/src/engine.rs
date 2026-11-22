@@ -526,7 +526,7 @@ impl Actor {
     /// Loads interrupted transfers from disk (resume after restart).
     fn restore(&mut self) {
         let now = unix_now();
-        for journal in self.ctx.state.incoming().list::<ReceiveJournal>() {
+        for journal in self.ctx.state.incoming().list_journals() {
             if now.saturating_sub(journal.created) > STALE_JOURNAL_SECS {
                 remove_partials(&journal);
                 let _ = self.ctx.state.incoming().remove(&journal.transfer_id);
@@ -884,7 +884,7 @@ impl Actor {
         // Not connected: clean up locally.
         match t.snap.direction {
             Direction::Incoming => {
-                if let Ok(Some(journal)) = self.ctx.state.incoming().load::<ReceiveJournal>(&id) {
+                if let Ok(Some(journal)) = self.ctx.state.incoming().load_journal(&id) {
                     remove_partials(&journal);
                 }
                 let _ = self.ctx.state.incoming().remove(&id);
@@ -951,7 +951,7 @@ impl Actor {
     fn start_incoming(
         &mut self,
         id: TransferId,
-        journal: ReceiveJournal,
+        mut journal: ReceiveJournal,
         decide: oneshot::Sender<Decision>,
     ) {
         let Some(t) = self.transfers.get_mut(&id) else {
@@ -963,7 +963,7 @@ impl Actor {
         *lock(&t.live) = Live::default();
         t.snap.saved_to = Some(journal.destination.clone());
         t.snap.state = TransferState::Transferring;
-        let _ = self.ctx.state.incoming().save(&id, &journal);
+        let _ = self.ctx.state.incoming().save_journal(&mut journal);
         let decision = Decision::Accept {
             journal: Box::new(journal),
             live: t.live.clone(),
@@ -1166,7 +1166,7 @@ impl Actor {
         let id = offer.offer.transfer_id;
 
         // A transfer this device accepted before: resume without asking.
-        if let Ok(Some(journal)) = self.ctx.state.incoming().load::<ReceiveJournal>(&id) {
+        if let Ok(Some(journal)) = self.ctx.state.incoming().load_journal(&id) {
             let digest = dexdrop_core::protocol::manifest_digest(
                 &id,
                 offer.offer.chunk_size,
@@ -1617,6 +1617,7 @@ fn new_journal(
         created: unix_now(),
         renames,
         files: Default::default(),
+        log_generation: 0,
     }
 }
 

@@ -220,7 +220,7 @@ async fn pauses_and_resumes_without_starting_over() {
 
     // The receiver journaled verified progress.
     let journal: ReceiveJournal = dexdrop_core::journal::RecordDir::new(b.state().join("incoming"))
-        .load(&id)
+        .load_journal(&id)
         .unwrap()
         .expect("a journal while paused");
     let verified = journal.verified_bytes();
@@ -265,7 +265,7 @@ async fn pauses_and_resumes_without_starting_over() {
     );
     assert!(
         dexdrop_core::journal::RecordDir::new(b.state().join("incoming"))
-            .load::<ReceiveJournal>(&id)
+            .load_journal(&id)
             .unwrap()
             .is_none()
     );
@@ -712,7 +712,7 @@ async fn resumes_on_its_own_after_the_connection_drops() {
     })
     .await;
     let journal: ReceiveJournal = dexdrop_core::journal::RecordDir::new(b.state().join("incoming"))
-        .load(&id)
+        .load_journal(&id)
         .unwrap()
         .expect("a journal after the drop");
     let verified = journal.verified_bytes();

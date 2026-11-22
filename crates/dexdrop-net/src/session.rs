@@ -17,7 +17,7 @@ use std::{
 };
 
 use dexdrop_core::{
-    journal::{FileProgress, FileState, ReceiveJournal, RecordDir, partial_path},
+    journal::{FileProgress, FileState, JournalWriter, ReceiveJournal, RecordDir, partial_path},
     manifest::{Manifest, mtime_of},
     naming::{self, ConflictPolicy},
     pathsafe,
@@ -891,7 +891,7 @@ where
 
     let fin = Finisher {
         shared: shared.clone(),
-        journal: Arc::new(Mutex::new(journal)),
+        journal: Arc::new(Mutex::new(JournalWriter::new(records, journal))),
         live: live.clone(),
         entries: offer.entries.clone(),
         commits: Arc::new(Semaphore::new(COMMITS)),
@@ -900,7 +900,6 @@ where
     let mut receiver = Receiver {
         offer: &offer,
         fin: fin.clone(),
-        records: &records,
         shared: &shared,
         live: &live,
         current: None,
@@ -920,9 +919,12 @@ where
         let _ = shared.writer.send(Message::OutOfSpace);
         result = Ok(SessionEnd::OutOfSpace { by_peer: false });
     }
-    let journal = fin.journal().clone();
+    let journal = {
+        let mut writer = fin.journal();
+        let _ = writer.save();
+        (**writer).clone()
+    };
     drop(fin);
-    let _ = records.save(&journal.transfer_id, &journal);
     // Let final messages (Complete, Pause, Cancel) reach the sender.
     drop(shared);
     drop(_planner);
@@ -1074,7 +1076,7 @@ const COMMITS: usize = 8;
 #[derive(Clone)]
 struct Finisher {
     shared: Arc<Shared>,
-    journal: Arc<Mutex<ReceiveJournal>>,
+    journal: Arc<Mutex<JournalWriter>>,
     live: LiveCell,
     entries: Arc<Vec<WireEntry>>,
     commits: Arc<Semaphore>,
@@ -1082,7 +1084,7 @@ struct Finisher {
 }
 
 impl Finisher {
-    fn journal(&self) -> std::sync::MutexGuard<'_, ReceiveJournal> {
+    fn journal(&self) -> std::sync::MutexGuard<'_, JournalWriter> {
         self.journal.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -1115,7 +1117,7 @@ impl Finisher {
         }
         {
             let mut journal = self.journal();
-            let progress = journal.files.entry(index).or_default();
+            let progress = journal.file_mut(index);
             progress.temp = None;
             match result {
                 Ok(saved) => {
@@ -1137,7 +1139,6 @@ impl Finisher {
 struct Receiver<'a> {
     offer: &'a ReceivedOffer,
     fin: Finisher,
-    records: &'a RecordDir,
     shared: &'a Arc<Shared>,
     live: &'a LiveCell,
     current: Option<Current>,
@@ -1245,7 +1246,7 @@ impl Receiver<'_> {
             return Err(protocol_err("data from an offset not requested"));
         }
         if offset == 0 && size <= u64::from(self.offer.offer.chunk_size) {
-            self.fin.journal().files.insert(
+            self.fin.journal().set_file(
                 index,
                 FileProgress {
                     verified: 0,
@@ -1313,7 +1314,7 @@ impl Receiver<'_> {
             .await
             .map_err(SessionError::Disk)?;
 
-        self.fin.journal().files.insert(
+        self.fin.journal().set_file(
             index,
             FileProgress {
                 verified: offset,
@@ -1405,13 +1406,10 @@ impl Receiver<'_> {
                 } else {
                     cur.offset / chunk * chunk
                 };
-                if let Some(progress) = self.fin.journal().files.get_mut(&cur.index) {
-                    progress.verified = verified;
-                }
+                self.fin.journal().file_mut(cur.index).verified = verified;
             }
         }
-        let snapshot = self.fin.journal().clone();
-        let _ = self.records.save(&snapshot.transfer_id, &snapshot);
+        let _ = self.fin.journal().save();
         self.last_save = Instant::now();
     }
 
@@ -1444,9 +1442,7 @@ impl Receiver<'_> {
                         ..planned
                     },
                 );
-                if let Some(progress) = self.fin.journal().files.get_mut(&index) {
-                    progress.verified = 0;
-                }
+                self.fin.journal().file_mut(index).verified = 0;
                 let _ = self.shared.writer.send(Message::Want { index, offset: 0 });
                 return Ok(());
             }

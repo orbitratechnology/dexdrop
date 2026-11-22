@@ -125,6 +125,7 @@ fn plan(dir: &std::path::Path, received: session::ReceivedOffer) -> ReceivePlan 
         created: 0,
         renames: BTreeMap::new(),
         files: BTreeMap::new(),
+        log_generation: 0,
     };
     ReceivePlan {
         offer: received,

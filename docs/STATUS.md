@@ -50,8 +50,8 @@ on Linux; other platforms are built in CI but not yet run on devices.
 
 ## Tests
 
-- `dexdrop-core`: 34 unit tests (protocol bounds, path traversal and reserved
-  names including `CONIN$` and `COM¹`, invitations and codes, journals,
+- `dexdrop-core`: 36 unit tests (protocol bounds, path traversal and reserved
+  names including `CONIN$` and `COM¹`, invitations and codes, journals (log replay, stale and torn lines),
   bounded "keep both" naming, manifests, identity).
 - `dexdrop-net`: 19 end-to-end tests over real TLS on loopback (consent,
   decline, no silent overwrite, skip policy, "keep both" never merging into a
@@ -68,10 +68,11 @@ on Linux; other platforms are built in CI but not yet run on devices.
 
 ## Security review follow-up
 
-All findings of the internal review are fixed and covered by tests, except:
+All findings of the internal review are fixed and covered by tests. The
+receive journal is a snapshot plus an append-only log of changed files: for
+200,000 files a periodic save takes about 3 ms instead of rewriting 32 MB
+(`cargo run --release -p dexdrop-core --example journal_cost`). Open:
 
-- The receive journal is rewritten whole every 2 s; for manifests with
-  hundreds of thousands of files this costs CPU. An append-only log would fix it.
 - A local user who can swap folders inside the destination between the
   symbolic-link check and the final rename could redirect one file. Temporary
   files are created with `O_EXCL | O_NOFOLLOW`; a full fix needs `openat`-style

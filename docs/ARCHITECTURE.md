@@ -126,6 +126,12 @@ whole-file hash still covers it. Verified files are committed with a
 no-clobber hard link (rename fallback) for "keep both" and "skip", or a
 replacing rename for "replace".
 
+The journal is stored as a snapshot plus an append-only log of the files
+that changed since, so a save costs what changed rather than the whole
+manifest. Log lines carry the snapshot's generation: lines older than the
+snapshot, or cut short by a crash, are ignored on load. The log is folded
+into a new snapshot once it has as many lines as the journal has files.
+
 ## Discovery
 
 `mdns-sd` advertises `_dexdrop._tcp.local.` with TXT `v`, `id`, `n`, `p`, `c`
