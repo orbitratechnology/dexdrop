@@ -97,7 +97,7 @@ fi
 tap "Copy invitation" || fail "could not copy the invitation"
 invitation=$(xcrun simctl pbpaste "$udid")
 case "$invitation" in DEXDROP1:*) ;; *) fail "the clipboard holds no invitation" ;; esac
-tap Done >/dev/null 2>&1 || true
+# The sheet stays open: "Done" ends the code and the invitation.
 
 # Does the Mac see the app on the network? Code pairing depends on it.
 state=$(mktemp -d)
@@ -117,6 +117,13 @@ head -c 3000000 /dev/urandom >"$payload"
 send_with() {
   "$cli" --state "$state" send "$1" "$payload" >"$out/cli-send-$2.log" 2>&1 &
   local sender=$! accepted=no
+  # Once the CLI is connected and waiting, close the sheet to reach Accept.
+  for _ in $(seq 1 30); do
+    grep -q 'to accept' "$out/cli-send-$2.log" 2>/dev/null && break
+    kill -0 "$sender" 2>/dev/null || break
+    sleep 1
+  done
+  tap Done >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     if tap Accept; then
       accepted=yes
