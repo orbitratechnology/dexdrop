@@ -1248,16 +1248,29 @@ impl Receiver<'_> {
             });
             return Ok(());
         }
+        let root = self.fin.journal().destination.clone();
         if let Some(parent) = planned.temp.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(SessionError::Disk)?;
         }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
+        // Checked again now, not only when planned: a link planted since
+        // must not redirect the write (local attackers, FR-045).
+        // (The folders: a link at the temporary name itself is removed or
+        // refused by the exclusive, non-following open below.)
+        pathsafe::ensure_no_symlinks(&root, planned.temp.parent().unwrap_or(&root))
+            .map_err(|e| SessionError::Disk(std::io::Error::other(e.to_string())))?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true);
+        if offset == 0 {
+            // A fresh file: whatever has that name (a stale temp, a planted
+            // link) is removed and the file created exclusively.
+            let _ = tokio::fs::remove_file(&planned.temp).await;
+            options.create_new(true);
+        }
+        #[cfg(unix)]
+        options.custom_flags(libc_nofollow());
+        let mut file = options
             .open(&planned.temp)
             .await
             .map_err(SessionError::Disk)?;
@@ -1455,11 +1468,12 @@ impl Receiver<'_> {
             .map_err(|_| protocol_err("the session is closing"))?;
         let fin = self.fin.clone();
         let counted = cur.counted;
+        let root = self.fin.journal().destination.clone();
         tokio::spawn(async move {
             let cleanup = temp.clone();
             let committed = tokio::task::spawn_blocking(move || {
                 if let Some(bytes) = small {
-                    write_synced(&temp, &bytes)?;
+                    write_synced(&root, &temp, &bytes)?;
                 }
                 commit(&temp, &target, conflict)
             })
@@ -1511,17 +1525,39 @@ impl Receiver<'_> {
 }
 
 /// Writes `bytes` to the temporary file `temp` and flushes it to disk.
-fn write_synced(temp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+fn write_synced(root: &Path, temp: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(parent) = temp.parent()
         && !parent.is_dir()
     {
         std::fs::create_dir_all(parent)?;
     }
-    let mut file = std::fs::File::create(temp)?;
+    pathsafe::ensure_no_symlinks(root, temp.parent().unwrap_or(root))
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let _ = std::fs::remove_file(temp);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc_nofollow());
+    }
+    let mut file = options.open(temp)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
+
+/// `O_NOFOLLOW`: opening fails if the last component is a symbolic link.
+/// (Its value differs between architectures, so it comes from libc.)
+#[cfg(unix)]
+fn libc_nofollow() -> i32 {
+    libc::O_NOFOLLOW
+}
+
+/// Serializes the rename fallback of "keep both": where hard links are not
+/// supported (FAT, some Android storage) a free name is checked and then
+/// renamed to, which must not race with another commit in this process.
+static RENAME_FALLBACK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Moves a verified temporary file to its final place (FR-046). Blocking.
 fn commit(temp: &Path, planned: &Path, conflict: ConflictPolicy) -> std::io::Result<PathBuf> {
@@ -1550,6 +1586,7 @@ fn commit(temp: &Path, planned: &Path, conflict: ConflictPolicy) -> std::io::Res
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
                     Err(_) => {
+                        let _guard = RENAME_FALLBACK.lock().unwrap_or_else(|e| e.into_inner());
                         if std::fs::symlink_metadata(&target).is_err() {
                             std::fs::rename(temp, &target)?;
                             return Ok(target);

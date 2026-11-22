@@ -153,6 +153,22 @@ pub fn resolve(root: &Path, components: &[String]) -> Result<PathBuf, PathError>
     Ok(path)
 }
 
+/// Fails if any existing component of `path` below `root` is a symbolic
+/// link. Checked again right before writing, not only when planning.
+pub fn ensure_no_symlinks(root: &Path, path: &Path) -> Result<(), PathError> {
+    let rel = path.strip_prefix(root).map_err(|_| PathError::Escapes)?;
+    let mut at = root.to_path_buf();
+    for component in rel.components() {
+        at.push(component);
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.file_type().is_symlink() => return Err(PathError::Symlink),
+            Ok(_) => {}
+            Err(_) => break, // Not created yet: nothing below can be a link.
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

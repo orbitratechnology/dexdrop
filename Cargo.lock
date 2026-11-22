@@ -1142,6 +1142,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "if-addrs",
+ "libc",
  "mdns-sd",
  "rustls",
  "serde",

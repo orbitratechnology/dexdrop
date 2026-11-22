@@ -147,18 +147,23 @@ pub fn partial_path(final_path: &Path, transfer_id: &TransferId, index: u32) -> 
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let short = &hex(transfer_id)[..8];
-    let mut temp = final_path.to_path_buf();
-    let mut stem = format!(".{name}.{short}-{index}");
-    // Keep within common filename limits.
-    if stem.len() > 200 {
-        let mut end = 200;
-        while !stem.is_char_boundary(end) {
+    // Only the name part is shortened, never the transfer ID and index that
+    // make the temporary file unique (the sender picks the ID, so all of it
+    // is kept). Stays well under the common 255-byte name limit.
+    const NAME_BYTES: usize = 150;
+    let mut name = name;
+    if name.len() > NAME_BYTES {
+        let mut end = NAME_BYTES;
+        while !name.is_char_boundary(end) {
             end -= 1;
         }
-        stem.truncate(end);
+        name.truncate(end);
     }
-    temp.set_file_name(format!("{stem}{PARTIAL_SUFFIX}"));
+    let mut temp = final_path.to_path_buf();
+    temp.set_file_name(format!(
+        ".{name}.{}-{index}{PARTIAL_SUFFIX}",
+        hex(transfer_id)
+    ));
     temp
 }
 
@@ -206,6 +211,20 @@ mod tests {
     #[test]
     fn partial_paths_are_hidden_siblings() {
         let p = partial_path(Path::new("/d/photo.jpg"), &[0xab; 16], 3);
-        assert_eq!(p, Path::new("/d/.photo.jpg.abababab-3.dexdrop-part"));
+        assert_eq!(
+            p,
+            Path::new("/d/.photo.jpg.abababababababababababababababab-3.dexdrop-part")
+        );
+        // Long names that share a prefix never share a temporary file.
+        let long_a = format!("{}A.txt", "日本".repeat(60));
+        let long_b = format!("{}B.txt", "日本".repeat(60));
+        let a = partial_path(&Path::new("/d").join(&long_a), &[1; 16], 0);
+        let b = partial_path(&Path::new("/d").join(&long_b), &[1; 16], 1);
+        let c = partial_path(&Path::new("/d").join(&long_a), &[2; 16], 0);
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        for p in [a, b, c] {
+            assert!(p.file_name().unwrap().len() < 255);
+        }
     }
 }

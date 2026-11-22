@@ -1,6 +1,6 @@
 //! A misbehaving peer, played by hand over an in-memory stream (PRD 13.4).
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 
 use dexdrop_core::{
     PeerId,
@@ -417,4 +417,120 @@ async fn senders_refuse_results_for_files_never_sent() {
         .expect("ends")
         .unwrap();
     assert!(end.unwrap_err().to_string().contains("not sent"));
+}
+
+/// Sends one small file through a hand-driven session.
+async fn send_one(sender: &mut tokio::io::DuplexStream, data: &[u8]) {
+    wire::write_msg(
+        sender,
+        &Message::FileStart {
+            index: 0,
+            offset: 0,
+        },
+    )
+    .await
+    .unwrap();
+    for (i, piece) in data.chunks(protocol::MIN_CHUNK_SIZE as usize).enumerate() {
+        let header = ChunkHeader {
+            index: 0,
+            offset: (i * protocol::MIN_CHUNK_SIZE as usize) as u64,
+            len: piece.len() as u32,
+            hash: protocol::chunk_hash(piece),
+        };
+        wire::write_msg(sender, &Message::Chunk(header))
+            .await
+            .unwrap();
+        sender.write_all(piece).await.unwrap();
+    }
+    wire::send(
+        sender,
+        &Message::FileEnd {
+            index: 0,
+            hash: *blake3::hash(data).as_bytes(),
+        },
+    )
+    .await
+    .unwrap();
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn a_planted_link_at_the_temp_path_is_never_followed() {
+    for size in [16usize, 300_000] {
+        planted_link(size).await;
+    }
+}
+
+#[cfg(unix)]
+async fn planted_link(size: usize) {
+    let outside = tempfile::tempdir().unwrap();
+    let victim = outside.path().join("victim.txt");
+    std::fs::write(&victim, b"precious").unwrap();
+
+    let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+    let entries = vec![file("a.txt", data.len() as u64)];
+    let received = offered(entries, |_| {}).await.unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("dl");
+    std::fs::create_dir_all(&dest).unwrap();
+    // A local attacker predicts the temporary name and plants a link there.
+    let temp =
+        dexdrop_core::journal::partial_path(&dest.join("a.txt"), &received.offer.transfer_id, 0);
+    std::os::unix::fs::symlink(&victim, &temp).unwrap();
+
+    let (mut sender, receiver) = tokio::io::duplex(1 << 20);
+    let live = Arc::new(std::sync::Mutex::new(Live::default()));
+    let (_control_tx, control) = watch::channel(Control::Run);
+    let session = tokio::spawn(session::run_receiver(
+        receiver,
+        plan(dir.path(), received),
+        live,
+        control,
+    ));
+    assert!(matches!(
+        wire::read_msg(&mut sender).await.unwrap(),
+        Message::Want { .. }
+    ));
+    send_one(&mut sender, &data).await;
+    loop {
+        match wire::read_msg_within(&mut sender, Duration::from_secs(5))
+            .await
+            .unwrap()
+        {
+            Message::Complete => break,
+            Message::FileResult { failure, .. } => assert_eq!(failure, None),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    drop(sender);
+    let (end, _) = session.await.unwrap();
+    assert_eq!(end.unwrap(), SessionEnd::Completed);
+    assert_eq!(
+        std::fs::read(&victim).unwrap(),
+        b"precious",
+        "the link target was written"
+    );
+    let saved = dest.join("a.txt");
+    assert!(
+        !std::fs::symlink_metadata(&saved)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read(&saved).unwrap(), data);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinks_are_found_again_right_before_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("Project")).unwrap();
+    let target = dir.path().join("Project/src/.main.rs.part");
+    assert!(dexdrop_core::pathsafe::ensure_no_symlinks(dir.path(), &target).is_ok());
+    // A folder replaced by a link after planning is caught.
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("Project/src")).unwrap();
+    assert!(dexdrop_core::pathsafe::ensure_no_symlinks(dir.path(), &target).is_err());
+    assert!(
+        dexdrop_core::pathsafe::ensure_no_symlinks(dir.path(), Path::new("/etc/passwd")).is_err()
+    );
 }
