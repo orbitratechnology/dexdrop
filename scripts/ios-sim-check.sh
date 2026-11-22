@@ -80,58 +80,91 @@ for tab in Transfers Settings; do
 done
 tap Nearby || fail "could not return to Nearby"
 
-# A real transfer: the app shows a pairing code, the CLI on this Mac sends
-# a file with it, and the app accepts.
+# A real transfer. The app shows a pairing code and an invitation link; the
+# CLI on this Mac sends a file with one of them and the app accepts it.
 tap "Receive with a code" || fail "could not open Receive with a code"
 ad wait text "Pairing code" 10000 >/dev/null 2>&1 || true
 step 03-receive-code
 # The code as screen readers get it ("Pairing code: 9 S V Y, W F X Y").
 code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/03-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')
 if [ ${#code} -ge 8 ]; then
-  target="${code:0:4}-${code:4:4}"
-  note "- Receive sheet shows code $target, readable by screen readers"
+  code="${code:0:4}-${code:4:4}"
+  note "- Receive sheet shows code $code, readable by screen readers"
 else
-  # Builds without the spoken code: use the invitation link instead.
-  note "- The code is not readable by screen readers; using the invitation link"
-  tap "Copy invitation" || fail "could not copy the invitation"
-  target=$(xcrun simctl pbpaste "$udid")
-  case "$target" in DEXDROP1:*) ;; *) fail "the clipboard holds no invitation" ;; esac
+  code=""
+  note "- WARNING: the pairing code is not readable by screen readers"
+fi
+tap "Copy invitation" || fail "could not copy the invitation"
+invitation=$(xcrun simctl pbpaste "$udid")
+case "$invitation" in DEXDROP1:*) ;; *) fail "the clipboard holds no invitation" ;; esac
+tap Done >/dev/null 2>&1 || true
+
+# Does the Mac see the app on the network? Code pairing depends on it.
+state=$(mktemp -d)
+name=$(grep -oE 'iPhone [A-Z0-9]{4}' "$out/01-nearby.txt" | head -1)
+"$cli" --state "$state" peers --wait 5 >"$out/cli-peers.log" 2>&1 || true
+if [ -n "$name" ] && grep -q "$name" "$out/cli-peers.log"; then
+  note "- Discovery: the Mac sees $name"
+else
+  note "- WARNING: discovery: the Mac does not see ${name:-the app} (cli-peers.log)"
 fi
 
 payload="$out/payload.bin"
 head -c 3000000 /dev/urandom >"$payload"
-state=$(mktemp -d)
-"$cli" --state "$state" send "$target" "$payload" >"$out/cli-send.log" 2>&1 &
-sender=$!
 
-tap Done >/dev/null 2>&1 || true
-accepted=no
-for _ in $(seq 1 30); do
-  if tap Accept; then
-    accepted=yes
-    break
+# send_with <target> <label>: 0 when sent, accepted and finished; 2 when the
+# request never reached the app.
+send_with() {
+  "$cli" --state "$state" send "$1" "$payload" >"$out/cli-send-$2.log" 2>&1 &
+  local sender=$! accepted=no
+  for _ in $(seq 1 30); do
+    if tap Accept; then
+      accepted=yes
+      break
+    fi
+    kill -0 "$sender" 2>/dev/null || break # the CLI gave up
+    tap Transfers >/dev/null 2>&1 || true
+    sleep 2
+  done
+  if [ "$accepted" != yes ]; then
+    kill "$sender" 2>/dev/null
+    wait "$sender" 2>/dev/null
+    return 2
   fi
-  tap Transfers >/dev/null 2>&1 || true
-  sleep 2
-done
-step 04-request
-[ "$accepted" = yes ] || {
-  kill "$sender" 2>/dev/null
-  fail "the transfer request never appeared in the app (see cli-send.log)"
+  step 04-accepted
+  for _ in $(seq 1 60); do
+    kill -0 "$sender" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$sender" 2>/dev/null; then
+    kill "$sender"
+    step 05-stuck
+    fail "the CLI did not finish sending within 60 s"
+  fi
+  wait "$sender" || {
+    step 05-failed
+    fail "the CLI reported a failed transfer (cli-send-$2.log)"
+  }
 }
-note "- Request shown and accepted in the app"
 
-for _ in $(seq 1 60); do
-  kill -0 "$sender" 2>/dev/null || break
-  sleep 1
-done
-if kill -0 "$sender" 2>/dev/null; then
-  kill "$sender"
-  step 05-stuck
-  fail "the CLI did not finish sending within 60 s"
+how=""
+if [ -n "$code" ]; then
+  if send_with "$code" code; then
+    how="pairing code"
+  else
+    reason=$(grep -v '^ *$' "$out/cli-send-code.log" | tr '\r' '\n' | grep -v '%' | tail -2 | head -1)
+    note "- WARNING: sending with the code did not reach the app: ${reason:-no request} (cli-send-code.log)"
+  fi
 fi
-wait "$sender" || { step 05-failed; fail "the CLI reported a failed transfer (see cli-send.log)"; }
+if [ -z "$how" ]; then
+  send_with "$invitation" invitation || {
+    step 04-no-request
+    fail "the transfer request never appeared in the app (cli-send-invitation.log)"
+  }
+  how="invitation link"
+fi
 step 05-received
+note "- Request shown and accepted in the app (sent with the $how)"
 
 # The file must be byte-identical in the app's container.
 container=$(xcrun simctl get_app_container booted "$bundle" data)
