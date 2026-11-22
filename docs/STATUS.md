@@ -13,7 +13,7 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
 | Windows | Done in CI (`nsh package --target windows`) | Engine tests and throughput bench pass on Windows in CI; the app has not been run interactively | |
 | macOS | CI on `macos-15` (free for this public repository) | Building in CI; not yet run by hand | Unsigned, local use only |
-| iOS | CI on `macos-15` (`ios-simulator`) | Verified in the iOS Simulator by agent-device on every CI run: launch, tabs, and a 3 MB file from the CLI received byte-identical (`scripts/ios-sim-check.sh`, screenshots in `docs/screenshots/ios/`) | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
+| iOS | CI on `macos-15` (`ios-simulator`) | Verified in the iOS Simulator by agent-device on every CI run (`scripts/ios-sim-check.sh`, screenshots in `docs/screenshots/ios/`): launch and tabs; the app and the CLI on the Mac discover each other; a 3 MB file sent with the pairing code (read through its screen-reader label) and a 200 KB file sent with the invitation link, both accepted in the app and received byte-identical. Not yet run on a device | Devices discover through the system's Bonjour service (`dns_sd`), declared in `NSBonjourServices` with `NSLocalNetworkUsageDescription`; the simulator build uses the mdns-sd responder, because the Mac's mDNSResponder refuses simulator apps on CI (local-network trust check) |
 
 ## Functional requirements
 
@@ -24,7 +24,7 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | FR-003 Device name | Done | Generic default `Linux PC 4F2A`, renamable |
 | FR-004 Local-network permission copy | Partial | iOS plist text set; Android flow open |
 | FR-005 Empty states | Done | Searching, unavailable, browser preview |
-| FR-010 – FR-012 Discovery, info, dedupe | Done (desktop) | mDNS; deduped by peer ID |
+| FR-010 – FR-012 Discovery, info, dedupe | Done (desktop, iOS Simulator) | System Bonjour (`dns_sd`) on macOS and iOS devices, mdns-sd on Windows, Linux and the iOS Simulator; deduped by peer ID; TXT updates in place when a code opens |
 | FR-013 Network changes | Done | Re-advertises on address change (5 s poll) |
 | FR-014 Denied permission | Partial | Fallbacks shown; platform permission flows open |
 | FR-015 Trusted devices | Done | Trust on accept, forget, per-device auto-accept |
@@ -81,10 +81,10 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 ## Known gaps worth doing next
 
-1. Run the macOS app and the Windows build interactively; extend the iOS Simulator check (sending from the app, pause/resume).
+1. Run the macOS app and the Windows build interactively; extend the iOS Simulator check (sending from the app, pause/resume); run on an iPhone (local-network permission prompt).
 2. Android: a native NSD/multicast-lock bridge and SAF file access (needs an
    NSH packaging extension), then device testing.
-3. iOS: Network-framework Bonjour adapter; Files/Photos picker; simulator tests.
+3. iOS: Files/Photos picker; share sheet entry (FR-035).
 4. Store the identity key in the OS keystore.
 5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
 6. Remote mode (Iroh with a project-owned relay) as a separately gated phase.

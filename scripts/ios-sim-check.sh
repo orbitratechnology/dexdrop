@@ -19,6 +19,14 @@ summary="$out/summary.md"
 note() { echo "$*" | tee -a "$summary"; }
 fail() {
   note "FAILED: $*"
+  # What the system's Bonjour logged, for discovery problems.
+  if [ -n "${udid:-}" ]; then
+    xcrun simctl spawn "$udid" log show --last 5m --style compact \
+      --predicate 'process == "DexDrop" OR process == "mDNSResponder"' \
+      >"$out/sim-log.txt" 2>&1 || true
+    log show --last 5m --style compact --predicate 'process == "mDNSResponder"' 2>/dev/null |
+      grep -i -E 'dexdrop|denied' | tail -200 >"$out/mac-mdns-log.txt" || true
+  fi
   # agent-device's own request logs explain a failed command.
   cp -R "$HOME/.agent-device/sessions" "$out/agent-device-sessions" 2>/dev/null || true
   [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$summary" >>"$GITHUB_STEP_SUMMARY"
@@ -85,88 +93,45 @@ rstate=$(mktemp -d)
 rdir=$(mktemp -d)
 "$cli" --state "$rstate" receive --name "CI Mac" --dir "$rdir" >"$out/cli-receive.log" 2>&1 &
 receiver=$!
-# What the Mac's own Bonjour (mDNSResponder) sees meanwhile: "CI Mac", and
-# the app if its announcements leave the simulator.
+# What the Mac's own Bonjour (mDNSResponder) lists meanwhile.
 dns-sd -B _dexdrop._tcp local. >"$out/dns-sd-browse.log" 2>&1 &
 browser=$!
 if ad wait text "CI Mac" 20000 >/dev/null 2>&1; then
-  note "- Discovery: the app sees the Mac (\"CI Mac\")"
   step 02-nearby-sees-mac
+  note "- Discovery: the app sees the Mac (\"CI Mac\")"
 else
-  note "- WARNING: discovery: the app does not see the Mac (\"CI Mac\")"
   step 02-nearby-no-mac
+  kill "$browser" "$receiver" 2>/dev/null
+  fail "discovery: the app does not see the Mac (\"CI Mac\")"
 fi
-kill "$browser" 2>/dev/null
-# Evidence for discovery problems: what the app declares, what a browser
-# inside the simulator sees, and what the system logged.
-plutil -p "$app/Info.plist" >"$out/Info.plist.txt" 2>&1 || true
-grep -q '_dexdrop._tcp' "$out/Info.plist.txt" ||
-  note "- WARNING: Info.plist does not declare _dexdrop._tcp in NSBonjourServices"
-xcrun simctl spawn "$udid" dns-sd -B _dexdrop._tcp local. >"$out/sim-dns-sd-browse.log" 2>&1 &
-sim_browser=$!
-sleep 4
-kill "$sim_browser" 2>/dev/null
-xcrun simctl spawn "$udid" log show --last 5m --style compact \
-  --predicate 'process == "DexDrop" OR process == "mDNSResponder" OR subsystem == "com.apple.mDNSResponder"' \
-  >"$out/sim-log.txt" 2>&1 || true
-log show --last 5m --style compact --predicate 'process == "mDNSResponder"' 2>/dev/null |
-  grep -i -E 'dexdrop|PolicyDenied|denied' | tail -200 >"$out/mac-mdns-log.txt" || true
-note "- Bonjour on the Mac lists: $(awk '/_dexdrop/ {for (i = 7; i <= NF; i++) printf "%s ", $i; print ""}' "$out/dns-sd-browse.log" | sort -u | tr '\n' ';' | sed 's/ ;/;/g')"
-kill "$receiver" 2>/dev/null
+kill "$browser" "$receiver" 2>/dev/null
 wait "$receiver" 2>/dev/null
 
-# A real transfer. The app shows a pairing code and an invitation link; the
-# CLI on this Mac sends a file with one of them and the app accepts it.
-# The device list may still be changing (a device leaving), which can move
-# the button under a tap: retry until the sheet shows.
-opened=no
-for _ in 1 2 3; do
-  ad wait 'label="Receive with a code"' 5000 >/dev/null 2>&1 || true
-  if tap "Receive with a code" && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
-    opened=yes
-    break
-  fi
-done
-[ "$opened" = yes ] || {
-  step 03-no-sheet
+state=$(mktemp -d)
+container=$(xcrun simctl get_app_container "$udid" "$bundle" data)
+
+# open_sheet <step>: opens "Receive with a code". The device list may still
+# be changing (a device leaving), which can move the button under a tap.
+open_sheet() {
+  local _
+  for _ in 1 2 3; do
+    ad wait 'label="Receive with a code"' 5000 >/dev/null 2>&1 || true
+    if tap "Receive with a code" && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
+      step "$1"
+      return 0
+    fi
+  done
+  step "$1-failed"
   fail "the receive sheet did not open"
 }
-step 03-receive-code
-# The code as screen readers get it ("Pairing code: 9 S V Y, W F X Y").
-code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/03-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')
-if [ ${#code} -ge 8 ]; then
-  code="${code:0:4}-${code:4:4}"
-  note "- Receive sheet shows code $code, readable by screen readers"
-else
-  code=""
-  note "- WARNING: the pairing code is not readable by screen readers"
-fi
-tap "Copy invitation" || fail "could not copy the invitation"
-invitation=$(xcrun simctl pbpaste "$udid")
-case "$invitation" in DEXDROP1:*) ;; *) fail "the clipboard holds no invitation" ;; esac
-# The sheet stays open: "Done" ends the code and the invitation.
 
-# Does the Mac see the app on the network? Code pairing depends on it.
-state=$(mktemp -d)
-name=$(grep -oE 'iPhone [A-Z0-9]{4}' "$out/01-nearby.txt" | head -1)
-"$cli" --state "$state" peers --wait 5 >"$out/cli-peers.log" 2>&1 || true
-if [ -n "$name" ] && grep -q "$name" "$out/cli-peers.log"; then
-  note "- Discovery: the Mac sees $name"
-else
-  note "- WARNING: discovery: the Mac does not see ${name:-the app} (cli-peers.log)"
-fi
-
-payload="$out/payload.bin"
-head -c 3000000 /dev/urandom >"$payload"
-
-# send_with <target> <label>: 0 when sent, accepted and finished; 2 when the
-# request never reached the app.
+# send_with <target> <label> <file>: sends, accepts in the app and waits for
+# the CLI to finish; 2 when the request never reached the app.
 send_with() {
-  "$cli" --state "$state" send "$1" "$payload" >"$out/cli-send-$2.log" 2>&1 &
-  local sender=$! accepted=no
-  # Once the CLI is connected and waiting, close the sheet to reach Accept.
-  # Not before: "Done" also ends the invitation a fallback still needs.
-  local connected=no
+  "$cli" --state "$state" send "$1" "$3" >"$out/cli-send-$2.log" 2>&1 &
+  local sender=$! accepted=no connected=no _
+  # Close the sheet only once the CLI is connected: "Done" also ends the
+  # code and the invitation.
   for _ in $(seq 1 30); do
     if grep -q 'to accept' "$out/cli-send-$2.log" 2>/dev/null; then
       connected=yes
@@ -195,47 +160,62 @@ send_with() {
     wait "$sender" 2>/dev/null
     return 2
   fi
-  step 04-accepted
+  step "04-accepted-$2"
   for _ in $(seq 1 60); do
     kill -0 "$sender" 2>/dev/null || break
     sleep 1
   done
   if kill -0 "$sender" 2>/dev/null; then
     kill "$sender"
-    step 05-stuck
-    fail "the CLI did not finish sending within 60 s"
+    step "05-stuck-$2"
+    fail "the CLI did not finish sending within 60 s (cli-send-$2.log)"
   fi
   wait "$sender" || {
-    step 05-failed
+    step "05-failed-$2"
     fail "the CLI reported a failed transfer (cli-send-$2.log)"
   }
+  step "05-received-$2"
 }
 
-how=""
-if [ -n "$code" ]; then
-  if send_with "$code" code; then
-    how="pairing code"
-  else
-    reason=$(grep -v '^ *$' "$out/cli-send-code.log" | tr '\r' '\n' | grep -v '%' | tail -2 | head -1)
-    note "- WARNING: sending with the code did not reach the app: ${reason:-no request} (cli-send-code.log)"
-  fi
-fi
-if [ -z "$how" ]; then
-  send_with "$invitation" invitation || {
-    step 04-no-request
-    fail "the transfer request never appeared in the app (cli-send-invitation.log)"
-  }
-  how="invitation link"
-fi
-step 05-received
-note "- Request shown and accepted in the app (sent with the $how)"
+# received_intact <file>: byte-identical in the app's container.
+received_intact() {
+  local got
+  got=$(find "$container" -name "$(basename "$1")" -type f | head -1)
+  [ -n "$got" ] || fail "$(basename "$1") not found in the app's container"
+  cmp -s "$1" "$got" || fail "$(basename "$1") differs from the file sent"
+  echo "${got#"$container"/}"
+}
 
-# The file must be byte-identical in the app's container.
-container=$(xcrun simctl get_app_container booted "$bundle" data)
-received=$(find "$container" -name payload.bin -type f | head -1)
-[ -n "$received" ] || fail "payload.bin not found in the app's container"
-cmp -s "$payload" "$received" || fail "the received file differs from the one sent"
-note "- 3 MB sent from the CLI, received byte-identical in the app (\`${received#"$container"/}\`)"
+# 1. The pairing code, read as screen readers get it ("Pairing code: 9 S V
+#    Y, W F X Y"), sent from the Mac: needs discovery and the SPAKE2 proof.
+open_sheet 03-receive-code
+code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/03-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')
+[ ${#code} -ge 8 ] || fail "the pairing code is not readable by screen readers"
+code="${code:0:4}-${code:4:4}"
+note "- Receive sheet shows code $code, readable by screen readers"
+name=$(grep -oE 'iPhone [A-Z0-9]{4}' "$out/01-nearby.txt" | head -1)
+"$cli" --state "$state" peers --wait 5 >"$out/cli-peers.log" 2>&1 || true
+if [ -n "$name" ] && grep -q "$name" "$out/cli-peers.log"; then
+  note "- Discovery: the Mac sees $name"
+else
+  fail "discovery: the Mac does not see ${name:-the app} (cli-peers.log)"
+fi
+payload="$out/payload.bin"
+head -c 3000000 /dev/urandom >"$payload"
+send_with "$code" code "$payload" ||
+  fail "sending with the pairing code did not reach the app (cli-send-code.log)"
+note "- 3 MB sent with the pairing code, accepted, received byte-identical (\`$(received_intact "$payload")\`)"
+
+# 2. The invitation link from the same sheet ("Copy invitation").
+open_sheet 06-receive-invitation
+tap "Copy invitation" || fail "could not copy the invitation"
+invitation=$(xcrun simctl pbpaste "$udid")
+case "$invitation" in DEXDROP1:*) ;; *) fail "the clipboard holds no invitation" ;; esac
+note2="$out/note.bin"
+head -c 200000 /dev/urandom >"$note2"
+send_with "$invitation" invitation "$note2" ||
+  fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
+note "- 200 KB sent with the invitation link, accepted, received byte-identical (\`$(received_intact "$note2")\`)"
 
 ad close >/dev/null 2>&1 || true
 note ""

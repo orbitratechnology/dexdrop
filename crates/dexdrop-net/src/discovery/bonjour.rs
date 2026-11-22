@@ -247,6 +247,11 @@ struct State {
     own_id: PeerId,
     events: mpsc::UnboundedSender<DiscoveryEvent>,
     services: HashMap<String, Service>,
+    /// The daemon confirmed the current registration.
+    registered: bool,
+    /// A TXT record to apply once the registration is confirmed: updating
+    /// a registration before that can leave it unannounced.
+    pending_txt: Option<Vec<u8>>,
 }
 
 impl State {
@@ -480,7 +485,7 @@ extern "C" fn on_addr(
 }
 
 extern "C" fn on_register(
-    _sd: DNSServiceRef,
+    sd: DNSServiceRef,
     _flags: u32,
     err: i32,
     _name: *const c_char,
@@ -488,10 +493,28 @@ extern "C" fn on_register(
     _domain: *const c_char,
     context: *mut c_void,
 ) {
+    // SAFETY: the context is the State, used only under the lock.
+    let state = unsafe { &mut *(context as *mut State) };
     if err != ERR_NO_ERROR {
-        // SAFETY: the context is the State, used only under the lock.
-        let state = unsafe { &*(context as *const State) };
         state.unavailable(err);
+        return;
+    }
+    state.registered = true;
+    if let Some(txt) = state.pending_txt.take() {
+        // SAFETY: the registration this reply is for, under the lock.
+        let err = unsafe {
+            DNSServiceUpdateRecord(
+                sd,
+                ptr::null_mut(),
+                0,
+                txt.len() as u16,
+                txt.as_ptr() as *const c_void,
+                0,
+            )
+        };
+        if err != ERR_NO_ERROR {
+            state.unavailable(err);
+        }
     }
 }
 
@@ -532,6 +555,8 @@ impl Discovery {
             own_id,
             events,
             services: HashMap::new(),
+            registered: false,
+            pending_txt: None,
         });
         let regtype = regtype();
         let mut browse = main;
@@ -585,6 +610,17 @@ impl Discovery {
         let txt = encode_txt(&txt_entries(ad));
         {
             let mut conn = lock(&self.conn);
+            let confirmed = conn.state.registered;
+            if let Some((_, current)) = &mut conn.registered
+                && current.peer_id == ad.peer_id
+                && current.port == ad.port
+                && !confirmed
+            {
+                // Not announced yet: applied when the daemon confirms it.
+                *current = ad.clone();
+                conn.state.pending_txt = Some(txt);
+                return Ok(());
+            }
             if let Some((sd, current)) = &mut conn.registered
                 && current.peer_id == ad.peer_id
                 && current.port == ad.port
@@ -610,6 +646,8 @@ impl Discovery {
         let name = CString::new(instance_name(&ad.peer_id)).map_err(|e| e.to_string())?;
         let regtype = regtype();
         let mut conn = lock(&self.conn);
+        conn.state.registered = false;
+        conn.state.pending_txt = None;
         let main = conn.state.main;
         let context = &mut *conn.state as *mut State as *mut c_void;
         let mut sd = main;
@@ -776,6 +814,40 @@ mod tests {
             }
         }
         panic!("A never found B; events: {seen:#?}");
+    }
+
+    /// An update sent before the daemon confirmed the registration still
+    /// ends up announced (the engine opens a code right after starting).
+    #[cfg(target_os = "macos")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_update_right_after_registering_is_announced() {
+        let (a_tx, mut a_rx) = mpsc::unbounded_channel();
+        let (b_tx, _b_rx) = mpsc::unbounded_channel();
+        let a_id = PeerId([3; 32]);
+        let b_id = PeerId([4; 32]);
+        let _a = Discovery::start(a_id, a_tx).expect("browse A");
+        let mut b = Discovery::start(b_id, b_tx).expect("browse B");
+        let ad = |code_open| Advertisement {
+            peer_id: b_id,
+            name: "Quick".into(),
+            platform: "macos".into(),
+            port: 4343,
+            code_open,
+        };
+        b.advertise(&ad(false)).expect("register B");
+        b.advertise(&ad(true)).expect("update B at once");
+        let mut seen = Vec::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, a_rx.recv()).await {
+            if let DiscoveryEvent::Found(found) = &event
+                && found.peer_id == b_id
+                && found.code_open
+            {
+                return;
+            }
+            seen.push(format!("{event:?}"));
+        }
+        panic!("A never saw B's open code; events: {seen:#?}");
     }
 
     #[test]

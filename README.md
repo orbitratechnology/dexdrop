@@ -17,7 +17,7 @@ Built as a Rust-only [Native Shell (NSH)](https://nsh.dev) app (pinned to NSH
 | Web | **Builds and runs** (here and in CI) as a browser preview that explains its limits (no LAN discovery or direct sockets in browsers) | `nsh package app --target web` |
 | Windows | **Engine tests and throughput bench pass in CI; the app packages in CI**; not yet run interactively | `nsh package app --target windows` |
 | macOS | Built in CI on GitHub's `macos-15` runners (free for public repositories) | `nsh package app --target macos` |
-| iOS | Simulator build in CI on `macos-15`, driven by agent-device: receives a file from the CLI byte-identical (no paid Apple membership needed) | `nsh package app --target ios-simulator` |
+| iOS | Simulator build in CI on `macos-15`, driven by agent-device: finds the Mac and is found, receives files sent with a pairing code and with an invitation link, byte-identical (no paid Apple membership needed) | `nsh package app --target ios-simulator` |
 | CLI (`dexdrop`) | Linux verified; tests and bench pass on Windows in CI | `cargo build --release -p dexdrop-cli` |
 
 Having trouble finding a device or finishing a transfer? See
@@ -30,7 +30,7 @@ the transport decision.
 
 ## What it does today
 
-- Nearby discovery over DNS-SD/mDNS (`_dexdrop._tcp`), deduplicated by peer ID.
+- Nearby discovery over DNS-SD/mDNS (`_dexdrop._tcp`), deduplicated by peer ID: the system's Bonjour service on macOS and iOS, a built-in responder elsewhere.
 - Pairing fallbacks: an 8-character code (`K7P2-QX9M`) or a QR/link invitation;
   both expire after 10 minutes, are single-use, and five wrong codes lock them.
 - Mutual TLS 1.3 with per-device Ed25519 identities; peers are pinned by ID and
@@ -59,7 +59,7 @@ carries. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#measured-performance).
 app/                    NSH Rust app (UI, state, bridge to the engine)
 crates/dexdrop-core/    identity, protocol, manifests, path safety, journals,
                         invitations, stores, and the UI-facing API types
-crates/dexdrop-net/     TLS transport, sessions, mDNS discovery, engine actor
+crates/dexdrop-net/     TLS transport, sessions, discovery (Bonjour, mDNS), engine actor
 crates/dexdrop-cli/     `dexdrop` command-line tool and throughput bench
 docs/                   architecture, protocol and status
 .github/workflows/      CI: tests on Linux/Windows/macOS, packages per platform
