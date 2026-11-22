@@ -107,6 +107,14 @@ unsafe extern "C" {
         callback: RegisterReply,
         context: *mut c_void,
     ) -> i32;
+    fn DNSServiceUpdateRecord(
+        sd: DNSServiceRef,
+        record: *mut c_void,
+        flags: u32,
+        len: u16,
+        data: *const c_void,
+        ttl: u32,
+    ) -> i32;
     fn DNSServiceBrowse(
         sd: *mut DNSServiceRef,
         flags: u32,
@@ -490,7 +498,8 @@ extern "C" fn on_register(
 struct Conn {
     state: Box<State>,
     browse: DNSServiceRef,
-    registered: Option<DNSServiceRef>,
+    /// The registration and what it advertises.
+    registered: Option<(DNSServiceRef, Advertisement)>,
 }
 
 // SAFETY: the refs are used only under the Mutex that owns them.
@@ -566,11 +575,38 @@ impl Discovery {
     }
 
     /// Advertises this device, replacing an earlier advertisement.
+    ///
+    /// A change of name or open code updates the TXT record in place:
+    /// withdrawing and registering again would make other devices see the
+    /// device leave and come back, in either order.
     pub fn advertise(&mut self, ad: &Advertisement) -> Result<(), String> {
+        let txt = encode_txt(&txt_entries(ad));
+        {
+            let mut conn = lock(&self.conn);
+            if let Some((sd, current)) = &mut conn.registered
+                && current.peer_id == ad.peer_id
+                && current.port == ad.port
+            {
+                // SAFETY: the registration's ref, under the lock.
+                let err = unsafe {
+                    DNSServiceUpdateRecord(
+                        *sd,
+                        ptr::null_mut(),
+                        0,
+                        txt.len() as u16,
+                        txt.as_ptr() as *const c_void,
+                        0,
+                    )
+                };
+                if err == ERR_NO_ERROR {
+                    *current = ad.clone();
+                    return Ok(());
+                }
+            }
+        }
         self.withdraw();
         let name = CString::new(instance_name(&ad.peer_id)).map_err(|e| e.to_string())?;
         let regtype = regtype();
-        let txt = encode_txt(&txt_entries(ad));
         let mut conn = lock(&self.conn);
         let main = conn.state.main;
         let context = &mut *conn.state as *mut State as *mut c_void;
@@ -595,14 +631,14 @@ impl Discovery {
         if err != ERR_NO_ERROR {
             return Err(explain(err));
         }
-        conn.registered = Some(sd);
+        conn.registered = Some((sd, ad.clone()));
         Ok(())
     }
 
     /// Stops advertising (browsing continues).
     pub fn withdraw(&mut self) {
         let mut conn = lock(&self.conn);
-        if let Some(sd) = conn.registered.take() {
+        if let Some((sd, _)) = conn.registered.take() {
             // SAFETY: a subordinate ref, deallocated once, under the lock.
             unsafe { DNSServiceRefDeallocate(sd) };
         }
@@ -636,7 +672,7 @@ impl Drop for Discovery {
         }
         // SAFETY: the subordinate refs, then the connection itself.
         unsafe {
-            if let Some(sd) = conn.registered.take() {
+            if let Some((sd, _)) = conn.registered.take() {
                 DNSServiceRefDeallocate(sd);
             }
             DNSServiceRefDeallocate(conn.browse);
@@ -694,6 +730,7 @@ mod tests {
             code_open: true,
         })
         .expect("register B");
+        let mut renamed = false;
         let mut seen = Vec::new();
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
@@ -703,10 +740,28 @@ mod tests {
                     if let DiscoveryEvent::Found(found) = &event
                         && found.peer_id == b_id
                     {
-                        assert_eq!(found.name, "Bonjour test");
-                        assert!(found.code_open);
                         assert!(found.addrs.iter().all(|a| a.port() == 4242), "{found:?}");
-                        return;
+                        if found.name == "Bonjour test" && !renamed {
+                            // Seen: now change the name and close the code,
+                            // which updates the record in place.
+                            assert!(found.code_open);
+                            renamed = true;
+                            b.advertise(&Advertisement {
+                                peer_id: b_id,
+                                name: "Renamed".into(),
+                                platform: "macos".into(),
+                                port: 4242,
+                                code_open: false,
+                            })
+                            .expect("update B");
+                            continue;
+                        }
+                        if found.name == "Renamed" && !found.code_open {
+                            return;
+                        }
+                    }
+                    if let DiscoveryEvent::Lost(id) = &event {
+                        assert_ne!(*id, b_id, "an update must not look like leaving");
                     }
                     seen.push(format!("A: {event:?}"));
                 }

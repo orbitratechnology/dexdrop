@@ -974,6 +974,7 @@ async fn a_device_faking_an_open_code_gets_nothing() {
     // Both the real receiver and the impostor show an open code.
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     let mut both = false;
+    let mut last = String::new();
     while let Ok(Some(event)) = tokio::time::timeout_at(deadline, a.events.recv()).await {
         if let Event::Peers(peers) = event {
             let open = |id| peers.iter().any(|p| p.peer_id == id && p.code_open);
@@ -981,15 +982,21 @@ async fn a_device_faking_an_open_code_gets_nothing() {
                 both = true;
                 break;
             }
+            last = format!(
+                "receiver open: {}, impostor open: {}, peers: {}",
+                open(b.status.peer_id),
+                open(fake_id),
+                peers.len()
+            );
         }
     }
     if !both {
         // The system's Bonjour service is always there on a Mac.
         #[cfg(target_os = "macos")]
-        panic!("Bonjour discovery found neither device");
+        panic!("Bonjour discovery did not show both open codes ({last})");
         #[cfg(not(target_os = "macos"))]
         {
-            eprintln!("skipped: mDNS discovery is not available here");
+            eprintln!("skipped: mDNS discovery is not available here ({last})");
             return;
         }
     }
