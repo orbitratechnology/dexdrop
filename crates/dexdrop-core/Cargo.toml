@@ -1,0 +1,25 @@
+[package]
+name = "dexdrop-core"
+description = "DexDrop's platform-independent core: identity, protocol, manifests, path safety, integrity, journals and invitations."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+blake3 = "1.8.7"
+data-encoding = "2.11.1"
+fs4 = "1.1.0"
+getrandom = "0.4.3"
+postcard = { version = "1.2.0", features = ["use-std"] }
+qrcode = { version = "0.15.0", default-features = false }
+rcgen = "0.14.10"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tracing = "0.1.44"
+walkdir = "2.5.1"
+x509-parser = "0.18.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -1,0 +1,20 @@
+[package]
+name = "dexdrop-cli"
+description = "The dexdrop command-line tool."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.9", features = ["derive", "env"] }
+dexdrop-core = { version = "0.1.0", path = "../dexdrop-core" }
+dexdrop-net = { version = "0.1.0", path = "../dexdrop-net" }
+tokio = { version = "1.54.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[[bin]]
+name = "dexdrop"
+path = "src/main.rs"
