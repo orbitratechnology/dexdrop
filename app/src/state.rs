@@ -112,6 +112,7 @@ pub fn toast(kind: NoticeKind, text: impl Into<String>) {
         toasts().update(|t| {
             id = t.next;
             t.next += 1;
+            t.items.retain(|(_, _, old)| !supersedes(&text, old));
             t.items.push((id, kind, text));
             if t.items.len() > 3 {
                 t.items.remove(0);
@@ -122,6 +123,28 @@ pub fn toast(kind: NoticeKind, text: impl Into<String>) {
     set_timeout(std::time::Duration::from_secs(4), move || {
         toasts().update(|t| t.items.retain(|(i, ..)| *i != id));
     });
+}
+
+/// "Received X from Y." replaces a "Receiving X from Y." still on screen.
+fn supersedes(new: &str, old: &str) -> bool {
+    new.strip_prefix("Received ")
+        .is_some_and(|rest| old.strip_prefix("Receiving ") == Some(rest))
+}
+
+#[cfg(test)]
+mod toast_tests {
+    use super::supersedes;
+
+    #[test]
+    fn received_replaces_receiving() {
+        let old = "Receiving photo.bin and 1 more from Linux PC 5JTV.";
+        assert!(supersedes(
+            "Received photo.bin and 1 more from Linux PC 5JTV.",
+            old
+        ));
+        assert!(!supersedes("Received notes.txt from Linux PC 5JTV.", old));
+        assert!(!supersedes("Invitation copied.", old));
+    }
 }
 
 /// The device picked on the Nearby screen.
