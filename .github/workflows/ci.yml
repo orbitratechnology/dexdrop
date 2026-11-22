@@ -72,8 +72,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      # The CLI describes the crate with a native helper, which links GTK.
-      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      # The CLI describes the crate with a native helper, which links GTK;
+      # C code built for WebAssembly needs clang and llvm-ar.
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang llvm libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - name: Install NSH
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
