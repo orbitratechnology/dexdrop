@@ -71,9 +71,17 @@ pub type LiveCell = Arc<Mutex<Live>>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionEnd {
     Completed,
-    Paused { by_peer: bool },
-    Cancelled { by_peer: bool },
+    Paused {
+        by_peer: bool,
+    },
+    Cancelled {
+        by_peer: bool,
+    },
     Rejected(RejectReason),
+    /// The receiver ran out of storage space; resumable once it has room.
+    OutOfSpace {
+        by_peer: bool,
+    },
 }
 
 /// Why a session failed.
@@ -291,8 +299,13 @@ where
             loop {
                 match wire::read_msg(&mut rd).await {
                     Ok(msg) => {
-                        let stop =
-                            matches!(msg, Message::Complete | Message::Pause | Message::Cancel(_));
+                        let stop = matches!(
+                            msg,
+                            Message::Complete
+                                | Message::Pause
+                                | Message::Cancel(_)
+                                | Message::OutOfSpace
+                        );
                         if stop {
                             peer_stopped.set();
                         }
@@ -373,6 +386,9 @@ where
                         while let Ok(Ok(msg)) = rx.try_recv() {
                             match msg {
                                 Message::Pause => return Ok(SessionEnd::Paused { by_peer: true }),
+                                Message::OutOfSpace => {
+                                    return Ok(SessionEnd::OutOfSpace { by_peer: true });
+                                }
                                 Message::Cancel(_) => {
                                     return Ok(SessionEnd::Cancelled { by_peer: true });
                                 }
@@ -416,6 +432,7 @@ where
                 return Ok(SessionEnd::Completed);
             }
             Message::Pause => return Ok(SessionEnd::Paused { by_peer: true }),
+            Message::OutOfSpace => return Ok(SessionEnd::OutOfSpace { by_peer: true }),
             Message::Cancel(_) => return Ok(SessionEnd::Cancelled { by_peer: true }),
             other => return Err(protocol_err(format!("unexpected {}", other.name()))),
         }
@@ -835,6 +852,12 @@ where
     let _ = fin.commits.acquire_many(COMMITS as u32).await;
     if fin.no_space.load(Ordering::SeqCst) && !matches!(result, Ok(SessionEnd::Completed)) {
         result = Err(SessionError::NoSpace);
+    }
+    // Out of space: tell the sender to stop rather than reconnect again and
+    // again, and keep everything verified for when there is room.
+    if matches!(result, Err(SessionError::NoSpace)) {
+        let _ = shared.writer.send(Message::OutOfSpace);
+        result = Ok(SessionEnd::OutOfSpace { by_peer: false });
     }
     let journal = fin.journal().clone();
     drop(fin);

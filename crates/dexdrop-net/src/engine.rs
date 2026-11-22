@@ -1266,6 +1266,13 @@ impl Actor {
                 }
             }
             Ok(SessionEnd::Paused { by_peer }) => TransferState::Paused { by_peer },
+            Ok(SessionEnd::OutOfSpace { .. }) => TransferState::Interrupted {
+                reason: format!(
+                    "This device ran out of storage space. Free some space, then ask {} to resume.",
+                    t.snap.peer_name
+                ),
+                retrying: false,
+            },
             Ok(SessionEnd::Cancelled { by_peer }) => {
                 remove_partials(&journal);
                 let _ = records.remove(&id);

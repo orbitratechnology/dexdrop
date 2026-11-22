@@ -244,6 +244,21 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
                     return TransferState::Cancelled { by_peer: false };
                 }
             }
+            Ok(SessionEnd::OutOfSpace { .. }) => {
+                report(
+                    ctx,
+                    job.id,
+                    TransferState::Interrupted {
+                        reason:
+                            "The other device ran out of storage space. Resume once it has room."
+                                .into(),
+                        retrying: false,
+                    },
+                );
+                if wait_for_run(&mut job.control).await == Control::Cancel {
+                    return TransferState::Cancelled { by_peer: false };
+                }
+            }
             Ok(SessionEnd::Cancelled { by_peer }) => return TransferState::Cancelled { by_peer },
             Ok(SessionEnd::Rejected(reason)) => {
                 return TransferState::Declined(reason.explain().into());

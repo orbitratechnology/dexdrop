@@ -52,10 +52,10 @@ on Linux; other platforms are built in CI but not yet run on devices.
 
 - `dexdrop-core`: 33 unit tests (protocol bounds, path traversal and reserved
   names, invitations and codes, journals, naming, manifests, identity).
-- `dexdrop-net`: 13 end-to-end tests over real TLS on loopback (consent, decline,
+- `dexdrop-net`: 15 end-to-end tests over real TLS on loopback (consent, decline,
   no silent overwrite, skip policy, pause/resume from the verified offset,
   cancel cleanup, wrong-peer pinning, trusted auto-accept, invalid
-  invitations, a used code reported and refused a second time, 500 small files byte-for-byte, a source edited or deleted mid-transfer never saved and reported the same on both sides) and 5 adversarial session tests (malicious manifests, oversized
+  invitations, a used code reported and refused a second time, 500 small files byte-for-byte, a source edited or deleted mid-transfer never saved and reported the same on both sides, automatic resume through a link that drops mid-transfer, and a destination disk that fills up mid-transfer on a real RAM disk) and 5 adversarial session tests (malicious manifests, oversized
   frames, out-of-place chunks, corruption retried once, persistent corruption
   never saved).
 - `dexdrop-app`: 5 headless UI tests on NSH's engine (phone layout), including keyboard shortcuts.

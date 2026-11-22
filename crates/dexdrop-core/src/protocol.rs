@@ -257,6 +257,10 @@ pub enum Message {
     Pause,
     /// Either side: stop now.
     Cancel(CancelReason),
+    /// Receiver: stop, this device ran out of storage space; the verified
+    /// part is kept and the transfer can resume once there is room.
+    /// (Appended last: earlier variants keep their wire numbers.)
+    OutOfSpace,
 }
 
 /// Errors decoding a frame.
@@ -317,6 +321,7 @@ impl Message {
             Message::Complete => "Complete",
             Message::Pause => "Pause",
             Message::Cancel(_) => "Cancel",
+            Message::OutOfSpace => "OutOfSpace",
         }
     }
 }

@@ -642,3 +642,114 @@ async fn resumes_on_its_own_after_the_connection_drops() {
         "{moved} bytes crossed the link for a {size}-byte file"
     );
 }
+
+/// A small RAM disk for storage-full tests; `None` where mounting is not
+/// allowed (not root, containers without the capability), and the test
+/// is then skipped.
+struct TinyDisk(std::path::PathBuf, #[allow(dead_code)] tempfile::TempDir);
+
+impl TinyDisk {
+    fn mount(megabytes: u32) -> Option<TinyDisk> {
+        let dir = tempfile::tempdir().ok()?;
+        let ok = std::process::Command::new("mount")
+            .args(["-t", "tmpfs", "-o", &format!("size={megabytes}m"), "tmpfs"])
+            .arg(dir.path())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        ok.then(|| TinyDisk(dir.path().to_owned(), dir))
+    }
+}
+
+impl Drop for TinyDisk {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("umount").arg(&self.0).status();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn running_out_of_space_stops_cleanly_and_keeps_progress() {
+    let Some(disk) = TinyDisk::mount(16) else {
+        eprintln!("skipped: cannot mount a tmpfs here");
+        return;
+    };
+    let downloads = disk.0.join("Downloads");
+    let mut a = Node::start_with("Alice", |c| {
+        c.chunk_size = 64 * 1024;
+        c.max_send_rate = Some(6_000_000);
+    })
+    .await;
+    let mut b = Node::start_with("Bob", |c| c.default_download_dir = downloads.clone()).await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("big.bin"), 12 * 1024 * 1024, 3);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("big.bin")],
+    });
+    let request = b.wait_request().await;
+    assert!(request.enough_space(), "12 MB fits a 16 MB disk at first");
+    b.send(accept(request.id));
+    b.wait("some progress", |e| match e {
+        Event::Transfer(t) if t.bytes_done > 1024 * 1024 => Some(()),
+        _ => None,
+    })
+    .await;
+    // Something else fills the disk meanwhile.
+    let _ = std::fs::write(disk.0.join("filler"), vec![0u8; 12 * 1024 * 1024]);
+
+    let stopped = b
+        .wait_state("receiver stopped", |s| {
+            s.is_finished()
+                || matches!(
+                    s,
+                    TransferState::Interrupted { .. } | TransferState::Paused { .. }
+                )
+        })
+        .await;
+    assert!(
+        matches!(&stopped.state, TransferState::Interrupted { reason, retrying: false } if reason.contains("ran out of storage space")),
+        "{:?}",
+        stopped.state
+    );
+    assert!(
+        !downloads.join("big.bin").exists(),
+        "a partial file must never look complete"
+    );
+    // The sender stops too, instead of reconnecting again and again.
+    let sender = a
+        .wait_state("sender stopped", |s| {
+            s.is_finished()
+                || matches!(
+                    s,
+                    TransferState::Interrupted {
+                        retrying: false,
+                        ..
+                    }
+                )
+        })
+        .await;
+    assert!(
+        matches!(&sender.state, TransferState::Interrupted { reason, .. } if reason.contains("other device ran out of storage")),
+        "{:?}",
+        sender.state
+    );
+    assert!(sender.can_resume());
+    // Verified progress is kept for when there is room again.
+    let journal: ReceiveJournal = dexdrop_core::journal::RecordDir::new(b.state().join("incoming"))
+        .load(&request.id)
+        .unwrap()
+        .expect("the journal is kept");
+    assert!(journal.verified_bytes() > 0);
+
+    // Free the space and resume: the file completes, intact.
+    std::fs::remove_file(disk.0.join("filler")).unwrap();
+    a.send(Command::Resume(request.id));
+    let done = b
+        .wait_state("receiver completed", |s| s.is_finished())
+        .await;
+    assert_eq!(done.state, TransferState::Completed, "{done:?}");
+    assert_eq!(
+        std::fs::read(downloads.join("big.bin")).unwrap(),
+        std::fs::read(src.path().join("big.bin")).unwrap()
+    );
+}
