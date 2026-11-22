@@ -133,11 +133,21 @@ send_with() {
   "$cli" --state "$state" send "$1" "$payload" >"$out/cli-send-$2.log" 2>&1 &
   local sender=$! accepted=no
   # Once the CLI is connected and waiting, close the sheet to reach Accept.
+  # Not before: "Done" also ends the invitation a fallback still needs.
+  local connected=no
   for _ in $(seq 1 30); do
-    grep -q 'to accept' "$out/cli-send-$2.log" 2>/dev/null && break
+    if grep -q 'to accept' "$out/cli-send-$2.log" 2>/dev/null; then
+      connected=yes
+      break
+    fi
     kill -0 "$sender" 2>/dev/null || break
     sleep 1
   done
+  if [ "$connected" != yes ]; then
+    kill "$sender" 2>/dev/null
+    wait "$sender" 2>/dev/null
+    return 2
+  fi
   tap Done >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     if tap Accept; then
