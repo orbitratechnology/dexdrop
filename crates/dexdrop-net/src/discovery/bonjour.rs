@@ -36,7 +36,6 @@ use super::{
 #[allow(non_camel_case_types)]
 type DNSServiceRef = *mut c_void;
 
-const FLAGS_MORE_COMING: u32 = 0x1;
 const FLAGS_ADD: u32 = 0x2;
 const FLAGS_SHARE_CONNECTION: u32 = 0x4000;
 const PROTOCOL_IPV4: u32 = 0x01;
@@ -480,9 +479,10 @@ extern "C" fn on_addr(
     } else {
         service.addrs.retain(|a| *a != addr);
     }
-    if flags & FLAGS_MORE_COMING == 0 {
-        state.report(&key);
-    }
+    // Not only when "more coming" is clear: on a shared connection it means
+    // more replies for any operation, so the last reply for this host can
+    // carry it and the device would never be reported.
+    state.report(&key);
 }
 
 extern "C" fn on_register(

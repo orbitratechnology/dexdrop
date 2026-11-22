@@ -51,7 +51,8 @@ impl Node {
             events,
             status,
             dir,
-            timeout: Duration::from_secs(30),
+            // CI's Windows disks flush slowly while other tests run.
+            timeout: Duration::from_secs(if cfg!(windows) { 90 } else { 30 }),
             _done: done,
         }
     }
