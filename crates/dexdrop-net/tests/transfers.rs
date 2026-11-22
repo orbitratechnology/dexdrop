@@ -497,3 +497,89 @@ async fn many_small_files_arrive_intact() {
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_source_changed_mid_transfer_is_never_saved() {
+    let mut a = Node::start_with("Alice", |c| {
+        c.chunk_size = 64 * 1024;
+        c.max_send_rate = Some(4_000_000);
+    })
+    .await;
+    let mut b = Node::start("Bob").await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("changing.bin"), 24 * 1024 * 1024, 1);
+    write_file(&src.path().join("steady.txt"), 5_000, 2);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![
+            src.path().join("changing.bin"),
+            src.path().join("steady.txt"),
+        ],
+    });
+    let request = b.wait_request().await;
+    b.send(accept(request.id));
+    b.wait("some progress", |e| match e {
+        // Early, with seconds of sending left at 4 MB/s.
+        Event::Transfer(t) if t.bytes_done > 1024 * 1024 => Some(()),
+        _ => None,
+    })
+    .await;
+    // Someone edits the file while it is being sent.
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(src.path().join("changing.bin"))
+            .unwrap();
+        f.write_all(b"edited").unwrap();
+    }
+    let done = b.wait_state("receiver finished", |s| s.is_finished()).await;
+    assert_eq!(done.state, TransferState::CompletedWithIssues, "{done:?}");
+    assert_eq!(done.files_failed, 1);
+    assert!(
+        done.failures[0].1.contains("changed"),
+        "{:?}",
+        done.failures
+    );
+    // The changed file is not saved, half-written or otherwise; the other is.
+    assert!(!b.downloads().join("changing.bin").exists());
+    assert_eq!(
+        std::fs::read(b.downloads().join("steady.txt"))
+            .unwrap()
+            .len(),
+        5_000
+    );
+    let leftovers: Vec<_> = walk(&b.downloads())
+        .into_iter()
+        .filter(|p| p.to_string_lossy().ends_with(".dexdrop-part"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    let sent = a.wait_state("sender finished", |s| s.is_finished()).await;
+    assert_eq!(sent.state, TransferState::CompletedWithIssues);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_source_deleted_before_sending_fails_only_that_file() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("gone.txt"), 100, 1);
+    write_file(&src.path().join("kept.txt"), 100, 2);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("gone.txt"), src.path().join("kept.txt")],
+    });
+    let request = b.wait_request().await;
+    // Deleted after offering, before the receiver accepted.
+    std::fs::remove_file(src.path().join("gone.txt")).unwrap();
+    b.send(accept(request.id));
+    let done = b.wait_state("receiver finished", |s| s.is_finished()).await;
+    assert_eq!(done.state, TransferState::CompletedWithIssues, "{done:?}");
+    assert_eq!((done.files_done, done.files_failed), (1, 1));
+    assert!(!b.downloads().join("gone.txt").exists());
+    assert!(b.downloads().join("kept.txt").exists());
+    // The sender reports the same outcome.
+    let sent = a.wait_state("sender finished", |s| s.is_finished()).await;
+    assert_eq!(sent.state, TransferState::CompletedWithIssues);
+    assert_eq!((sent.files_done, sent.files_failed), (1, 1));
+}

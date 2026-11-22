@@ -444,7 +444,12 @@ async fn stream_file<W: AsyncWrite + Unpin>(
     if offset > size || (!offset.is_multiple_of(chunk) && offset != size) {
         return Err(protocol_err("request from an invalid offset"));
     }
-    let fail = |failure| Message::FileError { index, failure };
+    // The receiver does not answer a FileError with a FileResult, so the
+    // sender counts its own source failures here.
+    let fail = |failure| {
+        lock(live).fail(&entry.wire.path, failure);
+        Message::FileError { index, failure }
+    };
 
     // A file that fits in one chunk is read in a single blocking call:
     // per-operation thread hand-offs, not the disk, bound small files.
