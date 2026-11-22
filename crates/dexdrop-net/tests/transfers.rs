@@ -999,7 +999,34 @@ async fn a_device_faking_an_open_code_gets_nothing() {
     if !both {
         // The system's Bonjour service is always there on a Mac.
         #[cfg(target_os = "macos")]
-        panic!("Bonjour discovery did not show both open codes ({last})");
+        {
+            // What the Mac's own Bonjour knows, to tell a missing
+            // registration from a missed one.
+            let sh = |cmd: String| {
+                std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(format!("({cmd} & p=$!; sleep 4; kill $p) 2>&1"))
+                    .output()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                    .unwrap_or_default()
+            };
+            let instance = |id: dexdrop_core::PeerId| format!("dexdrop-{}", &id.to_string()[..16]);
+            panic!(
+                "Bonjour discovery did not show both open codes ({last})\n\
+                 dns-sd -B:\n{}\nimpostor {}:\n{}\nreceiver {}:\n{}",
+                sh("dns-sd -B _dexdrop._tcp local.".into()),
+                instance(fake_id),
+                sh(format!(
+                    "dns-sd -L {} _dexdrop._tcp local.",
+                    instance(fake_id)
+                )),
+                instance(b.status.peer_id),
+                sh(format!(
+                    "dns-sd -L {} _dexdrop._tcp local.",
+                    instance(b.status.peer_id)
+                )),
+            );
+        }
         #[cfg(not(target_os = "macos"))]
         {
             eprintln!("skipped: mDNS discovery is not available here ({last})");
