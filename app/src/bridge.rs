@@ -133,6 +133,18 @@ fn apply(event: Event) {
         Event::Settings(settings) => model().update(|m| m.settings = settings),
         Event::Peers(peers) => model().update(|m| m.peers = peers),
         Event::Transfer(t) => {
+            let was_finished = model().with_untracked(|m| {
+                m.transfers
+                    .iter()
+                    .find(|x| x.id == t.id)
+                    .map(|x| x.state.is_finished())
+            });
+            // A system notification when a transfer ends (P4-006), useful
+            // while the window is in the background; not for transfers
+            // already finished when the app started.
+            if was_finished == Some(false) && t.state.is_finished() {
+                notify_finished(&t);
+            }
             model().update(|m| match m.transfers.iter_mut().find(|x| x.id == t.id) {
                 Some(slot) => *slot = t,
                 None => m.transfers.insert(0, t),
@@ -183,4 +195,30 @@ fn apply(event: Event) {
             model().update(|m| m.offline = Some("The transfer service stopped.".into()))
         }
     }
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn notify_finished(t: &dexdrop_core::api::TransferSnapshot) {
+    use dexdrop_core::{api::TransferState, store::Direction};
+    let (verb, prep) = match t.direction {
+        Direction::Outgoing => ("Sent", "to"),
+        Direction::Incoming => ("Received", "from"),
+    };
+    let (title, body) = match &t.state {
+        TransferState::Completed => (
+            format!("{verb} {}", t.label),
+            format!("{prep} {}, verified.", t.peer_name),
+        ),
+        TransferState::CompletedWithIssues => (
+            format!("{verb} {} with issues", t.label),
+            format!("{} failed, {} skipped.", t.files_failed, t.files_skipped),
+        ),
+        TransferState::Cancelled { .. } => return,
+        other => (format!("Transfer of {} stopped", t.label), other.label()),
+    };
+    let _ = show_notification(nsh_core::notifications::Notification::new(
+        format!("dexdrop-{}", dexdrop_core::hex(&t.id)),
+        title,
+        body,
+    ));
 }

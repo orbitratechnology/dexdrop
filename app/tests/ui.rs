@@ -84,3 +84,20 @@ fn send_with_a_code_needs_files_first() {
     app.wait_for("role:button[Read QR from picture]").unwrap();
     app.press("role:button[Cancel]").unwrap();
 }
+
+#[test]
+fn keyboard_shortcuts_switch_sections_and_close_sheets() {
+    let (mut app, _dir) = start();
+    app.press_key("mod+2").unwrap();
+    app.wait_for("Nothing yet. Transfers you send or receive show up here.")
+        .unwrap();
+    app.press_key("mod+3").unwrap();
+    app.wait_for("PRIVACY AND STORAGE").unwrap();
+    app.press_key("mod+1").unwrap();
+    app.wait_for("DEVICES NEARBY").unwrap();
+    app.press("role:button[Send with a code]").unwrap();
+    app.wait_for("role:button[Paste]").unwrap();
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("role:button[Paste]", Duration::from_secs(5))
+        .unwrap();
+}

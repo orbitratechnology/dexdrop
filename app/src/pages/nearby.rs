@@ -69,7 +69,7 @@ pub fn select(paths: Vec<PathBuf>) {
     }
 }
 
-fn choose(dialog: OpenDialog) {
+pub fn choose(dialog: OpenDialog) {
     let picked = pick_paths(dialog.multiple(true).button_label("Choose"));
     spawn(async move {
         match picked.await {

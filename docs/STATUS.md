@@ -29,11 +29,14 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | FR-014 Denied permission | Partial | Fallbacks shown; platform permission flows open |
 | FR-015 Trusted devices | Done | Trust on accept, forget, per-device auto-accept |
 | FR-016 Connection quality | Open | |
-| FR-020 – FR-023 QR, code, expiry, confirmation | Done | QR shown; single-use tokens/codes, 10 min, 5-attempt lock; SAS on both sides |
-| FR-024/025 Camera / image QR scanning | Open | Paste the invitation text instead |
+| FR-020 – FR-023 QR, code, expiry, confirmation | Done | QR shown; single-use tokens/codes, 10 min, 5-attempt lock; SAS on both sides; the receive sheet closes a used code and offers a new one |
+| FR-024 Camera QR scanning | Open | Needs a native camera bridge |
+| FR-025 QR from a picture | Done | Screenshot or photo, in the app and the CLI; paste from clipboard too |
 | FR-030 – FR-034 Selecting and sending | Done (desktop) | Native file/folder dialogs, drag and drop; phones stage picked files |
 | FR-035 Share sheet entry | Open | |
 | FR-036 Drag and drop | Done | Desktop drop zone |
+| Desktop shortcuts (PRD 7.3) | Done | Ctrl/Cmd+O files, Ctrl/Cmd+Shift+O folder, Ctrl/Cmd+1–3 sections, Ctrl/Cmd+, settings, Esc closes sheets |
+| System notifications (P4-006) | Done | When a transfer finishes, fails or arrives |
 | FR-040 – FR-046 Receiving | Done | Consent, details, destination, keep-both/skip/replace (confirmed), space check, path safety, atomic commit |
 | FR-047 Per-device receive policy | Done | |
 | FR-050 – FR-056 Lifecycle | Done | Queue states, throttled progress, rate after samples, ETA after 3 s, pause/resume, reconnect with backoff, cancel cleans temp files, verify-and-retry |
@@ -47,15 +50,15 @@ on Linux; other platforms are built in CI but not yet run on devices.
 
 ## Tests
 
-- `dexdrop-core`: 31 unit tests (protocol bounds, path traversal and reserved
+- `dexdrop-core`: 32 unit tests (protocol bounds, path traversal and reserved
   names, invitations and codes, journals, naming, manifests, identity).
-- `dexdrop-net`: 9 end-to-end tests over real TLS on loopback (consent, decline,
+- `dexdrop-net`: 10 end-to-end tests over real TLS on loopback (consent, decline,
   no silent overwrite, skip policy, pause/resume from the verified offset,
   cancel cleanup, wrong-peer pinning, trusted auto-accept, invalid
-  invitations) and 5 adversarial session tests (malicious manifests, oversized
+  invitations, a used code reported and refused a second time) and 5 adversarial session tests (malicious manifests, oversized
   frames, out-of-place chunks, corruption retried once, persistent corruption
   never saved).
-- `dexdrop-app`: 4 headless UI tests on NSH's engine (phone layout).
+- `dexdrop-app`: 5 headless UI tests on NSH's engine (phone layout), including keyboard shortcuts.
 
 ## Known gaps worth doing next
 

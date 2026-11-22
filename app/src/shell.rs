@@ -12,7 +12,31 @@ use crate::{
     ui::{self, Tone, Variant, btn, muted, space},
 };
 
+/// Desktop keyboard shortcuts (PRD 7.3); `mod` is Cmd on Apple platforms
+/// and Ctrl elsewhere.
+fn shortcuts() {
+    use nsh_core::file_dialog::OpenDialog;
+    on_key("mod+o", |_| pages::nearby::choose(OpenDialog::files()));
+    on_key("mod+shift+o", |_| {
+        pages::nearby::choose(OpenDialog::folders())
+    });
+    on_key("mod+1", |_| set_tab(Tab::Nearby));
+    on_key("mod+2", |_| set_tab(Tab::Transfers));
+    on_key("mod+3", |_| set_tab(Tab::Settings));
+    on_key("mod+,", |_| set_tab(Tab::Settings));
+    on_key("escape", |_| {
+        let open = sheet().with_untracked(|s| s.clone());
+        if open == Sheet::Receive {
+            crate::bridge::send(dexdrop_core::api::Command::CloseInvitations);
+        }
+        if open != Sheet::None {
+            sheet().set(Sheet::None);
+        }
+    });
+}
+
 pub fn shell() -> impl IntoElement {
+    shortcuts();
     view()
         .flex_1()
         .bg(move || theme().background)
