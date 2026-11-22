@@ -1117,17 +1117,26 @@ impl Receiver<'_> {
                     return Err(err.into());
                 }
             };
-            match msg {
-                Message::FileStart { index, offset } => self.start_file(index, offset).await?,
-                Message::Chunk(header) => self.chunk(&mut rd, header).await?,
-                Message::FileEnd { index, hash } => self.end_file(index, hash).await?,
-                Message::FileError { index, failure } => self.file_error(index, failure).await,
+            let handled = match msg {
+                Message::FileStart { index, offset } => self.start_file(index, offset).await,
+                // A link that drops mid-chunk fails here, not in read_msg.
+                Message::Chunk(header) => self.chunk(&mut rd, header).await,
+                Message::FileEnd { index, hash } => self.end_file(index, hash).await,
+                Message::FileError { index, failure } => {
+                    self.file_error(index, failure).await;
+                    Ok(())
+                }
                 Message::Pause => {
                     self.save_progress().await;
                     return Ok(SessionEnd::Paused { by_peer: true });
                 }
                 Message::Cancel(_) => return Ok(SessionEnd::Cancelled { by_peer: true }),
-                other => return Err(protocol_err(format!("unexpected {}", other.name()))),
+                other => Err(protocol_err(format!("unexpected {}", other.name()))),
+            };
+            if let Err(err) = handled {
+                // Keep what is verified, whatever ended the session.
+                self.save_progress().await;
+                return Err(err);
             }
         }
     }

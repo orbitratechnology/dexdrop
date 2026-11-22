@@ -120,3 +120,91 @@ pub fn write_file(path: &Path, len: usize, seed: u8) {
         .collect();
     std::fs::write(path, data).unwrap();
 }
+
+/// A TCP proxy that forwards to `upstream` and, once `cut_after` bytes went
+/// through, resets every connection once, as a dropped Wi-Fi link would.
+/// Later connections pass untouched.
+pub struct CuttingProxy {
+    pub addr: SocketAddr,
+    pub cuts: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// Bytes forwarded towards the upstream, over all connections.
+    pub moved: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl CuttingProxy {
+    pub async fn start(upstream: SocketAddr, cut_after: u64) -> CuttingProxy {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let cuts = Arc::new(AtomicU32::new(0));
+        let armed = Arc::new(AtomicBool::new(true));
+        let moved = Arc::new(AtomicU64::new(0));
+        let cuts2 = cuts.clone();
+        let moved_out = moved.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((client, _)) = listener.accept().await else {
+                    return;
+                };
+                let Ok(server) = tokio::net::TcpStream::connect(upstream).await else {
+                    continue;
+                };
+                let (armed, moved, cuts) = (armed.clone(), moved.clone(), cuts2.clone());
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let (mut cr, mut cw) = client.into_split();
+                    let (mut sr, mut sw) = server.into_split();
+                    let cut = Arc::new(tokio::sync::Notify::new());
+                    let up = {
+                        let (armed, moved, cuts, cut) =
+                            (armed.clone(), moved.clone(), cuts.clone(), cut.clone());
+                        async move {
+                            let mut buf = vec![0u8; 64 * 1024];
+                            loop {
+                                let n = match cr.read(&mut buf).await {
+                                    Ok(0) | Err(_) => return,
+                                    Ok(n) => n,
+                                };
+                                if sw.write_all(&buf[..n]).await.is_err() {
+                                    return;
+                                }
+                                let total = moved.fetch_add(n as u64, Ordering::SeqCst) + n as u64;
+                                if total >= cut_after && armed.swap(false, Ordering::SeqCst) {
+                                    cuts.fetch_add(1, Ordering::SeqCst);
+                                    cut.notify_waiters();
+                                    return;
+                                }
+                            }
+                        }
+                    };
+                    let down = async move {
+                        let mut buf = vec![0u8; 64 * 1024];
+                        loop {
+                            let n = match sr.read(&mut buf).await {
+                                Ok(0) | Err(_) => return,
+                                Ok(n) => n,
+                            };
+                            if cw.write_all(&buf[..n]).await.is_err() {
+                                return;
+                            }
+                        }
+                    };
+                    tokio::select! {
+                        _ = up => {}
+                        _ = down => {}
+                        _ = cut.notified() => {}
+                    }
+                    // Dropping both halves of both sides closes them abruptly.
+                });
+            }
+        });
+        CuttingProxy {
+            addr,
+            cuts,
+            moved: moved_out,
+        }
+    }
+}

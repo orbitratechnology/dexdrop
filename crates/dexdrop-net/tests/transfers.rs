@@ -583,3 +583,62 @@ async fn a_source_deleted_before_sending_fails_only_that_file() {
     assert_eq!(sent.state, TransferState::CompletedWithIssues);
     assert_eq!((sent.files_done, sent.files_failed), (1, 1));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumes_on_its_own_after_the_connection_drops() {
+    let mut a = Node::start_with("Alice", |c| {
+        c.chunk_size = 64 * 1024;
+        c.max_send_rate = Some(16_000_000);
+    })
+    .await;
+    let mut b = Node::start("Bob").await;
+    // Everything goes through a link that drops once, 12 MB in.
+    let proxy = common::CuttingProxy::start(b.addr(), 12 * 1024 * 1024).await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("video.mp4"), 40 * 1024 * 1024, 9);
+    a.send(Command::SendFiles {
+        target: Target::Address {
+            addr: proxy.addr,
+            peer_id: Some(b.status.peer_id),
+        },
+        paths: vec![src.path().join("video.mp4")],
+    });
+    let request = b.wait_request().await;
+    let id = request.id;
+    b.send(accept(id));
+
+    // The sender notices and retries without anyone pressing anything.
+    a.wait_state("sender interrupted and retrying", |s| {
+        matches!(s, TransferState::Interrupted { retrying: true, .. })
+    })
+    .await;
+    assert_eq!(proxy.cuts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // The receiver keeps what it verified and waits for the sender.
+    b.wait_state("receiver interrupted", |s| {
+        matches!(s, TransferState::Interrupted { .. })
+    })
+    .await;
+    let journal: ReceiveJournal = dexdrop_core::journal::RecordDir::new(b.state().join("incoming"))
+        .load(&id)
+        .unwrap()
+        .expect("a journal after the drop");
+    let verified = journal.verified_bytes();
+    assert!(verified > 0, "nothing was journaled before the drop");
+
+    let sent = a.wait_state("sender finished", |s| s.is_finished()).await;
+    assert_eq!(sent.state, TransferState::Completed, "{sent:?}");
+    let got = b.wait_state("receiver finished", |s| s.is_finished()).await;
+    assert_eq!(got.state, TransferState::Completed, "{got:?}");
+    assert_eq!(
+        std::fs::read(b.downloads().join("video.mp4")).unwrap(),
+        std::fs::read(src.path().join("video.mp4")).unwrap()
+    );
+    // The resumed session did not start over: the link carried the file
+    // about once, not the part before the drop plus the whole file again.
+    let size = 40 * 1024 * 1024u64;
+    let moved = proxy.moved.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        moved < size + size / 8,
+        "{moved} bytes crossed the link for a {size}-byte file"
+    );
+}
