@@ -1,18 +1,19 @@
 # Status against the PRD
 
 Legend: **Done** (implemented and tested), **Partial**, **Open**.
-"Verified" means exercised in this repository's tests or by running the app
-on Linux; other platforms are built in CI but not yet run on devices.
+"Verified" means exercised in this repository's tests, by running the app on
+Linux, or by the end-to-end checks that drive the packaged apps on GitHub's
+Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 
 ## Platforms (PRD 8.1, Phase 0 exit criteria)
 
 | Target | Build | Run / validate | Notes |
 |---|---|---|---|
-| Linux x86_64 | Done (`nsh package --target linux`, 15 MB tarball) | Verified: two app instances discover each other and transfer; CLI ⇄ app; 300 MB byte-identical | Needs GTK 4.14+ (Ubuntu 24.04+) |
+| Linux x86_64 | Done (`nsh package --target linux`, 15 MB tarball) | Verified: two app instances discover each other and transfer; CLI ⇄ app; 300 MB byte-identical. In CI (under Xvfb), the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`) | Needs GTK 4.14+ (Ubuntu 24.04+) |
 | Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a, debug-signed, targetSdk 35) | Open: no device or emulator available | Manifest has `INTERNET`; mDNS needs `CHANGE_WIFI_MULTICAST_STATE` + a multicast lock or an NSD bridge, which NSH's standalone packaging cannot declare yet (P0-015). Invitations and direct addresses work without discovery. |
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
-| Windows | Done in CI (`nsh package --target windows`) | Engine tests and throughput bench pass on Windows in CI; the app has not been run interactively | |
-| macOS | CI on `macos-15` (free for this public repository) | Building in CI; not yet run by hand | Unsigned, local use only |
+| Windows | Done in CI (`nsh package --target windows`) | Verified in CI: engine tests and throughput bench pass; the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`) | Not yet tried by hand on a Windows PC |
+| macOS | CI on `macos-15` (free for this public repository) | Verified in CI: the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`); the app also lists the CLI as a trusted nearby device | Unsigned, local use only. Uses the system's Bonjour service; macOS 15 asks before an app uses the local network, and the prompt shows `NSLocalNetworkUsageDescription` from `nsh.json` (the CI check answers Allow) |
 | iOS | CI on `macos-15` (`ios-simulator`) | Verified in the iOS Simulator by agent-device on every CI run (`scripts/ios-sim-check.sh`, screenshots in `docs/screenshots/ios/`): launch and tabs; the app and the CLI on the Mac discover each other; a 3 MB file sent with the pairing code (read through its screen-reader label) and a 200 KB file sent with the invitation link, both accepted in the app and received byte-identical. Not yet run on a device | Devices discover through the system's Bonjour service (`dns_sd`), declared in `NSBonjourServices` with `NSLocalNetworkUsageDescription`; the simulator build uses the mdns-sd responder, because the Mac's mDNSResponder refuses simulator apps on CI (local-network trust check) |
 
 ## Functional requirements
@@ -81,7 +82,7 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 ## Known gaps worth doing next
 
-1. Run the macOS app and the Windows build interactively; extend the iOS Simulator check (sending from the app, pause/resume); run on an iPhone (local-network permission prompt).
+1. Android emulator check (like the desktop and iOS checks); extend the checks to sending from the app and pause/resume; run on an iPhone and by hand on Windows and macOS.
 2. Android: a native NSD/multicast-lock bridge and SAF file access (needs an
    NSH packaging extension), then device testing.
 3. iOS: Files/Photos picker; share sheet entry (FR-035).

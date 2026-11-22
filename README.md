@@ -12,13 +12,13 @@ Built as a Rust-only [Native Shell (NSH)](https://nsh.dev) app (pinned to NSH
 
 | Platform | State | How it is built |
 |---|---|---|
-| Linux (x86_64) | **Built and run**: UI, discovery and transfers verified; packaged in CI | `nsh package app --target linux` → `DexDrop.tar.gz` |
+| Linux (x86_64) | **Built and run**: UI, discovery and transfers verified; the packaged app is checked end to end in CI | `nsh package app --target linux` → `DexDrop.tar.gz` |
 | Android | **APK builds**, here and in CI (arm64-v8a, armeabi-v7a); not yet run on a device; nearby discovery needs a native NSD bridge (see [status](docs/STATUS.md)) | `nsh package app --target android` |
 | Web | **Builds and runs** (here and in CI) as a browser preview that explains its limits (no LAN discovery or direct sockets in browsers) | `nsh package app --target web` |
-| Windows | **Engine tests and throughput bench pass in CI; the app packages in CI**; not yet run interactively | `nsh package app --target windows` |
-| macOS | Built in CI on GitHub's `macos-15` runners (free for public repositories) | `nsh package app --target macos` |
+| Windows | **Packaged app verified end to end in CI**: discovered by the CLI, receives a file and a folder byte-identical, records it in history; engine tests and bench pass | `nsh package app --target windows` |
+| macOS | **Packaged app verified end to end in CI** on GitHub's free `macos-15` runners: local-network prompt answered, discovery both ways, a file and a folder received byte-identical | `nsh package app --target macos` |
 | iOS | Simulator build in CI on `macos-15`, driven by agent-device: finds the Mac and is found, receives files sent with a pairing code and with an invitation link, byte-identical (no paid Apple membership needed) | `nsh package app --target ios-simulator` |
-| CLI (`dexdrop`) | Linux verified; tests and bench pass on Windows in CI | `cargo build --release -p dexdrop-cli` |
+| CLI (`dexdrop`) | Linux verified; tests and bench pass on Windows and macOS in CI, where it drives the desktop checks | `cargo build --release -p dexdrop-cli` |
 
 Having trouble finding a device or finishing a transfer? See
 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). What changed and what was
