@@ -1129,7 +1129,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
- "tracing",
  "walkdir",
  "x509-parser",
 ]

@@ -1,6 +1,6 @@
 //! A misbehaving peer, played by hand over an in-memory stream (PRD 13.4).
 
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use dexdrop_core::{
     PeerId,
@@ -421,6 +421,7 @@ async fn senders_refuse_results_for_files_never_sent() {
 }
 
 /// Sends one small file through a hand-driven session.
+#[cfg(unix)]
 async fn send_one(sender: &mut tokio::io::DuplexStream, data: &[u8]) {
     wire::write_msg(
         sender,
@@ -532,6 +533,7 @@ fn symlinks_are_found_again_right_before_writing() {
     std::os::unix::fs::symlink(outside.path(), dir.path().join("Project/src")).unwrap();
     assert!(dexdrop_core::pathsafe::ensure_no_symlinks(dir.path(), &target).is_err());
     assert!(
-        dexdrop_core::pathsafe::ensure_no_symlinks(dir.path(), Path::new("/etc/passwd")).is_err()
+        dexdrop_core::pathsafe::ensure_no_symlinks(dir.path(), std::path::Path::new("/etc/passwd"))
+            .is_err()
     );
 }
