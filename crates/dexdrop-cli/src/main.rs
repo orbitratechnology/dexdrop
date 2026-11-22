@@ -49,8 +49,9 @@ enum Cmd {
     },
     /// Send files or folders.
     Send {
-        /// A nearby device's name or ID prefix, an invitation (DEXDROP1:…),
-        /// a pairing code (K7P2-QX9M) or an address (host:port[#peer-id]).
+        /// A nearby device's name or ID prefix, an invitation (DEXDROP1:…) or
+        /// a picture of its QR code (.png/.jpg/.webp), a pairing code
+        /// (K7P2-QX9M) or an address (host:port[#peer-id]).
         to: String,
         #[arg(required = true)]
         paths: Vec<PathBuf>,
@@ -257,6 +258,19 @@ async fn resolve_target(
     to: &str,
     events: &mut tokio::sync::mpsc::UnboundedReceiver<Event>,
 ) -> Result<Target> {
+    // A picture of a QR invitation (a screenshot or a photo).
+    let as_path = std::path::Path::new(to);
+    if as_path.is_file()
+        && let Some(ext) = as_path.extension().and_then(|e| e.to_str())
+        && matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "webp"
+        )
+    {
+        let bytes = std::fs::read(as_path).with_context(|| format!("reading {to}"))?;
+        let text = invitation::read_qr_image(&bytes).map_err(|e| anyhow::anyhow!(e))?;
+        return Ok(Target::Invitation(text));
+    }
     if to.to_ascii_uppercase().starts_with(invitation::PREFIX) {
         return Ok(Target::Invitation(to.to_owned()));
     }
@@ -316,9 +330,18 @@ async fn send(state: PathBuf, to: String, paths: Vec<PathBuf>) -> Result<()> {
     let target = resolve_target(&to, &mut events).await?;
     engine.send(Command::SendFiles { target, paths });
     let mut announced = false;
+    // Transfers restored from earlier sessions also report; follow only the
+    // one this command starts (it is announced while preparing).
+    let mut ours = None;
     while let Some(event) = events.recv().await {
         match event {
             Event::Transfer(t) => {
+                if ours.is_none() && t.state == TransferState::Preparing {
+                    ours = Some(t.id);
+                }
+                if ours != Some(t.id) {
+                    continue;
+                }
                 if let (Some(sas), false) = (&t.sas, announced) {
                     println!("Connected to {} — verification number {sas}", t.peer_name);
                     announced = true;

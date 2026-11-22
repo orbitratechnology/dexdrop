@@ -56,6 +56,8 @@ pub enum InviteError {
     Unknown,
     #[error("Too many wrong codes. Show a new code to try again.")]
     TooManyAttempts,
+    #[error("No QR code was found in this picture.")]
+    NoQrCode,
 }
 
 impl Invitation {
@@ -260,6 +262,38 @@ pub fn qr_matrix(text: &str) -> Option<(usize, Vec<bool>)> {
     Some((width, modules))
 }
 
+/// Finds a DexDrop invitation in a picture of a QR code: a screenshot or a
+/// photo (FR-025). Returns the invitation text, not yet decoded or checked.
+pub fn read_qr_image(bytes: &[u8]) -> Result<String, InviteError> {
+    let image = image::load_from_memory(bytes).map_err(|_| InviteError::NoQrCode)?;
+    // Large photos are scaled down: QR modules stay several pixels wide and
+    // detection is much faster.
+    let image = if image.width().max(image.height()) > 1600 {
+        image.resize(1600, 1600, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    let gray = image.to_luma8();
+    let (w, h) = (gray.width() as usize, gray.height() as usize);
+    let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(w, h, |x, y| {
+        gray.get_pixel(x as u32, y as u32).0[0]
+    });
+    let mut found_other = false;
+    for grid in prepared.detect_grids() {
+        if let Ok((_, text)) = grid.decode() {
+            if text.trim().to_ascii_uppercase().starts_with(PREFIX) {
+                return Ok(text.trim().to_owned());
+            }
+            found_other = true;
+        }
+    }
+    Err(if found_other {
+        InviteError::Malformed
+    } else {
+        InviteError::NoQrCode
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +402,48 @@ mod tests {
             book.redeem(&Pairing::Code(code), now),
             Err(InviteError::Unknown)
         );
+    }
+
+    /// Renders `text` as a QR code picture, as a screenshot would show it.
+    fn qr_png(text: &str, scale: u32) -> Vec<u8> {
+        let (width, modules) = qr_matrix(text).unwrap();
+        let side = (width as u32 + 8) * scale;
+        let img = image::GrayImage::from_fn(side, side, |x, y| {
+            let (mx, my) = ((x / scale) as i64 - 4, (y / scale) as i64 - 4);
+            let dark = mx >= 0
+                && my >= 0
+                && (mx as usize) < width
+                && (my as usize) < width
+                && modules[my as usize * width + mx as usize];
+            image::Luma([if dark { 20 } else { 235 }])
+        });
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn reads_invitations_from_pictures() {
+        let text = sample(u64::MAX).encode();
+        assert_eq!(read_qr_image(&qr_png(&text, 6)).unwrap(), text);
+        assert_eq!(
+            Invitation::decode(&read_qr_image(&qr_png(&text, 3)).unwrap(), 0).unwrap(),
+            sample(u64::MAX)
+        );
+        // A QR code of something else, and a picture without one.
+        assert_eq!(
+            read_qr_image(&qr_png("https://example.com", 6)),
+            Err(InviteError::Malformed)
+        );
+        let blank = {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::GrayImage::from_pixel(64, 64, image::Luma([255]))
+                .write_to(&mut out, image::ImageFormat::Png)
+                .unwrap();
+            out.into_inner()
+        };
+        assert_eq!(read_qr_image(&blank), Err(InviteError::NoQrCode));
+        assert_eq!(read_qr_image(b"not an image"), Err(InviteError::NoQrCode));
     }
 
     #[test]

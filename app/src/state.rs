@@ -86,6 +86,7 @@ pub enum Sheet {
     /// Send with a code or an invitation.
     Connect,
     /// The diagnostics report.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Diagnostics(String),
 }
 

@@ -80,5 +80,7 @@ fn send_with_a_code_needs_files_first() {
     app.press("role:button[Send with a code]").unwrap();
     app.wait_for("Choose what to send first").unwrap();
     assert!(!app.screen().enabled("role:button[Send]").unwrap());
+    app.wait_for("role:button[Paste]").unwrap();
+    app.wait_for("role:button[Read QR from picture]").unwrap();
     app.press("role:button[Cancel]").unwrap();
 }

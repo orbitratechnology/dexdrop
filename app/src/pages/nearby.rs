@@ -428,6 +428,61 @@ pub fn receive_sheet() -> impl IntoElement {
         }))
 }
 
+/// Reads a QR invitation from a screenshot or photo into `entry` (FR-025):
+/// for phones without a camera scanner yet, and desktops shown a QR.
+fn read_qr_picture(entry: Signal<String>) {
+    let decode = |bytes: Vec<u8>| {
+        bridge::off_thread(move || dexdrop_core::invitation::read_qr_image(&bytes))
+    };
+    if desktop_platform() {
+        let picked = pick_paths(
+            OpenDialog::files()
+                .filter(nsh_core::file_dialog::FileFilter::new(
+                    "Pictures",
+                    ["png", "jpg", "jpeg", "webp"],
+                ))
+                .button_label("Read"),
+        );
+        spawn(async move {
+            let Ok(Some(paths)) = picked.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let read = bridge::off_thread(move || std::fs::read(path)).await;
+            let Some(Ok(bytes)) = read else {
+                toast(NoticeKind::Error, "Could not open the picture.");
+                return;
+            };
+            apply_qr(entry, decode(bytes).await);
+        });
+    } else {
+        let picked = pick_images(nsh_core::picker::PickRequest::new(false, 1));
+        spawn(async move {
+            let Some(file) = picked.await.into_iter().next() else {
+                return;
+            };
+            let bytes = file.data.bytes().to_vec();
+            apply_qr(entry, decode(bytes).await);
+        });
+    }
+}
+
+fn apply_qr(
+    entry: Signal<String>,
+    read: Option<Result<String, dexdrop_core::invitation::InviteError>>,
+) {
+    match read {
+        Some(Ok(text)) => {
+            entry.set(text);
+            toast(NoticeKind::Success, "Invitation read from the picture.");
+        }
+        Some(Err(err)) => toast(NoticeKind::Error, err.to_string()),
+        None => {}
+    }
+}
+
 /// The connect sheet: send with a typed code or a pasted invitation (FR-021).
 pub fn connect_sheet() -> impl IntoElement {
     let entry = signal(String::new());
@@ -474,6 +529,27 @@ pub fn connect_sheet() -> impl IntoElement {
                 .rounded(move || theme().radius)
                 .text_size(px(ui::size::BODY))
                 .text_color(move || theme().foreground),
+        )
+        .child(
+            view()
+                .flex_row()
+                .flex_wrap()
+                .gap(px(space::S))
+                .child(btn("Paste", Variant::Secondary).on_press(move || {
+                    let pasted = clipboard_string();
+                    spawn(async move {
+                        let text = pasted.await;
+                        if text.trim().is_empty() {
+                            toast(NoticeKind::Info, "The clipboard is empty.");
+                        } else {
+                            entry.set(text.trim().to_owned());
+                        }
+                    });
+                }))
+                .child(
+                    btn("Read QR from picture", Variant::Secondary)
+                        .on_press(move || read_qr_picture(entry)),
+                ),
         )
         .child(when(
             move || !has_files(),

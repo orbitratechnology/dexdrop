@@ -93,6 +93,19 @@ pub fn start() {
     });
 }
 
+/// Runs `f` off the UI's engine thread where there are threads, inline in
+/// the browser. `None` if the work was cancelled.
+pub async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        blocking(f).await.ok()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Some(f())
+    }
+}
+
 /// Sends a command to the engine.
 pub fn send(command: Command) {
     #[cfg(not(target_arch = "wasm32"))]
@@ -113,6 +126,7 @@ pub fn default_download_dir() -> std::path::PathBuf {
     native::dirs(os().name()).1
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn apply(event: Event) {
     match event {
         Event::Status(status) => model().update(|m| m.status = Some(status)),
