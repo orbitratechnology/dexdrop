@@ -267,3 +267,154 @@ async fn rejects_chunks_out_of_place() {
     let (end, _) = session.await.unwrap();
     assert!(end.unwrap_err().to_string().contains("out of place"));
 }
+
+#[tokio::test]
+async fn bounds_manifests_before_consent() {
+    // A path over the limit is refused on the page it arrives in.
+    let long = "a/".repeat(protocol::MAX_PATH_BYTES / 2) + "x";
+    let (mut a, mut b) = tokio::io::duplex(1 << 20);
+    let entries = vec![file(&long, 1)];
+    let o = offer(&entries);
+    wire::write_msg(&mut a, &Message::Offer(o)).await.unwrap();
+    wire::write_msg(
+        &mut a,
+        &Message::ManifestPage(ManifestPage {
+            entries,
+            last: false,
+        }),
+    )
+    .await
+    .unwrap();
+    a.flush().await.unwrap();
+    assert_eq!(
+        session::read_offer(&mut b).await.unwrap().err(),
+        Some(RejectReason::InvalidManifest)
+    );
+
+    // Empty pages that are not the last cannot hold the connection open.
+    let (mut a, mut b) = tokio::io::duplex(1 << 20);
+    let o = offer(&[file("a", 1)]);
+    wire::write_msg(&mut a, &Message::Offer(o)).await.unwrap();
+    for _ in 0..3 {
+        wire::write_msg(
+            &mut a,
+            &Message::ManifestPage(ManifestPage {
+                entries: vec![],
+                last: false,
+            }),
+        )
+        .await
+        .unwrap();
+    }
+    a.flush().await.unwrap();
+    assert_eq!(
+        session::read_offer(&mut b).await.unwrap().err(),
+        Some(RejectReason::InvalidManifest)
+    );
+
+    // An oversized label is refused.
+    let (mut a, mut b) = tokio::io::duplex(1 << 20);
+    let mut o = offer(&[file("a", 1)]);
+    o.label = "x".repeat(protocol::MAX_LABEL_BYTES + 1);
+    wire::write_msg(&mut a, &Message::Offer(o)).await.unwrap();
+    a.flush().await.unwrap();
+    assert_eq!(
+        session::read_offer(&mut b).await.unwrap().err(),
+        Some(RejectReason::InvalidManifest)
+    );
+}
+
+/// A receiving session fed by hand, after the planner's first request.
+async fn receiving(
+    entries: Vec<WireEntry>,
+) -> (
+    tokio::io::DuplexStream,
+    tokio::task::JoinHandle<(Result<SessionEnd, session::SessionError>, ReceiveJournal)>,
+    tempfile::TempDir,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let received = offered(entries, |_| {}).await.unwrap();
+    let (mut sender, receiver) = tokio::io::duplex(1 << 20);
+    let live = Arc::new(std::sync::Mutex::new(Live::default()));
+    let (control_tx, control) = watch::channel(Control::Run);
+    std::mem::forget(control_tx);
+    let session = tokio::spawn(session::run_receiver(
+        receiver,
+        plan(dir.path(), received),
+        live,
+        control,
+    ));
+    assert!(matches!(
+        wire::read_msg(&mut sender).await.unwrap(),
+        Message::Want { .. }
+    ));
+    (sender, session, dir)
+}
+
+#[tokio::test]
+async fn file_errors_for_files_not_requested_are_refused_without_panicking() {
+    for bad in [u32::MAX, 1] {
+        // Index 1 exists but is a folder, which is never requested.
+        let folder = WireEntry {
+            path: "d".into(),
+            kind: EntryKind::Folder,
+            size: 0,
+            mtime: None,
+        };
+        let (mut sender, session, _dir) = receiving(vec![file("a", 10), folder]).await;
+        wire::send(
+            &mut sender,
+            &Message::FileError {
+                index: bad,
+                failure: FileFailure::SourceChanged,
+            },
+        )
+        .await
+        .unwrap();
+        let (end, _) = session.await.expect("no panic");
+        assert!(
+            end.unwrap_err().to_string().contains("not requested"),
+            "index {bad}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn senders_refuse_results_for_files_never_sent() {
+    let src = tempfile::tempdir().unwrap();
+    std::fs::write(src.path().join("a.txt"), b"hello").unwrap();
+    let manifest =
+        Arc::new(dexdrop_core::manifest::Manifest::build(&[src.path().join("a.txt")]).unwrap());
+    let (sender_side, mut receiver_side) = tokio::io::duplex(1 << 20);
+    let live = Arc::new(std::sync::Mutex::new(Live::default()));
+    let (_control_tx, control) = watch::channel(Control::Run);
+    let session = tokio::spawn(session::run_sender(
+        sender_side,
+        manifest,
+        protocol::MIN_CHUNK_SIZE,
+        live,
+        control,
+        None,
+    ));
+    // A result for a file the receiver never asked for, then a flood.
+    for _ in 0..10_000 {
+        if wire::write_msg(
+            &mut receiver_side,
+            &Message::FileResult {
+                index: 0,
+                failure: None,
+            },
+        )
+        .await
+        .is_err()
+        {
+            break;
+        }
+    }
+    let _ = receiver_side.flush().await;
+    let end = tokio::time::timeout(Duration::from_secs(5), session)
+        .await
+        .expect("ends")
+        .unwrap();
+    assert!(end.unwrap_err().to_string().contains("not sent"));
+}

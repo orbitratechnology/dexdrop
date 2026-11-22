@@ -221,10 +221,35 @@ pub async fn spawn(
 
     let accept_ctx = ctx.clone();
     let listener_task = tokio::spawn(async move {
+        // Bounds what unknown peers can hold open: in total and per address.
+        let slots = Arc::new(tokio::sync::Semaphore::new(MAX_INBOUND));
+        let per_ip: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::default();
         loop {
             match listener.accept().await {
-                Ok((tcp, _)) => {
-                    tokio::spawn(incoming::handle(accept_ctx.clone(), tcp));
+                Ok((tcp, from)) => {
+                    let Ok(slot) = slots.clone().try_acquire_owned() else {
+                        continue; // Dropped: too many connections.
+                    };
+                    {
+                        let mut counts = lock(&per_ip);
+                        let count = counts.entry(from.ip()).or_default();
+                        if *count >= MAX_INBOUND_PER_IP {
+                            continue;
+                        }
+                        *count += 1;
+                    }
+                    let (ctx, per_ip) = (accept_ctx.clone(), per_ip.clone());
+                    tokio::spawn(async move {
+                        incoming::handle(ctx, tcp).await;
+                        let mut counts = lock(&per_ip);
+                        if let Some(count) = counts.get_mut(&from.ip()) {
+                            *count -= 1;
+                            if *count == 0 {
+                                counts.remove(&from.ip());
+                            }
+                        }
+                        drop(slot);
+                    });
                 }
                 Err(err) => {
                     tracing::warn!("accept failed: {err}");
@@ -448,6 +473,9 @@ struct Actor {
 }
 
 const MAX_PENDING_REQUESTS: usize = 3;
+/// Inbound connections at once, in total and from one address.
+const MAX_INBOUND: usize = 32;
+const MAX_INBOUND_PER_IP: usize = 6;
 /// Saved files listed on a finished incoming transfer (a share sheet takes
 /// at most 100).
 const MAX_SAVED_LISTED: usize = 100;

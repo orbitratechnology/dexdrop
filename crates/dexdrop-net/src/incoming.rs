@@ -7,6 +7,7 @@ use dexdrop_core::{
     protocol::{Hello, Message, RejectReason},
     unix_now,
 };
+use futures_util::FutureExt;
 use tokio::{io::AsyncReadExt, net::TcpStream, sync::oneshot};
 
 use crate::{
@@ -116,16 +117,30 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
             live,
             control,
         }) => {
-            wire::send(&mut stream, &Message::Accept).await?;
-            let plan = ReceivePlan {
-                offer,
-                journal: *journal,
-                records: ctx.state.incoming(),
+            // From here the engine shows the transfer as running: whatever
+            // happens, it must hear how the session ended.
+            let fallback = (*journal).clone();
+            let ended = async {
+                wire::send(&mut stream, &Message::Accept).await?;
+                let plan = ReceivePlan {
+                    offer,
+                    journal: *journal,
+                    records: ctx.state.incoming(),
+                };
+                let (result, journal) = session::run_receiver(stream, plan, live, control).await;
+                Ok::<_, SessionError>((result, journal))
             };
-            let (result, journal) = session::run_receiver(stream, plan, live, control).await;
+            let (result, journal) = match std::panic::AssertUnwindSafe(ended).catch_unwind().await {
+                Ok(Ok((result, journal))) => (result.map_err(|e| e.to_string()), journal),
+                Ok(Err(err)) => (Err(err.to_string()), fallback),
+                Err(_) => (
+                    Err("an internal error stopped the transfer".to_owned()),
+                    fallback,
+                ),
+            };
             let _ = ctx.internal.send(Internal::IncomingEnded {
                 id,
-                result: result.map_err(|e| e.to_string()),
+                result,
                 journal: Box::new(journal),
             });
             Ok(())

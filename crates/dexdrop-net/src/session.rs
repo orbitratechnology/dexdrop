@@ -164,6 +164,9 @@ pub struct ReceivedOffer {
 pub async fn read_offer<R: AsyncRead + Unpin>(
     r: &mut R,
 ) -> Result<Result<ReceivedOffer, RejectReason>, SessionError> {
+    // The whole offer must arrive in time, not just each frame: a peer
+    // trickling pages cannot hold a connection (and memory) open.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     let limit = Duration::from_secs(30);
     let offer = match wire::read_msg_within(r, limit).await? {
         Message::Offer(offer) => offer,
@@ -179,11 +182,31 @@ pub async fn read_offer<R: AsyncRead + Unpin>(
     {
         return Ok(Err(RejectReason::InvalidManifest));
     }
+    if offer.label.len() > protocol::MAX_LABEL_BYTES {
+        return Ok(Err(RejectReason::InvalidManifest));
+    }
     let mut entries = Vec::with_capacity(offer.entries.min(4096) as usize);
+    let mut manifest_bytes = 0usize;
     loop {
-        match wire::read_msg_within(r, limit).await? {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return Err(WireError::Timeout.into());
+        }
+        match wire::read_msg_within(r, left.min(limit)).await? {
             Message::ManifestPage(page) => {
-                if entries.len() as u64 + page.entries.len() as u64 > offer.entries {
+                if entries.len() as u64 + page.entries.len() as u64 > offer.entries
+                    || (page.entries.is_empty() && !page.last)
+                {
+                    return Ok(Err(RejectReason::InvalidManifest));
+                }
+                // Checked page by page, before anything is kept.
+                for entry in &page.entries {
+                    if entry.path.len() > protocol::MAX_PATH_BYTES {
+                        return Ok(Err(RejectReason::InvalidManifest));
+                    }
+                    manifest_bytes += entry.path.len() + 32;
+                }
+                if manifest_bytes > protocol::MAX_MANIFEST_BYTES {
                     return Ok(Err(RejectReason::InvalidManifest));
                 }
                 entries.extend(page.entries);
@@ -290,7 +313,10 @@ where
 {
     let mut pacer = Pacer::new(max_rate);
     let (rd, mut wr) = tokio::io::split(stream);
-    let (tx, mut rx) = mpsc::unbounded_channel::<Result<Message, WireError>>();
+    // Bounded: a receiver that floods messages is slowed down by TCP rather
+    // than growing this side's memory. A legitimate one has at most a few
+    // dozen requests and results in flight.
+    let (tx, mut rx) = mpsc::channel::<Result<Message, WireError>>(1024);
     let peer_stopped = Arc::new(Stop::default());
     let reader = {
         let peer_stopped = peer_stopped.clone();
@@ -309,13 +335,13 @@ where
                         if stop {
                             peer_stopped.set();
                         }
-                        if tx.send(Ok(msg)).is_err() || stop {
+                        if tx.send(Ok(msg)).await.is_err() || stop {
                             break;
                         }
                     }
                     Err(err) => {
                         peer_stopped.set();
-                        let _ = tx.send(Err(err));
+                        let _ = tx.send(Err(err)).await;
                         break;
                     }
                 }
@@ -326,6 +352,10 @@ where
 
     let mut buf = Vec::new();
     let mut counted: HashMap<u32, u64> = HashMap::new();
+    // Per file: requested by the receiver, resolved (skipped or reported).
+    // Each file is resolved at most once; anything else is a violation.
+    let mut requested = vec![false; manifest.entries.len()];
+    let mut resolved = vec![false; manifest.entries.len()];
     loop {
         let next = tokio::select! {
             biased;
@@ -358,6 +388,10 @@ where
                     .entries
                     .get(index as usize)
                     .ok_or_else(|| protocol_err("request for an unknown file"))?;
+                if resolved[index as usize] {
+                    return Err(protocol_err("request for a file already resolved"));
+                }
+                requested[index as usize] = true;
                 // A file requested again (verification retry) restarts its count.
                 if let Some(previous) = counted.remove(&index) {
                     let mut l = lock(&live);
@@ -407,6 +441,12 @@ where
                     .entries
                     .get(index as usize)
                     .ok_or_else(|| protocol_err("skip of an unknown file"))?;
+                if entry.wire.kind != EntryKind::File
+                    || requested[index as usize]
+                    || std::mem::replace(&mut resolved[index as usize], true)
+                {
+                    return Err(protocol_err("a skip out of place"));
+                }
                 let mut l = lock(&live);
                 l.bytes_done += entry.wire.size;
                 if already_received {
@@ -416,11 +456,14 @@ where
                 }
             }
             Message::FileResult { index, failure } => {
-                let path = manifest
-                    .entries
-                    .get(index as usize)
-                    .map(|e| e.wire.path.clone())
-                    .unwrap_or_default();
+                let i = index as usize;
+                if i >= manifest.entries.len()
+                    || !requested[i]
+                    || std::mem::replace(&mut resolved[i], true)
+                {
+                    return Err(protocol_err("a result for a file not sent"));
+                }
+                let path = manifest.entries[i].wire.path.clone();
                 let mut l = lock(&live);
                 match failure {
                     None => l.files_done += 1,
@@ -1145,10 +1188,7 @@ impl Receiver<'_> {
                 // A link that drops mid-chunk fails here, not in read_msg.
                 Message::Chunk(header) => self.chunk(&mut rd, header).await,
                 Message::FileEnd { index, hash } => self.end_file(index, hash).await,
-                Message::FileError { index, failure } => {
-                    self.file_error(index, failure).await;
-                    Ok(())
-                }
+                Message::FileError { index, failure } => self.file_error(index, failure).await,
                 Message::Pause => {
                     self.save_progress().await;
                     return Ok(SessionEnd::Paused { by_peer: true });
@@ -1448,25 +1488,25 @@ impl Receiver<'_> {
         Ok(())
     }
 
-    async fn file_error(&mut self, index: u32, failure: FileFailure) {
+    async fn file_error(&mut self, index: u32, failure: FileFailure) -> Result<(), SessionError> {
+        // Only a file that was requested and is not being received as
+        // another can fail; anything else is a protocol violation.
+        let Some(planned) = self.shared.requested().get(&index).cloned() else {
+            return Err(protocol_err("an error for a file not requested"));
+        };
         let counted = match self.current.take() {
             Some(cur) if cur.index == index => cur.counted,
-            Some(cur) => {
-                self.current = Some(cur);
-                0
-            }
+            Some(_) => return Err(protocol_err("an error for a file while another is open")),
             None => 0,
         };
-        let planned = self.shared.requested().get(&index).cloned();
-        if let Some(planned) = planned {
-            let _ = tokio::fs::remove_file(&planned.temp).await;
-        }
+        let _ = tokio::fs::remove_file(&planned.temp).await;
         {
             let mut l = lock(self.live);
             l.bytes_done = l.bytes_done.saturating_sub(counted);
         }
         // The sender knows; the file is resolved without a FileResult.
         self.fin.resolve(index, Err(failure));
+        Ok(())
     }
 }
 

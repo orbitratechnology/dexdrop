@@ -41,6 +41,12 @@ pub const MANIFEST_PAGE_ENTRIES: usize = 256;
 pub const MAX_ENTRIES: u64 = 250_000;
 /// The longest relative path accepted, in bytes.
 pub const MAX_PATH_BYTES: usize = 4096;
+/// The most manifest bytes (paths and metadata) one offer may carry, read
+/// before the user is asked: bounds what an unknown peer can make the
+/// receiver hold.
+pub const MAX_MANIFEST_BYTES: usize = 64 * 1024 * 1024;
+/// The longest offer label accepted, in bytes.
+pub const MAX_LABEL_BYTES: usize = 256;
 /// The longest device name accepted, in bytes.
 pub const MAX_NAME_BYTES: usize = 128;
 
