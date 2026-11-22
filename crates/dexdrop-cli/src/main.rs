@@ -72,6 +72,12 @@ enum Cmd {
         /// Chunk size, in KiB.
         #[arg(long, default_value_t = 4096)]
         chunk_kib: u32,
+        /// Send a folder of this many small files instead of one file.
+        #[arg(long, default_value_t = 0)]
+        files: u64,
+        /// Size of each small file, in KiB (with --files).
+        #[arg(long, default_value_t = 16)]
+        file_kib: u64,
     },
 }
 
@@ -120,7 +126,12 @@ async fn main() -> Result<()> {
         Cmd::Send { to, paths } => send(state, to, paths).await,
         Cmd::Peers { wait } => peers(state, wait).await,
         Cmd::Id => id(state).await,
-        Cmd::Bench { mb, chunk_kib } => bench(mb, chunk_kib).await,
+        Cmd::Bench {
+            mb,
+            chunk_kib,
+            files,
+            file_kib,
+        } => bench(mb, chunk_kib, files, file_kib).await,
     }
 }
 
@@ -423,18 +434,40 @@ async fn id(state: PathBuf) -> Result<()> {
 
 /// Two engines in one process over loopback TLS: the end-to-end ceiling of
 /// the protocol on this machine (disk, hashing, encryption included).
-async fn bench(mb: u64, chunk_kib: u32) -> Result<()> {
+async fn bench(mb: u64, chunk_kib: u32, files: u64, file_kib: u64) -> Result<()> {
     let dir = tempfile_dir()?;
-    let src = dir.join("bench.bin");
-    {
+    let block: Vec<u8> = (0..1024 * 1024)
+        .map(|i| ((i * 2654435761u64 as usize) >> 13) as u8)
+        .collect();
+    let (src, bytes) = if files > 0 {
+        // A folder of many small files, 100 per subfolder.
+        let root = dir.join("many");
+        let size = (file_kib * 1024) as usize;
+        for i in 0..files {
+            let sub = root.join(format!("d{:04}", i / 100));
+            if i % 100 == 0 {
+                std::fs::create_dir_all(&sub)?;
+            }
+            // Distinct contents per file, any size: the block, rotated.
+            let shift = (i as usize * 7919) % block.len();
+            let data: Vec<u8> = block
+                .iter()
+                .cycle()
+                .skip(shift)
+                .take(size)
+                .copied()
+                .collect();
+            std::fs::write(sub.join(format!("f{i:06}.bin")), &data)?;
+        }
+        (root, files * size as u64)
+    } else {
+        let src = dir.join("bench.bin");
         let mut f = std::io::BufWriter::new(std::fs::File::create(&src)?);
-        let block: Vec<u8> = (0..1024 * 1024)
-            .map(|i| ((i * 2654435761u64 as usize) >> 13) as u8)
-            .collect();
         for _ in 0..mb {
             f.write_all(&block)?;
         }
-    }
+        (src, mb * 1024 * 1024)
+    };
     let make = |name: &str| {
         let mut c = config(dir.join(name).join("state"), dir.join(name).join("dl"));
         c.discovery = false;
@@ -458,6 +491,7 @@ async fn bench(mb: u64, chunk_kib: u32) -> Result<()> {
         },
         paths: vec![src.clone()],
     });
+    let _ = &src;
     let mut accepted_at = None;
     loop {
         tokio::select! {
@@ -467,7 +501,19 @@ async fn bench(mb: u64, chunk_kib: u32) -> Result<()> {
             },
             Some(e) = a_events.recv() => if let Event::Transfer(t) = e && t.state.is_finished() {
                 let elapsed = accepted_at.map(|t| t.elapsed()).unwrap_or_else(|| started.elapsed());
-                let bytes = mb * 1024 * 1024;
+                if files > 0 {
+                    println!(
+                        "{}: {} files of {} KiB in {:.2} s = {:.0} files/s, {} (peak memory {})",
+                        t.state.label(),
+                        files,
+                        file_kib,
+                        elapsed.as_secs_f64(),
+                        files as f64 / elapsed.as_secs_f64(),
+                        format::rate(bytes as f64 / elapsed.as_secs_f64()),
+                        peak_memory()
+                    );
+                    break;
+                }
                 println!(
                     "{}: {} in {:.2} s = {} (chunk {} KiB, TCP + TLS 1.3, BLAKE3 per chunk and per file)",
                     t.state.label(),
@@ -482,6 +528,19 @@ async fn bench(mb: u64, chunk_kib: u32) -> Result<()> {
     }
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
+}
+
+/// Peak resident memory of this process (both engines), where the OS says.
+fn peak_memory() -> String {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("VmHWM:"))
+                .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
+        })
+        .map(|kib| format::bytes(kib * 1024))
+        .unwrap_or_else(|| "unknown".into())
 }
 
 fn tempfile_dir() -> Result<PathBuf> {

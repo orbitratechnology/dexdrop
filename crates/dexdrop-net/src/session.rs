@@ -446,6 +446,46 @@ async fn stream_file<W: AsyncWrite + Unpin>(
     }
     let fail = |failure| Message::FileError { index, failure };
 
+    // A file that fits in one chunk is read in a single blocking call:
+    // per-operation thread hand-offs, not the disk, bound small files.
+    if offset == 0 && size <= chunk {
+        let source = source.clone();
+        let expected = entry.wire.clone();
+        let read = tokio::task::spawn_blocking(move || read_small(&source, &expected))
+            .await
+            .unwrap_or(Err(FileFailure::SourceUnreadable));
+        let data = match read {
+            Ok(data) => data,
+            Err(failure) => {
+                wire::send(wr, &fail(failure)).await?;
+                return Ok(0);
+            }
+        };
+        wire::write_msg(wr, &Message::FileStart { index, offset: 0 }).await?;
+        lock(live).current = Some(entry.wire.path.clone());
+        if !data.is_empty() {
+            let header = ChunkHeader {
+                index,
+                offset: 0,
+                len: data.len() as u32,
+                hash: protocol::chunk_hash(&data),
+            };
+            wire::write_msg(wr, &Message::Chunk(header)).await?;
+            wr.write_all(&data).await.map_err(WireError::from)?;
+            lock(live).bytes_done += data.len() as u64;
+            pacer.pace(data.len() as u64).await;
+        }
+        wire::write_msg(
+            wr,
+            &Message::FileEnd {
+                index,
+                hash: *blake3::hash(&data).as_bytes(),
+            },
+        )
+        .await?;
+        return Ok(data.len() as u64);
+    }
+
     let mut file = match File::open(source).await {
         Ok(file) => file,
         Err(_) => {
@@ -586,6 +626,26 @@ impl Stop {
     }
 }
 
+/// Reads a small file whole, checking it still matches the manifest.
+fn read_small(source: &Path, expected: &WireEntry) -> Result<Vec<u8>, FileFailure> {
+    use std::io::Read;
+    let matches =
+        |meta: &std::fs::Metadata| meta.len() == expected.size && mtime_of(meta) == expected.mtime;
+    let mut file = std::fs::File::open(source).map_err(|_| FileFailure::SourceChanged)?;
+    if !file.metadata().is_ok_and(|m| matches(&m)) {
+        return Err(FileFailure::SourceChanged);
+    }
+    let mut data = Vec::with_capacity(expected.size as usize);
+    (&mut file)
+        .take(expected.size + 1)
+        .read_to_end(&mut data)
+        .map_err(|_| FileFailure::SourceUnreadable)?;
+    if data.len() as u64 != expected.size || !file.metadata().is_ok_and(|m| matches(&m)) {
+        return Err(FileFailure::SourceChanged);
+    }
+    Ok(data)
+}
+
 async fn unchanged(file: &File, entry: &dexdrop_core::manifest::SourceEntry) -> bool {
     match file.metadata().await {
         Ok(meta) => meta.len() == entry.wire.size && mtime_of(&meta) == entry.wire.mtime,
@@ -701,7 +761,7 @@ where
 {
     let ReceivePlan {
         offer,
-        mut journal,
+        journal,
         records,
     } = plan;
     let (rd, mut wr) = tokio::io::split(stream);
@@ -746,9 +806,17 @@ where
     ));
     let _planner = AbortOnDrop(planner);
 
+    let fin = Finisher {
+        shared: shared.clone(),
+        journal: Arc::new(Mutex::new(journal)),
+        live: live.clone(),
+        entries: offer.entries.clone(),
+        commits: Arc::new(Semaphore::new(COMMITS)),
+        no_space: Arc::new(AtomicBool::new(false)),
+    };
     let mut receiver = Receiver {
         offer: &offer,
-        journal: &mut journal,
+        fin: fin.clone(),
         records: &records,
         shared: &shared,
         live: &live,
@@ -756,7 +824,15 @@ where
         buf: Vec::new(),
         last_save: Instant::now(),
     };
-    let result = receiver.read_loop(rd, &mut control).await;
+    let mut result = receiver.read_loop(rd, &mut control).await;
+    drop(receiver);
+    // Let commits in flight finish before the journal is final.
+    let _ = fin.commits.acquire_many(COMMITS as u32).await;
+    if fin.no_space.load(Ordering::SeqCst) && !matches!(result, Ok(SessionEnd::Completed)) {
+        result = Err(SessionError::NoSpace);
+    }
+    let journal = fin.journal().clone();
+    drop(fin);
     let _ = records.save(&journal.transfer_id, &journal);
     // Let final messages (Complete, Pause, Cancel) reach the sender.
     drop(shared);
@@ -882,9 +958,18 @@ async fn plan_requests(
     }
 }
 
+/// Where a file's verified bytes go while it is received.
+enum Sink {
+    /// A temporary file on disk (large files, resumable).
+    Disk(File),
+    /// Memory, for a file that fits in one chunk: written, synced and
+    /// committed in one blocking call when it ends.
+    Memory(Vec<u8>),
+}
+
 struct Current {
     index: u32,
-    file: File,
+    file: Sink,
     offset: u64,
     size: u64,
     whole: blake3::Hasher,
@@ -892,9 +977,77 @@ struct Current {
     counted: u64,
 }
 
+/// Concurrent commits: syncing to disk dominates small files, so several
+/// are flushed and moved into place while the next ones arrive.
+const COMMITS: usize = 8;
+
+/// What resolving a file needs; shared with the commit tasks.
+#[derive(Clone)]
+struct Finisher {
+    shared: Arc<Shared>,
+    journal: Arc<Mutex<ReceiveJournal>>,
+    live: LiveCell,
+    entries: Arc<Vec<WireEntry>>,
+    commits: Arc<Semaphore>,
+    no_space: Arc<AtomicBool>,
+}
+
+impl Finisher {
+    fn journal(&self) -> std::sync::MutexGuard<'_, ReceiveJournal> {
+        self.journal.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Reports a file's result to the sender and resolves it.
+    fn finish(&self, index: u32, result: Result<PathBuf, FileFailure>, uncount: u64) {
+        {
+            let mut l = lock(&self.live);
+            l.bytes_done = l.bytes_done.saturating_sub(uncount);
+        }
+        let failure = result.as_ref().err().copied();
+        let _ = self
+            .shared
+            .writer
+            .send(Message::FileResult { index, failure });
+        self.resolve(index, result);
+    }
+
+    fn resolve(&self, index: u32, result: Result<PathBuf, FileFailure>) {
+        self.shared.requested().remove(&index);
+        let path = self.entries[index as usize].path.clone();
+        {
+            let mut l = lock(&self.live);
+            if l.current.as_deref() == Some(path.as_str()) {
+                l.current = None;
+            }
+            match &result {
+                Ok(_) => l.files_done += 1,
+                Err(failure) => l.fail(&path, *failure),
+            }
+        }
+        {
+            let mut journal = self.journal();
+            let progress = journal.files.entry(index).or_default();
+            progress.temp = None;
+            match result {
+                Ok(saved) => {
+                    progress.state = FileState::Done;
+                    progress.verified = self.entries[index as usize].size;
+                    progress.saved = Some(saved);
+                }
+                Err(_) => {
+                    progress.state = FileState::Failed;
+                    progress.verified = 0;
+                }
+            }
+        }
+        self.shared.permits.add_permits(1);
+        self.shared.resolve_one();
+    }
+}
+
 struct Receiver<'a> {
     offer: &'a ReceivedOffer,
-    journal: &'a mut ReceiveJournal,
+    fin: Finisher,
     records: &'a RecordDir,
     shared: &'a Arc<Shared>,
     live: &'a LiveCell,
@@ -996,6 +1149,28 @@ impl Receiver<'_> {
         if planned.offset != offset {
             return Err(protocol_err("data from an offset not requested"));
         }
+        if offset == 0 && size <= u64::from(self.offer.offer.chunk_size) {
+            self.fin.journal().files.insert(
+                index,
+                FileProgress {
+                    verified: 0,
+                    state: FileState::Partial,
+                    temp: None,
+                    saved: None,
+                },
+            );
+            lock(self.live).current = Some(self.offer.entries[index as usize].path.clone());
+            self.current = Some(Current {
+                index,
+                file: Sink::Memory(Vec::with_capacity(size as usize)),
+                offset: 0,
+                size,
+                whole: blake3::Hasher::new(),
+                corrupt: false,
+                counted: 0,
+            });
+            return Ok(());
+        }
         if let Some(parent) = planned.temp.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -1030,7 +1205,7 @@ impl Receiver<'_> {
             .await
             .map_err(SessionError::Disk)?;
 
-        self.journal.files.insert(
+        self.fin.journal().files.insert(
             index,
             FileProgress {
                 verified: offset,
@@ -1046,7 +1221,7 @@ impl Receiver<'_> {
         }
         self.current = Some(Current {
             index,
-            file,
+            file: Sink::Disk(file),
             offset,
             size,
             whole,
@@ -1086,12 +1261,17 @@ impl Receiver<'_> {
             cur.corrupt = true;
             return Ok(());
         }
-        if let Err(err) = cur.file.write_all(data).await {
-            return Err(if is_no_space(&err) {
-                SessionError::NoSpace
-            } else {
-                SessionError::Disk(err)
-            });
+        match &mut cur.file {
+            Sink::Disk(file) => {
+                if let Err(err) = file.write_all(data).await {
+                    return Err(if is_no_space(&err) {
+                        SessionError::NoSpace
+                    } else {
+                        SessionError::Disk(err)
+                    });
+                }
+            }
+            Sink::Memory(bytes) => bytes.extend_from_slice(data),
         }
         cur.whole.update(data);
         cur.offset += len as u64;
@@ -1105,27 +1285,30 @@ impl Receiver<'_> {
 
     /// Flushes the current file and journals its verified prefix.
     async fn save_progress(&mut self) {
-        if let Some(cur) = self.current.as_mut() {
-            let durable = cur.file.flush().await.is_ok() && cur.file.sync_data().await.is_ok();
-            if durable
-                && !cur.corrupt
-                && let Some(progress) = self.journal.files.get_mut(&cur.index)
-            {
+        if let Some(cur) = self.current.as_mut()
+            && let Sink::Disk(file) = &mut cur.file
+        {
+            let durable = file.flush().await.is_ok() && file.sync_data().await.is_ok();
+            if durable && !cur.corrupt {
                 // Only whole chunks count: resume restarts at a chunk boundary.
                 let chunk = u64::from(self.offer.offer.chunk_size);
-                progress.verified = if cur.offset == cur.size {
+                let verified = if cur.offset == cur.size {
                     cur.offset
                 } else {
                     cur.offset / chunk * chunk
                 };
+                if let Some(progress) = self.fin.journal().files.get_mut(&cur.index) {
+                    progress.verified = verified;
+                }
             }
         }
-        let _ = self.records.save(&self.journal.transfer_id, &*self.journal);
+        let snapshot = self.fin.journal().clone();
+        let _ = self.records.save(&snapshot.transfer_id, &snapshot);
         self.last_save = Instant::now();
     }
 
     async fn end_file(&mut self, index: u32, hash: [u8; 32]) -> Result<(), SessionError> {
-        let Some(mut cur) = self.current.take() else {
+        let Some(cur) = self.current.take() else {
             return Err(protocol_err("a file ended that did not start"));
         };
         if cur.index != index {
@@ -1138,7 +1321,6 @@ impl Receiver<'_> {
             return Err(protocol_err("a file ended that was not requested"));
         };
         if !verified {
-            drop(cur.file);
             {
                 let mut l = lock(self.live);
                 l.bytes_done = l.bytes_done.saturating_sub(cur.counted);
@@ -1154,37 +1336,74 @@ impl Receiver<'_> {
                         ..planned
                     },
                 );
-                if let Some(progress) = self.journal.files.get_mut(&index) {
+                if let Some(progress) = self.fin.journal().files.get_mut(&index) {
                     progress.verified = 0;
                 }
                 let _ = self.shared.writer.send(Message::Want { index, offset: 0 });
                 return Ok(());
             }
             let _ = tokio::fs::remove_file(&planned.temp).await;
-            self.finish(index, Err(FileFailure::IntegrityMismatch), cur.counted);
+            self.fin
+                .finish(index, Err(FileFailure::IntegrityMismatch), cur.counted);
             return Ok(());
         }
-        if let Err(err) = async {
-            cur.file.flush().await?;
-            cur.file.sync_all().await
-        }
-        .await
-        {
-            return Err(if is_no_space(&err) {
-                SessionError::NoSpace
-            } else {
-                SessionError::Disk(err)
-            });
-        }
-        drop(cur.file);
-        match commit(&planned.temp, &planned.planned, self.journal.conflict).await {
-            Ok(saved) => {
-                self.finish(index, Ok(saved), 0);
+        let conflict = self.fin.journal().conflict;
+        let (temp, target) = (planned.temp.clone(), planned.planned.clone());
+        let small = match cur.file {
+            Sink::Disk(mut file) => {
+                if let Err(err) = async {
+                    file.flush().await?;
+                    file.sync_all().await
+                }
+                .await
+                {
+                    return Err(if is_no_space(&err) {
+                        SessionError::NoSpace
+                    } else {
+                        SessionError::Disk(err)
+                    });
+                }
+                None
             }
-            Err(_) => {
-                let _ = tokio::fs::remove_file(&planned.temp).await;
-                self.finish(index, Err(FileFailure::WriteFailed), cur.counted);
+            Sink::Memory(bytes) => Some(bytes),
+        };
+        // Write (small files), sync and commit in one blocking call, while
+        // the next files keep arriving; at most COMMITS at once.
+        let permit = self
+            .fin
+            .commits
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| protocol_err("the session is closing"))?;
+        let fin = self.fin.clone();
+        let counted = cur.counted;
+        tokio::spawn(async move {
+            let cleanup = temp.clone();
+            let committed = tokio::task::spawn_blocking(move || {
+                if let Some(bytes) = small {
+                    write_synced(&temp, &bytes)?;
+                }
+                commit(&temp, &target, conflict)
+            })
+            .await
+            .unwrap_or_else(|e| Err(std::io::Error::other(e)));
+            match committed {
+                Ok(saved) => fin.finish(index, Ok(saved), 0),
+                Err(err) => {
+                    let _ = std::fs::remove_file(&cleanup);
+                    if is_no_space(&err) {
+                        // The session stops; the file is requested again on resume.
+                        fin.no_space.store(true, Ordering::SeqCst);
+                    } else {
+                        fin.finish(index, Err(FileFailure::WriteFailed), counted);
+                    }
+                }
             }
+            drop(permit);
+        });
+        if self.fin.no_space.load(Ordering::SeqCst) {
+            return Err(SessionError::NoSpace);
         }
         if self.last_save.elapsed() >= JOURNAL_EVERY {
             self.save_progress().await;
@@ -1210,59 +1429,31 @@ impl Receiver<'_> {
             l.bytes_done = l.bytes_done.saturating_sub(counted);
         }
         // The sender knows; the file is resolved without a FileResult.
-        self.resolve(index, Err(failure), false);
-    }
-
-    fn finish(&mut self, index: u32, result: Result<PathBuf, FileFailure>, uncount: u64) {
-        {
-            let mut l = lock(self.live);
-            l.bytes_done = l.bytes_done.saturating_sub(uncount);
-        }
-        let failure = result.as_ref().err().copied();
-        let _ = self
-            .shared
-            .writer
-            .send(Message::FileResult { index, failure });
-        self.resolve(index, result, true);
-    }
-
-    fn resolve(&mut self, index: u32, result: Result<PathBuf, FileFailure>, _reported: bool) {
-        self.shared.requested().remove(&index);
-        let path = self.offer.entries[index as usize].path.clone();
-        let progress = self.journal.files.entry(index).or_default();
-        progress.temp = None;
-        {
-            let mut l = lock(self.live);
-            l.current = None;
-            match &result {
-                Ok(_) => l.files_done += 1,
-                Err(failure) => l.fail(&path, *failure),
-            }
-        }
-        match result {
-            Ok(saved) => {
-                progress.state = FileState::Done;
-                progress.verified = self.offer.entries[index as usize].size;
-                progress.saved = Some(saved);
-            }
-            Err(_) => {
-                progress.state = FileState::Failed;
-                progress.verified = 0;
-            }
-        }
-        self.shared.permits.add_permits(1);
-        self.shared.resolve_one();
+        self.fin.resolve(index, Err(failure));
     }
 }
 
-/// Moves a verified temporary file to its final place (FR-046).
-async fn commit(temp: &Path, planned: &Path, conflict: ConflictPolicy) -> std::io::Result<PathBuf> {
+/// Writes `bytes` to the temporary file `temp` and flushes it to disk.
+fn write_synced(temp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = temp.parent()
+        && !parent.is_dir()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::File::create(temp)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+/// Moves a verified temporary file to its final place (FR-046). Blocking.
+fn commit(temp: &Path, planned: &Path, conflict: ConflictPolicy) -> std::io::Result<PathBuf> {
     match conflict {
         ConflictPolicy::Replace => {
-            if tokio::fs::metadata(planned).await.is_ok_and(|m| m.is_dir()) {
+            if std::fs::metadata(planned).is_ok_and(|m| m.is_dir()) {
                 return Err(std::io::Error::other("a folder has that name"));
             }
-            tokio::fs::rename(temp, planned).await?;
+            std::fs::rename(temp, planned)?;
             Ok(planned.to_path_buf())
         }
         ConflictPolicy::KeepBoth | ConflictPolicy::Skip => {
@@ -1275,15 +1466,15 @@ async fn commit(temp: &Path, planned: &Path, conflict: ConflictPolicy) -> std::i
                 let target = naming::first_free(parent, &name);
                 // A hard link never replaces an existing file; fall back to a
                 // rename where links are unsupported (FAT, some Android storage).
-                match tokio::fs::hard_link(temp, &target).await {
+                match std::fs::hard_link(temp, &target) {
                     Ok(()) => {
-                        let _ = tokio::fs::remove_file(temp).await;
+                        let _ = std::fs::remove_file(temp);
                         return Ok(target);
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
                     Err(_) => {
-                        if tokio::fs::symlink_metadata(&target).await.is_err() {
-                            tokio::fs::rename(temp, &target).await?;
+                        if std::fs::symlink_metadata(&target).is_err() {
+                            std::fs::rename(temp, &target)?;
                             return Ok(target);
                         }
                     }

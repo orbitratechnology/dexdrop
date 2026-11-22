@@ -438,3 +438,44 @@ async fn a_used_code_is_reported_and_closed() {
         Message::Reject(dexdrop_core::protocol::RejectReason::InvitationInvalid)
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn many_small_files_arrive_intact() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let src = tempfile::tempdir().unwrap();
+    for i in 0..500usize {
+        write_file(
+            &src.path()
+                .join(format!("Photos/{:02}/img{i:04}.jpg", i % 10)),
+            1000 + i * 37,
+            i as u8,
+        );
+    }
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("Photos")],
+    });
+    let request = b.wait_request().await;
+    assert_eq!(request.files, 500);
+    b.send(accept(request.id));
+    let done = b.wait_state("completed", |s| s.is_finished()).await;
+    assert_eq!(done.state, TransferState::Completed, "{done:?}");
+    assert_eq!(done.files_done, 500);
+    let sent = a.wait_state("sender completed", |s| s.is_finished()).await;
+    assert_eq!(sent.state, TransferState::Completed);
+    assert_eq!(sent.files_done, 500);
+    for i in 0..500usize {
+        let rel = format!("Photos/{:02}/img{i:04}.jpg", i % 10);
+        assert_eq!(
+            std::fs::read(b.downloads().join(&rel)).unwrap(),
+            std::fs::read(src.path().join(&rel)).unwrap(),
+            "{rel}"
+        );
+    }
+    let leftovers: Vec<_> = walk(&b.downloads())
+        .into_iter()
+        .filter(|p| p.to_string_lossy().ends_with(".dexdrop-part"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}

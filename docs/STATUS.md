@@ -40,8 +40,8 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | FR-040 – FR-046 Receiving | Done | Consent, details, destination, keep-both/skip/replace (confirmed), space check, path safety, atomic commit |
 | FR-047 Per-device receive policy | Done | |
 | FR-050 – FR-056 Lifecycle | Done | Queue states, throttled progress, rate after samples, ETA after 3 s, pause/resume, reconnect with backoff, cancel cleans temp files, verify-and-retry |
-| FR-057 Many files | Partial | Paged manifest, 250k entry cap; the manifest is held in memory |
-| FR-058 Concurrent streams | Open | One stream per transfer; transfers run concurrently |
+| FR-057 Many files | Done for 250k entries | Paged manifest, 250k entry cap; 20,000 files transfer with 40 MB peak memory for both ends (`dexdrop bench --files 20000`) |
+| FR-058 Concurrent streams | Done (adapted) | One encrypted stream per transfer with up to 64 pipelined file requests; files that fit in one chunk are read, written, synced and committed in single blocking calls, 8 commits in parallel |
 | FR-059 Duplicate detection | Open | |
 | FR-060 History | Done | Local, capped, clearable |
 | FR-070 – FR-074 Settings | Done | Metered-data switch is stored but not yet enforced |

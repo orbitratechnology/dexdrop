@@ -44,6 +44,24 @@ providing another stream source plus its peer identity, not changing sessions.
 Still to do for the PRD's P0-012: benchmark Quinn and Iroh on real Wi-Fi and
 Ethernet with the same corpus.
 
+## Measured performance
+
+`dexdrop bench` runs two engines in one process over loopback TLS, including
+hashing and disk writes (build container, release build):
+
+| Workload | Result |
+|---|---|
+| One 1 GiB file | 340–480 MB/s |
+| 300 files of 3 MB (photos) | 624 MB/s |
+| 2,000 files of 16 KiB | 3,100–3,500 files/s, 17 MB peak memory |
+| 20,000 files of 16 KiB | 3,700 files/s, 40 MB peak memory |
+
+Small files were first limited by thread hand-offs (each async file
+operation hops to a blocking thread) and then by one fsync per file. Files
+that fit in one chunk are now read whole on the sender and written, synced
+and committed in one blocking call on the receiver, with up to 8 commits in
+flight while the next files arrive: 1,400 → 3,700 files/s.
+
 ## Identity and authentication
 
 Each install generates an Ed25519 key and a self-signed certificate. Peer ID =
