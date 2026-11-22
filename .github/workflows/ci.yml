@@ -44,7 +44,6 @@ jobs:
   package-linux:
     name: Package Linux
     runs-on: ubuntu-24.04
-    needs: engine
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -67,7 +66,6 @@ jobs:
   package-web:
     name: Package web preview
     runs-on: ubuntu-24.04
-    needs: engine
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -87,7 +85,6 @@ jobs:
   package-android:
     name: Package Android
     runs-on: ubuntu-24.04
-    needs: engine
     env:
       NDK_VERSION: 27.2.12479018
     steps:
@@ -119,7 +116,6 @@ jobs:
   package-windows:
     name: Package Windows
     runs-on: windows-latest
-    needs: engine
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -143,7 +139,6 @@ jobs:
   package-apple:
     name: Package macOS and iOS simulator
     runs-on: macos-14
-    needs: engine
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
