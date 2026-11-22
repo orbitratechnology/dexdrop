@@ -560,6 +560,10 @@ async fn code_guesses_are_limited_even_when_the_guesser_hangs_up() {
 async fn many_small_files_arrive_intact() {
     let mut a = Node::start("Alice").await;
     let mut b = Node::start("Bob").await;
+    // 500 flushes to disk: slow on CI's Windows disks. This test is about
+    // integrity; throughput is measured by `dexdrop bench`.
+    a.timeout = std::time::Duration::from_secs(120);
+    b.timeout = std::time::Duration::from_secs(120);
     let src = tempfile::tempdir().unwrap();
     for i in 0..500usize {
         write_file(

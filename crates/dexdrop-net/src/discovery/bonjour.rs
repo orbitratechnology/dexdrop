@@ -676,6 +676,51 @@ fn run(fd: c_int, conn: Arc<Mutex<Conn>>, stop: Arc<AtomicBool>) {
 mod tests {
     use super::*;
 
+    /// Two instances on one Mac find each other through mDNSResponder.
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn finds_another_instance() {
+        let (a_tx, mut a_rx) = mpsc::unbounded_channel();
+        let (b_tx, mut b_rx) = mpsc::unbounded_channel();
+        let a_id = PeerId([1; 32]);
+        let b_id = PeerId([2; 32]);
+        let _a = Discovery::start(a_id, a_tx).expect("browse A");
+        let mut b = Discovery::start(b_id, b_tx).expect("browse B");
+        b.advertise(&Advertisement {
+            peer_id: b_id,
+            name: "Bonjour test".into(),
+            platform: "macos".into(),
+            port: 4242,
+            code_open: true,
+        })
+        .expect("register B");
+        let mut seen = Vec::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            tokio::select! {
+                event = a_rx.recv() => {
+                    let Some(event) = event else { break };
+                    if let DiscoveryEvent::Found(found) = &event
+                        && found.peer_id == b_id
+                    {
+                        assert_eq!(found.name, "Bonjour test");
+                        assert!(found.code_open);
+                        assert!(found.addrs.iter().all(|a| a.port() == 4242), "{found:?}");
+                        return;
+                    }
+                    seen.push(format!("A: {event:?}"));
+                }
+                event = b_rx.recv() => {
+                    if let Some(event) = event {
+                        seen.push(format!("B: {event:?}"));
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline) => break,
+            }
+        }
+        panic!("A never found B; events: {seen:#?}");
+    }
+
     #[test]
     fn txt_records_round_trip() {
         let entries = vec![("v", "1".to_owned()), ("n", "Ana's Mac".to_owned())];

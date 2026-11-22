@@ -14,6 +14,8 @@ pub struct Node {
     pub events: UnboundedReceiver<Event>,
     pub status: Status,
     pub dir: tempfile::TempDir,
+    /// How long [`Node::wait`] waits for an event.
+    pub timeout: Duration,
     _done: tokio::sync::oneshot::Receiver<()>,
 }
 
@@ -49,6 +51,7 @@ impl Node {
             events,
             status,
             dir,
+            timeout: Duration::from_secs(30),
             _done: done,
         }
     }
@@ -78,7 +81,7 @@ impl Node {
 
     /// Waits for an event matching `pred`.
     pub async fn wait<T>(&mut self, what: &str, mut pred: impl FnMut(&Event) -> Option<T>) -> T {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let deadline = tokio::time::Instant::now() + self.timeout;
         loop {
             let event = tokio::time::timeout_at(deadline, self.events.recv())
                 .await
