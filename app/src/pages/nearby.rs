@@ -358,6 +358,18 @@ fn fallback() -> impl IntoElement {
         )
 }
 
+/// What a screen reader says for the code: "Pairing code: 9 S V Y, W F X Y".
+fn spoken_code(shown: &str) -> String {
+    if !shown.chars().any(|c| c.is_ascii_alphanumeric()) {
+        return "Pairing code: not ready yet".into();
+    }
+    let halves: Vec<String> = shown
+        .split('-')
+        .map(|half| half.chars().map(String::from).collect::<Vec<_>>().join(" "))
+        .collect();
+    format!("Pairing code: {}", halves.join(", "))
+}
+
 /// The receive sheet: this device's code and QR invitation (FR-020).
 pub fn receive_sheet() -> impl IntoElement {
     let code = move || {
@@ -382,7 +394,8 @@ pub fn receive_sheet() -> impl IntoElement {
                 .letter_spacing(px(2.0))
                 .text_color(move || theme().foreground)
                 .selectable(true)
-                .label("Pairing code"),
+                // Spelled out, so screen readers read the code itself.
+                .label(move || spoken_code(&code())),
         )
         // A code works once: after it is used, offer a fresh one.
         .child(when(
@@ -553,4 +566,15 @@ pub fn connect_sheet() -> impl IntoElement {
                         .on_press(submit),
                 ),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spoken_code;
+
+    #[test]
+    fn screen_readers_get_the_code_itself() {
+        assert_eq!(spoken_code("9SVY-WFXY"), "Pairing code: 9 S V Y, W F X Y");
+        assert_eq!(spoken_code("········"), "Pairing code: not ready yet");
+    }
 }

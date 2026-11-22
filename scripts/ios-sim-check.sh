@@ -85,14 +85,23 @@ tap Nearby || fail "could not return to Nearby"
 tap "Receive with a code" || fail "could not open Receive with a code"
 ad wait text "Pairing code" 10000 >/dev/null 2>&1 || true
 step 03-receive-code
-code=$(grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}' "$out/03-receive-code.txt" | head -1)
-[ -n "$code" ] || fail "no pairing code on screen"
-note "- Receive sheet shows code $code"
+# The code as screen readers get it ("Pairing code: 9 S V Y, W F X Y").
+code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/03-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')
+if [ ${#code} -ge 8 ]; then
+  target="${code:0:4}-${code:4:4}"
+  note "- Receive sheet shows code $target, readable by screen readers"
+else
+  # Builds without the spoken code: use the invitation link instead.
+  note "- The code is not readable by screen readers; using the invitation link"
+  tap "Copy invitation" || fail "could not copy the invitation"
+  target=$(xcrun simctl pbpaste "$udid")
+  case "$target" in DEXDROP1:*) ;; *) fail "the clipboard holds no invitation" ;; esac
+fi
 
 payload="$out/payload.bin"
 head -c 3000000 /dev/urandom >"$payload"
 state=$(mktemp -d)
-"$cli" --state "$state" send "$code" "$payload" >"$out/cli-send.log" 2>&1 &
+"$cli" --state "$state" send "$target" "$payload" >"$out/cli-send.log" 2>&1 &
 sender=$!
 
 tap Done >/dev/null 2>&1 || true
