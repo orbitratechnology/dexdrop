@@ -9,11 +9,11 @@ on Linux; other platforms are built in CI but not yet run on devices.
 | Target | Build | Run / validate | Notes |
 |---|---|---|---|
 | Linux x86_64 | Done (`nsh package --target linux`, 15 MB tarball) | Verified: two app instances discover each other and transfer; CLI ⇄ app; 300 MB byte-identical | Needs GTK 4.14+ (Ubuntu 24.04+) |
-| Android | Done (APK, arm64-v8a + armeabi-v7a, debug-signed, targetSdk 35) | Open: no device or emulator available | Manifest has `INTERNET`; mDNS needs `CHANGE_WIFI_MULTICAST_STATE` + a multicast lock or an NSD bridge, which NSH's standalone packaging cannot declare yet (P0-015). Invitations and direct addresses work without discovery. |
+| Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a, debug-signed, targetSdk 35) | Open: no device or emulator available | Manifest has `INTERNET`; mDNS needs `CHANGE_WIFI_MULTICAST_STATE` + a multicast lock or an NSD bridge, which NSH's standalone packaging cannot declare yet (P0-015). Invitations and direct addresses work without discovery. |
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
-| Windows | CI job | Open | Engine has no Unix-only code paths besides file permissions |
-| macOS | CI job (Apple silicon) | Open | Unsigned, local use only |
-| iOS | CI job (`ios-simulator`) | Open | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
+| Windows | Done in CI (`nsh package --target windows`) | Engine tests and throughput bench pass on Windows in CI; the app has not been run interactively | |
+| macOS | CI job ready | Open: no macOS runner is available to the repository's account | Unsigned, local use only |
+| iOS | CI job ready (`ios-simulator`) | Open: waits on a macOS runner | `NSLocalNetworkUsageDescription` and `NSBonjourServices` set in `nsh.json`; Bonjour adapter via Network framework is open |
 
 ## Functional requirements
 
@@ -50,19 +50,19 @@ on Linux; other platforms are built in CI but not yet run on devices.
 
 ## Tests
 
-- `dexdrop-core`: 32 unit tests (protocol bounds, path traversal and reserved
+- `dexdrop-core`: 33 unit tests (protocol bounds, path traversal and reserved
   names, invitations and codes, journals, naming, manifests, identity).
-- `dexdrop-net`: 10 end-to-end tests over real TLS on loopback (consent, decline,
+- `dexdrop-net`: 13 end-to-end tests over real TLS on loopback (consent, decline,
   no silent overwrite, skip policy, pause/resume from the verified offset,
   cancel cleanup, wrong-peer pinning, trusted auto-accept, invalid
-  invitations, a used code reported and refused a second time) and 5 adversarial session tests (malicious manifests, oversized
+  invitations, a used code reported and refused a second time, 500 small files byte-for-byte, a source edited or deleted mid-transfer never saved and reported the same on both sides) and 5 adversarial session tests (malicious manifests, oversized
   frames, out-of-place chunks, corruption retried once, persistent corruption
   never saved).
 - `dexdrop-app`: 5 headless UI tests on NSH's engine (phone layout), including keyboard shortcuts.
 
 ## Known gaps worth doing next
 
-1. Run the CI matrix; fix whatever Windows/macOS/iOS packaging surfaces.
+1. Get a macOS runner (or a Mac) for the macOS app and the iOS simulator build; run the Windows build interactively.
 2. Android: a native NSD/multicast-lock bridge and SAF file access (needs an
    NSH packaging extension), then device testing.
 3. iOS: Network-framework Bonjour adapter; Files/Photos picker; simulator tests.
