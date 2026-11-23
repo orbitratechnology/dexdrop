@@ -45,7 +45,8 @@ ad() { agent-device "$@" --platform android --serial "$serial"; }
 sh_() { adb -s "$serial" shell "$@"; }
 step() { # step <name>: screenshot and full accessibility snapshot
   ad screenshot "$out/$1.png" >/dev/null 2>&1 || note "(no screenshot for $1)"
-  ad snapshot >"$out/$1.txt" 2>&1 || true
+  # --force-full: agent-device otherwise answers "unchanged" with no tree.
+  ad snapshot --force-full >"$out/$1.txt" 2>&1 || true
 }
 tap() { # tap <label>: scroll down once if it is not on screen yet
   ad click "label=\"$1\"" --settle >/dev/null 2>&1 && return 0
@@ -63,7 +64,9 @@ adb -s "$serial" logcat -c || true
 sh_ "rm -rf $dev && mkdir -p $dev" || fail "could not prepare $dev"
 adb -s "$serial" push "$cli" "$dev/dexdrop" >/dev/null || fail "could not push the CLI"
 sh_ "chmod 755 $dev/dexdrop"
-dexdrop() { sh_ "$dev/dexdrop" "$@"; }
+# `adb shell` joins its arguments with spaces: quote each for the device's
+# shell.
+dexdrop() { sh_ "$dev/dexdrop $(printf "%q " "$@")"; }
 
 ad install "$pkg" "$apk" || { sleep 15; ad install "$pkg" "$apk"; } || fail "the app did not install"
 # Android 13+ asks before an app may post notifications; answer up front.
