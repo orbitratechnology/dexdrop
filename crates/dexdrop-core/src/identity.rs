@@ -348,6 +348,11 @@ mod tests {
         let old = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
         let moved = Identity::load_or_create_with(&path, KeyStorage::System).unwrap();
         assert_eq!(moved.peer_id(), old.peer_id());
+        // CI sets this where the store must work (Windows), so a silent
+        // fall back to the file fails there.
+        if std::env::var("DEXDROP_EXPECT_SYSTEM_KEYSTORE").is_ok_and(|v| v == "1") {
+            assert_eq!(moved.key_storage(), KeyStorage::System);
+        }
         let text = std::fs::read_to_string(&path).unwrap();
         match moved.key_storage() {
             KeyStorage::System => assert!(!text.contains("key_pkcs8"), "{text}"),

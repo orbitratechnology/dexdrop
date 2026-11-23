@@ -34,6 +34,9 @@ jobs:
         if: runner.os == 'Linux'
       - run: cargo clippy -p dexdrop-core -p dexdrop-net -p dexdrop-cli --all-targets -- -D warnings
       - run: cargo test -p dexdrop-core -p dexdrop-net -p dexdrop-cli
+        env:
+          # Windows' Credential Manager works on CI: the key must go there.
+          DEXDROP_EXPECT_SYSTEM_KEYSTORE: ${{ runner.os == 'Windows' && '1' || '' }}
       - run: cargo run --release -p dexdrop-cli -- bench --mb 512
       - name: Transport benchmark (TCP + TLS against QUIC)
         if: runner.os == 'Linux'
