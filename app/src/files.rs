@@ -40,15 +40,7 @@ pub fn preview_of(item: &FileItem) -> Option<PathBuf> {
 
 /// A square picture of a file: the photo itself, cropped, or its kind.
 pub fn thumb(name: &str, preview: Option<&Path>, side: f32, radius: f32) -> View {
-    let i = Icon::for_file(name);
-    let c = ui::kind_color(i);
-    let kind = view()
-        .size(px(side))
-        .rounded(px(radius))
-        .items_center()
-        .justify_center()
-        .bg(rgba((c << 8) | 0x24))
-        .child(ui::icon(i, side * 0.5, rgb(c)));
+    let kind = ui::file_badge(name, side, radius);
     match preview {
         Some(path) => view()
             .size(px(side))

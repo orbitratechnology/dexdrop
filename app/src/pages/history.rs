@@ -255,7 +255,6 @@ fn row_content(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
         Outcome::Failed(_) => (Icon::Alert, Tone::Danger),
     };
     let outgoing = h.with_untracked(|e| e.direction == Direction::Outgoing);
-    let kind = Icon::for_file(&h.with_untracked(|e| e.label.clone()));
     // The first photo itself, when it is still on this device.
     let preview = h.with_untracked(|e| e.items.iter().find_map(crate::files::preview_of));
     view()
@@ -268,7 +267,7 @@ fn row_content(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
             view()
                 .child(match &preview {
                     Some(p) => crate::files::thumb("", Some(p), 40.0, 10.0),
-                    None => ui::kind_glyph(kind, 40.0),
+                    None => ui::file_badge(&h.with_untracked(|e| e.label.clone()), 40.0, 10.0),
                 })
                 .child(
                     view()
@@ -331,7 +330,6 @@ fn details(e: HistoryEntry) -> impl IntoElement {
     let outgoing = e.direction == Direction::Outgoing;
     let (status, tone) = outcome_of(&e.outcome);
     let photos = crate::files::photo_strip(&e.items, 6);
-    let hero_icon = Icon::for_file(&e.label);
     let size_line = {
         let mut parts = vec![dexdrop_core::format::bytes(e.bytes)];
         parts.push(if e.files == 1 {
@@ -348,7 +346,7 @@ fn details(e: HistoryEntry) -> impl IntoElement {
         .child(match photos {
             Some(strip) => strip.into_element(),
             None => view()
-                .child(ui::kind_glyph(hero_icon, 88.0))
+                .child(ui::file_badge(&e.label, 88.0, 24.0))
                 .child(
                     view()
                         .absolute()

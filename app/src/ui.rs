@@ -104,8 +104,6 @@ pub enum Icon {
     Folder,
     Music,
     Archive,
-    Phone,
-    Laptop,
     Monitor,
     Pause,
     Play,
@@ -130,6 +128,24 @@ pub enum Icon {
     Share,
     UserCheck,
     Lock,
+    Apple,
+    Windows,
+    Android,
+    Linux,
+    Doc,
+    Sheet,
+    Slides,
+    Code,
+    Font,
+    Book,
+    Disk,
+    Vector,
+    Database,
+    Calendar,
+    Person,
+    Package,
+    Pdf,
+    Markdown,
 }
 
 impl Icon {
@@ -147,8 +163,6 @@ impl Icon {
             Icon::Folder => include_str!("../assets/icons/folder.svg"),
             Icon::Music => include_str!("../assets/icons/music.svg"),
             Icon::Archive => include_str!("../assets/icons/archive.svg"),
-            Icon::Phone => include_str!("../assets/icons/phone.svg"),
-            Icon::Laptop => include_str!("../assets/icons/laptop.svg"),
             Icon::Monitor => include_str!("../assets/icons/monitor.svg"),
             Icon::Pause => include_str!("../assets/icons/pause.svg"),
             Icon::Play => include_str!("../assets/icons/play.svg"),
@@ -173,6 +187,24 @@ impl Icon {
             Icon::Share => include_str!("../assets/icons/share.svg"),
             Icon::UserCheck => include_str!("../assets/icons/user-check.svg"),
             Icon::Lock => include_str!("../assets/icons/lock.svg"),
+            Icon::Apple => include_str!("../assets/icons/os-apple.svg"),
+            Icon::Windows => include_str!("../assets/icons/os-windows.svg"),
+            Icon::Android => include_str!("../assets/icons/os-android.svg"),
+            Icon::Linux => include_str!("../assets/icons/os-linux.svg"),
+            Icon::Doc => include_str!("../assets/icons/doc.svg"),
+            Icon::Sheet => include_str!("../assets/icons/sheet.svg"),
+            Icon::Slides => include_str!("../assets/icons/slides.svg"),
+            Icon::Code => include_str!("../assets/icons/code.svg"),
+            Icon::Font => include_str!("../assets/icons/font.svg"),
+            Icon::Book => include_str!("../assets/icons/book.svg"),
+            Icon::Disk => include_str!("../assets/icons/disk.svg"),
+            Icon::Vector => include_str!("../assets/icons/vector.svg"),
+            Icon::Database => include_str!("../assets/icons/database.svg"),
+            Icon::Calendar => include_str!("../assets/icons/calendar.svg"),
+            Icon::Person => include_str!("../assets/icons/person.svg"),
+            Icon::Package => include_str!("../assets/icons/package.svg"),
+            Icon::Pdf => include_str!("../assets/icons/pdf.svg"),
+            Icon::Markdown => include_str!("../assets/icons/markdown.svg"),
         }
     }
 
@@ -188,30 +220,6 @@ impl Icon {
             }
         }
         uri
-    }
-
-    /// The icon for a file by its name.
-    pub fn for_file(name: &str) -> Icon {
-        // A transfer's label ("Holiday.jpg and 2 more") goes by its first file.
-        let name = name.split_once(" and ").map_or(name, |(first, _)| first);
-        let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-        match ext.as_str() {
-            "jpg" | "jpeg" | "png" | "heic" | "heif" | "gif" | "webp" | "bmp" | "tif" | "tiff"
-            | "raw" | "dng" => Icon::Photo,
-            "mp4" | "mov" | "m4v" | "mkv" | "avi" | "webm" | "3gp" => Icon::Video,
-            "mp3" | "m4a" | "aac" | "wav" | "flac" | "ogg" | "opus" => Icon::Music,
-            "zip" | "rar" | "7z" | "tar" | "gz" | "tgz" | "xz" => Icon::Archive,
-            _ => Icon::File,
-        }
-    }
-
-    /// The icon for a device's platform.
-    pub fn for_platform(platform: &str) -> Icon {
-        match platform {
-            "android" | "ios" => Icon::Phone,
-            "macos" => Icon::Laptop,
-            _ => Icon::Monitor,
-        }
     }
 }
 
@@ -234,17 +242,165 @@ pub fn glyph(i: Icon, colors: (u32, u32), side: f32) -> View {
         .child(icon(i, side * 0.56, white()))
 }
 
-/// The color of a kind of file: photos pink, videos purple, music
-/// orange, archives slate, documents blue.
+/// The color of a kind of file.
 pub fn kind_color(i: Icon) -> u32 {
+    match i {
+        Icon::Folder => 0xf59e0b,
+        other => file_kind_of_icon(other),
+    }
+}
+
+fn file_kind_of_icon(i: Icon) -> u32 {
     match i {
         Icon::Photo => 0xec4899,
         Icon::Video => 0x8b5cf6,
         Icon::Music => 0xf59e0b,
-        Icon::Archive => 0x64748b,
-        Icon::Folder => 0xf59e0b,
+        Icon::Archive => 0x78716c,
+        Icon::Pdf => 0xef4444,
+        Icon::Sheet => 0x16a34a,
+        Icon::Slides => 0xea580c,
+        Icon::Code => 0x6366f1,
+        Icon::Markdown => 0x475569,
+        Icon::Font => 0x0891b2,
+        Icon::Book => 0xa16207,
+        Icon::Disk => 0x475569,
+        Icon::Vector => 0xd97706,
+        Icon::Database => 0x0ea5e9,
+        Icon::Calendar => 0xdc2626,
+        Icon::Person => 0x0d9488,
+        Icon::Android => 0x16a34a,
+        Icon::Apple => 0x4b5563,
+        Icon::Windows => 0x0078d4,
+        Icon::Linux => 0xb45309,
+        Icon::Package => 0x7c3aed,
         _ => 0x3b82f6,
     }
+}
+
+/// A file's kind by its extension: its icon, its color and the short tag
+/// shown on it ("PDF", "XLSX"; none for files without a known one).
+pub fn file_kind(name: &str) -> (Icon, u32, Option<String>) {
+    // A transfer's label ("Holiday.jpg and 2 more") goes by its first file.
+    let name = name.split_once(" and ").map_or(name, |(first, _)| first);
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    let icon = match ext.as_str() {
+        "jpg" | "jpeg" | "png" | "heic" | "heif" | "gif" | "webp" | "bmp" | "tif" | "tiff"
+        | "raw" | "dng" | "cr2" | "nef" | "arw" | "avif" | "ico" => Icon::Photo,
+        "mp4" | "mov" | "m4v" | "mkv" | "avi" | "webm" | "3gp" | "wmv" | "flv" | "mpg" | "mpeg"
+        | "ts" => Icon::Video,
+        "mp3" | "m4a" | "aac" | "wav" | "flac" | "ogg" | "opus" | "wma" | "aiff" | "mid"
+        | "midi" | "amr" => Icon::Music,
+        "zip" | "rar" | "7z" | "tar" | "gz" | "tgz" | "xz" | "bz2" | "zst" | "lz" | "cab" => {
+            Icon::Archive
+        }
+        "pdf" => Icon::Pdf,
+        "doc" | "docx" | "odt" | "rtf" | "pages" | "txt" | "log" | "wpd" => Icon::Doc,
+        "xls" | "xlsx" | "xlsm" | "ods" | "numbers" | "csv" | "tsv" => Icon::Sheet,
+        "ppt" | "pptx" | "odp" | "key" => Icon::Slides,
+        "md" | "markdown" | "mdx" => Icon::Markdown,
+        "html" | "htm" | "css" | "js" | "mjs" | "tsx" | "jsx" | "json" | "xml" | "yml" | "yaml"
+        | "toml" | "ini" | "rs" | "py" | "java" | "kt" | "swift" | "c" | "h" | "cpp" | "hpp"
+        | "cs" | "go" | "rb" | "php" | "sh" | "bat" | "ps1" | "sql" | "dart" | "lua" | "vue"
+        | "svelte" => Icon::Code,
+        "svg" | "ai" | "eps" | "psd" | "fig" | "sketch" | "xd" | "afdesign" => Icon::Vector,
+        "ttf" | "otf" | "woff" | "woff2" => Icon::Font,
+        "epub" | "mobi" | "azw" | "azw3" | "fb2" | "djvu" | "cbz" | "cbr" => Icon::Book,
+        "iso" | "img" | "vhd" | "vhdx" | "vmdk" | "qcow2" => Icon::Disk,
+        "db" | "sqlite" | "sqlite3" | "mdb" | "accdb" => Icon::Database,
+        "ics" | "ical" => Icon::Calendar,
+        "vcf" | "vcard" => Icon::Person,
+        "apk" | "aab" | "apks" | "xapk" | "apkm" => Icon::Android,
+        "dmg" | "pkg" | "ipa" | "app" => Icon::Apple,
+        "exe" | "msi" | "msix" | "appx" | "msixbundle" => Icon::Windows,
+        "deb" | "rpm" | "appimage" | "flatpak" | "snap" => Icon::Linux,
+        "jar" | "crx" | "xpi" | "vsix" => Icon::Package,
+        _ => Icon::File,
+    };
+    // A few kinds get their own shade.
+    let color = match ext.as_str() {
+        "gif" => 0xd946ef,
+        "csv" | "tsv" => 0x0d9488,
+        "html" | "htm" => 0xe34f26,
+        "svg" => 0xf59e0b,
+        "txt" | "log" => 0x64748b,
+        "doc" | "docx" | "odt" | "rtf" | "pages" => 0x2563eb,
+        _ => file_kind_of_icon(icon),
+    };
+    let tag = (!ext.is_empty() && ext.len() <= 5 && ext.chars().all(|c| c.is_ascii_alphanumeric()))
+        .then(|| ext.to_ascii_uppercase());
+    (icon, color, tag)
+}
+
+/// A file's picture when there is no preview: its kind's icon on a soft
+/// square of its color, with its format ("PDF", "XLSX") on a tag.
+pub fn file_badge(name: &str, side: f32, radius: f32) -> View {
+    let (i, c, tag) = file_kind(name);
+    let tagged = side >= 32.0;
+    let badge = view()
+        .size(px(side))
+        .rounded(px(radius))
+        .items_center()
+        .justify_center()
+        .bg(rgba((c << 8) | 0x24))
+        .child(
+            icon(
+                i,
+                side * if tagged && tag.is_some() { 0.42 } else { 0.5 },
+                rgb(c),
+            )
+            .mb(px(if tagged && tag.is_some() {
+                side * 0.16
+            } else {
+                0.0
+            })),
+        );
+    match tag.filter(|_| tagged) {
+        Some(tag) => badge.child(
+            view()
+                .absolute()
+                .bottom(px(side * 0.1))
+                .self_center()
+                .px(px((side * 0.07).max(3.0)))
+                .rounded(px(4.0))
+                .bg(rgb(c))
+                .child(
+                    text(tag)
+                        .text_size(px((side * 0.19).clamp(8.0, 16.0)))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(white())
+                        .number_of_lines(1),
+                ),
+        ),
+        None => badge,
+    }
+}
+
+/// A device's operating system: its mark and the colors of its badge
+/// (background, mark).
+pub fn os_mark(platform: &str) -> (Icon, u32, u32) {
+    match platform {
+        "ios" | "macos" => (Icon::Apple, 0x1f2937, 0xffffff),
+        "windows" => (Icon::Windows, 0x0078d4, 0xffffff),
+        "android" => (Icon::Android, 0x3ddc84, 0x073042),
+        "linux" => (Icon::Linux, 0xfbbf24, 0x111827),
+        "web" => (Icon::Globe, 0x6366f1, 0xffffff),
+        _ => (Icon::Monitor, 0x64748b, 0xffffff),
+    }
+}
+
+/// A device's operating system as a round badge.
+pub fn os_badge(platform: &str, side: f32) -> View {
+    let (i, bg, fg) = os_mark(platform);
+    view()
+        .size(px(side))
+        .rounded(px(side / 2.0))
+        .items_center()
+        .justify_center()
+        .bg(rgb(bg))
+        .child(icon(i, side * 0.62, rgb(fg)))
 }
 
 /// A file's kind on a soft circle of its color.
@@ -665,17 +821,13 @@ pub fn avatar(
                 .absolute()
                 .right(px(-2.0))
                 .bottom(px(-2.0))
-                .size(px(badge))
-                .rounded(px(badge / 2.0))
+                .size(px(badge + 4.0))
+                .rounded(px(badge / 2.0 + 2.0))
                 .items_center()
                 .justify_center()
                 .bg(move || theme().card)
                 .shadow_sm()
-                .child(dynamic(move || {
-                    icon(Icon::for_platform(&platform()), badge * 0.6, move || {
-                        theme().muted_foreground
-                    })
-                })),
+                .child(dynamic(move || os_badge(&platform(), badge))),
         )
 }
 
