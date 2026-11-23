@@ -1218,3 +1218,44 @@ async fn a_receive_rate_cap_slows_the_transfer() {
         std::fs::read(src.path().join("capped.bin")).unwrap()
     );
 }
+
+/// By default the engine listens on IPv4 and IPv6 alike: discovery
+/// advertises IPv6 addresses too, and a peer may resolve only those
+/// (Android's NsdManager often does). Sends to 127.0.0.1 and to ::1 both
+/// arrive.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_default_listener_takes_ipv4_and_ipv6() {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+    let ipv6 = std::net::TcpListener::bind("[::1]:0").is_ok();
+    // GitHub's runners have IPv6 loopback: there, a skip would hide a bug.
+    assert!(
+        ipv6 || std::env::var("CI").is_err(),
+        "no IPv6 loopback on CI"
+    );
+    let a = Node::start("Alice").await;
+    let mut b = Node::start_with("Bob", |c| c.listen = IpAddr::V4(Ipv4Addr::UNSPECIFIED)).await;
+    let src = tempfile::tempdir().unwrap();
+    let mut targets = vec![("over-v4.bin", IpAddr::V4(Ipv4Addr::LOCALHOST))];
+    if ipv6 {
+        targets.push(("over-v6.bin", IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    } else {
+        eprintln!("no IPv6 loopback here: IPv4 only");
+    }
+    for (name, ip) in targets {
+        write_file(&src.path().join(name), 100_000, 4);
+        a.send(Command::SendFiles {
+            target: Target::Address {
+                addr: SocketAddr::new(ip, b.status.port),
+                peer_id: Some(b.status.peer_id),
+            },
+            paths: vec![src.path().join(name)],
+        });
+        let request = b.wait_request().await;
+        b.send(accept(request.id));
+        b.wait_state(name, |s| *s == TransferState::Completed).await;
+        assert_eq!(
+            std::fs::read(b.downloads().join(name)).unwrap(),
+            std::fs::read(src.path().join(name)).unwrap()
+        );
+    }
+}

@@ -7,7 +7,7 @@
 
 use std::{
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -201,9 +201,9 @@ pub async fn spawn(
     }
 
     let port = config.port.unwrap_or(settings.port);
-    let listener = match TcpListener::bind(SocketAddr::new(config.listen, port)).await {
+    let listener = match bind_listener(config.listen, port) {
         Ok(listener) => listener,
-        Err(_) if port != 0 => TcpListener::bind(SocketAddr::new(config.listen, 0)).await?,
+        Err(_) if port != 0 => bind_listener(config.listen, 0)?,
         Err(err) => return Err(err.into()),
     };
     let port = listener.local_addr()?.port();
@@ -235,12 +235,15 @@ pub async fn spawn(
         loop {
             match listener.accept().await {
                 Ok((tcp, from)) => {
+                    // IPv4 peers reach the dual-stack socket as
+                    // ::ffff:a.b.c.d: one count per peer either way.
+                    let ip = from.ip().to_canonical();
                     let Ok(slot) = slots.clone().try_acquire_owned() else {
                         continue; // Dropped: too many connections.
                     };
                     {
                         let mut counts = lock(&per_ip);
-                        let count = counts.entry(from.ip()).or_default();
+                        let count = counts.entry(ip).or_default();
                         if *count >= MAX_INBOUND_PER_IP {
                             continue;
                         }
@@ -250,10 +253,10 @@ pub async fn spawn(
                     tokio::spawn(async move {
                         incoming::handle(ctx, tcp).await;
                         let mut counts = lock(&per_ip);
-                        if let Some(count) = counts.get_mut(&from.ip()) {
+                        if let Some(count) = counts.get_mut(&ip) {
                             *count -= 1;
                             if *count == 0 {
-                                counts.remove(&from.ip());
+                                counts.remove(&ip);
                             }
                         }
                         drop(slot);
@@ -288,6 +291,35 @@ pub async fn spawn(
         let _ = done_tx.send(());
     });
     Ok((EngineHandle { commands: cmd_tx }, event_rx, done_rx))
+}
+
+/// Listens on `listen` and `port`. The default, the unspecified IPv4
+/// address, means every address: one dual-stack socket takes IPv4 and IPv6,
+/// because discovery advertises IPv6 addresses too and a peer may resolve
+/// only those (Android's NsdManager often does). IPv4 only where IPv6 is
+/// unavailable.
+fn bind_listener(listen: IpAddr, port: u16) -> std::io::Result<TcpListener> {
+    if listen == IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        && let Ok(listener) = bind_dual_stack(port)
+    {
+        return Ok(listener);
+    }
+    let listener = std::net::TcpListener::bind(SocketAddr::new(listen, port))?;
+    listener.set_nonblocking(true)?;
+    TcpListener::from_std(listener)
+}
+
+fn bind_dual_stack(port: u16) -> std::io::Result<TcpListener> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
+    // Windows defaults to IPv6 only; say so explicitly everywhere.
+    socket.set_only_v6(false)?;
+    #[cfg(unix)]
+    socket.set_reuse_address(true)?;
+    socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port).into())?;
+    socket.listen(1024)?;
+    socket.set_nonblocking(true)?;
+    TcpListener::from_std(socket.into())
 }
 
 fn default_device_name(platform: &str, id: &PeerId) -> String {

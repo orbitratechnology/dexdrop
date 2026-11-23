@@ -1317,6 +1317,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "socket2",
  "spake2",
  "tempfile",
  "thiserror 2.0.21",
