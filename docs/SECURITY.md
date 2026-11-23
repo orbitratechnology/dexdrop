@@ -57,10 +57,31 @@ devices that trust it, and so send them files (auto-accepted only where the
 user turned that on for this device) or receive files they send to it. They
 cannot read past transfers: TLS 1.3 sessions use ephemeral keys.
 
+## Transfers over the internet
+
+Over the internet, DexDrop's TLS runs inside an Iroh QUIC connection, so a
+relay or network observer sees two encryption layers and never file names
+or contents. What others can see:
+
+- **The relay** (n0's public relays by default; the project's own in
+  production): both devices' IP addresses, their public keys (internet
+  addresses), when they connect and how much data passes. It cannot decrypt
+  anything and keeps nothing.
+- **The other device** on a direct path: this device's public IP address,
+  as with any direct connection.
+- **Address lookup** (n0's DNS, pkarr): a signed record mapping this device's
+  public key to its current relay and addresses. It holds no name.
+
+Who can send: anyone who knows the device's key can ask, as anyone on the
+local network can; every transfer still needs the receiver's consent unless
+the receiver trusts that sender and allows auto-accept. Turning off
+"Send over the internet" closes the internet endpoint entirely.
+
 ## Other local data
 
-`trusted-devices.json`, `history.json`, `settings.json` and the resume
-journals sit next to `identity.json` with the same file protection. They hold
+`trusted-devices.json`, `known-devices.json` (devices this one exchanged
+files with, with their public keys), `history.json`, `settings.json` and the
+resume journals sit next to `identity.json` with the same file protection. They hold
 device names, peer IDs, file names, sizes and the download folder, but no
 file contents and no secrets: invitation and pairing secrets live only in
 memory and expire.

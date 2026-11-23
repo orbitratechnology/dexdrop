@@ -103,11 +103,13 @@ names the test or check; "Gap" is what is still missing.
 | FR-060 History | P1 | Done | Local, capped, Clear, Keep-history switch | |
 | FR-070 Device name | P0 | Done | | |
 | FR-071 Visibility | P0 | Done | Switch; hidden devices still receive by code | |
-| FR-072 Network data policy | P0 | Done | Local only: transfers never use mobile data or a relay; the switch returns with remote mode | |
+| FR-072 Network data policy | P0 | Partial | Local transfers never use a relay; internet transfers have their own switch (on by default) | No mobile-data check yet: an internet transfer may use mobile data while the switch is on |
 | FR-073 Privacy and storage | P0 | Done | Settings says what stays on the device and where files go | |
 | FR-074 Trusted devices | P1 | Done | | |
 | FR-075 Diagnostics export | P1 | Done | No names, paths, contents or keys | |
-| FR-080 – FR-082 Remote | P1 | Open | — | Phase 6: Iroh with a project relay |
+| FR-080 Remote connection | P1 | Done | Iroh 1.5: direct path with hole punching, the route shown (direct / through a relay) and followed live; engine test over a local relay | Real NATs and carrier networks not measured |
+| FR-081 Relay fallback | P1 | Partial | Relay carries only encrypted data (two layers: Iroh and DexDrop's TLS); configurable (`DEXDROP_RELAY_URL`, `--relay`) | Uses n0's public relays until the project runs its own `iroh-relay` (PRD 9.5) |
+| FR-082 Remote consent | P1 | Done | Same consent, trust and verification number as local; invitations carry the key and relay; known devices from any network | Codes stay local (no rendezvous service) |
 | FR-083 – FR-084 Browser | P2 | Partial | Web preview says browsers cannot discover or connect | Phase 7 |
 
 ## UX and platform requirements (PRD 7, 8, 10)
@@ -188,4 +190,4 @@ receive journal is a snapshot plus an append-only log of changed files: for
 5. **Desktop polish**: Windows taskbar progress, GNOME/KDE Wayland checks, a
    20 GB transfer.
 6. **Identity keys**: macOS Keychain with signed builds, Android Keystore.
-7. **Remote mode** (Phase 6) and the browser client (Phase 7).
+7. **Internet transfers in production:** run the project's own `iroh-relay` and point the apps at it; a mobile-data check (FR-072); measure real NATs. Then the browser client (Phase 7).

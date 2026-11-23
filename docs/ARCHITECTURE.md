@@ -62,6 +62,44 @@ mode, is out of scope for local transfers. The container has no `netem`,
 so the lossy Wi-Fi comparison still has to be run on real hardware with
 the same bench. The decision stands for the local-network MVP.
 
+## ADR-002: Transfers over the internet — Iroh beside TCP
+
+**Status:** accepted (Phase 6, PRD 6.8 and 9.5).
+
+Same-network transfers keep TCP + TLS 1.3 (ADR-001). Devices on different
+networks connect through [Iroh](https://www.iroh.computer) 1.5: QUIC
+connections dialed by public key, with address lookup, NAT traversal (hole
+punching, port mapping) and a relay fallback when no direct path exists.
+
+- **One key.** Iroh's key is the device's own Ed25519 key (its seed, read
+  from the identity's PKCS#8), so a device's internet address is the public
+  key in its certificate (`ed25519_key_of_cert`). `PeerId::from_ed25519_key`
+  maps it back: a dialed key is checked against the expected peer before
+  dialing, and an incoming Iroh key must match the TLS certificate.
+- **Same protocol.** DexDrop's mutual TLS runs inside one Iroh
+  bidirectional stream exactly as over TCP (`tls::BoxLink` takes either), so
+  pinning, the verification number, SPAKE2 code proofs, consent, resume and
+  verification are unchanged. Iroh's own encryption is a second layer; at
+  internet speeds the extra CPU does not matter.
+- **Order.** Outgoing transfers try the local network first (discovered
+  addresses, invitation addresses), then the internet when the other
+  device's key is known: from an invitation (which now carries the key and
+  home relay) or from `known-devices.json`, the devices this one exchanged
+  files with. Codes stay local: a typed code has no room for a key, and
+  looking codes up remotely would need a rendezvous service.
+- **Route.** Each transfer reports `Nearby`, `Direct` or `Relayed`, and
+  follows Iroh moving from the relay to a direct path; the UI always says
+  when a relay carries the data (PRD 9.5).
+- **Relays.** n0's public relays by default, which are rate-limited and have
+  no SLA (development); `DEXDROP_RELAY_URL` or the CLI's `--relay` points at
+  the project's own `iroh-relay` for production. Address lookup publishes
+  and resolves endpoint addresses through n0's DNS (pkarr).
+- **Off switch.** Settings › "Send over the internet" (on by default) and the
+  CLI's `--local-only`; local transfers never use a relay either way.
+- **Tests.** `tests/internet.rs` (feature `test-relay`, on in CI) runs two
+  engines with local discovery off against a local relay: an invitation,
+  then a known device by ID alone.
+
 ## Measured performance
 
 `dexdrop bench` runs two engines in one process over loopback TLS, including

@@ -45,7 +45,11 @@ the transport decision.
   an app restart.
 - Path safety: absolute paths, traversal, symlink escapes and malformed
   manifests are rejected; Windows-reserved names are made portable.
-- Local-only settings, trusted devices, history and anonymized diagnostics.
+- Over the internet (Iroh): devices you exchanged files with ("Your
+  devices") and invitation links work from any network, on a direct path
+  when hole punching succeeds and through a relay otherwise; the app always
+  says which. Local transfers stay on the local network.
+- On-device settings, trusted devices, history and anonymized diagnostics.
 
 On loopback the full pipeline (TLS + hashing + disk) runs at roughly
 340–480 MB/s for large files, 620 MB/s for photo-sized files and about
@@ -110,6 +114,7 @@ dexdrop send 192.168.1.20:47820#<peer-id> ./file     # or address (optionally pi
 | `DEXDROP_DOWNLOAD_DIR` | Default folder for received files |
 | `DEXDROP_NO_DISCOVERY` | Disable mDNS (tests) |
 | `DEXDROP_PORT` | Fixed listening port |
+| `DEXDROP_RELAY_URL` | The relay for internet transfers (your own `iroh-relay`); n0's public relays otherwise |
 
 ## Apple distribution
 
