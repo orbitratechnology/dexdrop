@@ -289,6 +289,9 @@ for _ in 1 2 3 4 5 6; do
 done
 [ "$picked" = yes ] || { step 08-picker; fail "could not pick $out_file in the file picker"; }
 tap_only "Select" || true # in the picker's selection mode
+# What is selected is below the kinds of files: bring it into view.
+ad wait 'label="Choose device"' 20000 >/dev/null 2>&1 || true
+ad scroll down >/dev/null 2>&1 || true
 ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || ad wait text "$out_file" 20000 >/dev/null 2>&1 ||
   { step 08-not-selected; fail "the picked file is not selected in the app"; }
 step 08-selected

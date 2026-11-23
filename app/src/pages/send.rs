@@ -381,21 +381,22 @@ fn kinds() -> impl IntoElement {
             .accessibility_label(label)
             .on_press(pick)
             .flex_1()
-            // Three across on an iPhone; two by two on Android, with Apps;
-            // two (or more) on wider windows.
-            .min_w(px(if os() == nsh_core::platform::Os::Ios {
-                96.0
-            } else {
-                140.0
+            // Three across on an iPhone; two by two on Android, with Apps,
+            // down to 320 pt wide screens; two (or more) on wider windows.
+            // Compact on phones, so what is selected shows below them.
+            .min_w(px(match os() {
+                nsh_core::platform::Os::Ios => 96.0,
+                nsh_core::platform::Os::Android => 120.0,
+                _ => 140.0,
             }))
             .items_center()
-            .gap(px(space::M))
-            .py(px(space::XL))
+            .gap(px(if ui::mobile() { space::S } else { space::M }))
+            .py(px(if ui::mobile() { space::L } else { space::XL }))
             .rounded(px(20.0))
             .bg(ui::surface)
             .active(|s| s.scale(0.97).opacity(0.85))
             .hover(move |s| s.bg(move || theme().muted))
-            .child(ui::glyph(i, colors, 52.0))
+            .child(ui::glyph(i, colors, if ui::mobile() { 44.0 } else { 52.0 }))
             .child(ui::strong(label))
     };
     let mut grid = view().flex_row().flex_wrap().gap(px(space::M));
