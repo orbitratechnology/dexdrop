@@ -97,3 +97,49 @@ pub(crate) fn describe(env: &mut JNIEnv<'_>, err: jni::errors::Error) -> String 
         .and_then(|s| env.get_string(&JString::from(s)).map(String::from))
         .unwrap_or_else(|_| err.to_string())
 }
+
+/// Gives `ndk-context` the process's Java VM and application `Context`,
+/// once: Iroh's DNS resolver and network watcher read them, and panic in a
+/// background task without them (NSH 0.6.1 does not set them; its next
+/// release does, and then this must go). `false` without a Java VM (the
+/// CLI run from a shell): internet transfers then stay off.
+pub(crate) fn ensure_ndk_context() -> bool {
+    use std::sync::OnceLock;
+    static READY: OnceLock<bool> = OnceLock::new();
+    *READY.get_or_init(|| {
+        let Some(vm) = java_vm() else {
+            return false;
+        };
+        let Ok(mut env) = vm.attach_current_thread() else {
+            return false;
+        };
+        let context = env
+            .call_static_method(
+                "android/app/ActivityThread",
+                "currentApplication",
+                "()Landroid/app/Application;",
+                &[],
+            )
+            .and_then(|v| v.l());
+        let context = match context {
+            Ok(context) if !context.is_null() => context,
+            _ => {
+                let _ = env.exception_clear();
+                return false;
+            }
+        };
+        let Ok(global) = env.new_global_ref(context) else {
+            return false;
+        };
+        // SAFETY: the VM pointer is valid for the process's lifetime, and
+        // the global reference is leaked so the context stays valid too.
+        unsafe {
+            ndk_context::initialize_android_context(
+                vm.get_java_vm_pointer().cast::<c_void>(),
+                global.as_obj().as_raw().cast::<c_void>(),
+            );
+        }
+        std::mem::forget(global);
+        true
+    })
+}

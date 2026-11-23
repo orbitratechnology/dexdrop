@@ -41,6 +41,9 @@ mdns-sd = { version = "0.22.0", features = ["async"] }
 # Android reaches the system's NsdManager through JNI (the version NSH uses).
 [target."cfg(target_os = \"android\")".dependencies]
 jni = "0.21"
+# Iroh's DNS resolver and network watcher read the Android context; NSH
+# 0.6.1 does not set it, so the engine does (src/jvm.rs).
+ndk-context = "0.1.1"
 
 [lints.rust]
 # `--cfg dexdrop_check_bonjour` type-checks the Bonjour adapter elsewhere.

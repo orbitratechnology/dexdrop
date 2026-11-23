@@ -1524,6 +1524,7 @@ dependencies = [
  "jni 0.21.1",
  "libc",
  "mdns-sd",
+ "ndk-context",
  "rustls",
  "serde",
  "serde_json",

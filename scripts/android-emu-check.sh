@@ -266,9 +266,9 @@ note "- 200 KB sent with the invitation link, accepted, $(received_intact "$dev/
 #    a file picked in Android's file picker goes to a CLI receiver that
 #    accepts on its own and reads at 1 MB/s, so there is time to pause.
 out_file=dexdrop-out.bin
-sh_ "head -c 8000000 /dev/urandom > /sdcard/Download/$out_file" || fail "could not create /sdcard/Download/$out_file"
+sh_ "head -c 24000000 /dev/urandom > /sdcard/Download/$out_file" || fail "could not create /sdcard/Download/$out_file"
 sh_ "content call --method scan_volume --uri content://media --arg external_primary" >/dev/null 2>&1 || true
-dexdrop --max-rate 1 --state "$dev/inbox-state" receive --yes --name "CI Emulator Inbox" --dir "$dev/inbox" >"$out/cli-inbox.log" 2>&1 &
+dexdrop --local-only --max-rate 1 --state "$dev/inbox-state" receive --yes --name "CI Emulator Inbox" --dir "$dev/inbox" >"$out/cli-inbox.log" 2>&1 &
 inbox=$!
 front
 tap_only Share || true
@@ -292,10 +292,10 @@ tap_only "Select" || true # in the picker's selection mode
 # What is selected is below the kinds of files: bring it into view.
 ad wait 'label="Choose device"' 20000 >/dev/null 2>&1 || true
 ad scroll down >/dev/null 2>&1 || true
-ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || ad wait text "$out_file" 20000 >/dev/null 2>&1 ||
+ad wait text "24.0 MB" 20000 >/dev/null 2>&1 || ad wait text "$out_file" 20000 >/dev/null 2>&1 ||
   { step 08-not-selected; fail "the picked file is not selected in the app"; }
 step 08-selected
-note "- Picked \`$out_file\` (8 MB) in Android's file picker"
+note "- Picked \`$out_file\` (24 MB, about 24 s at the receiver's 1 MB/s cap) in Android's file picker"
 tap_only "Choose device" || { step 08-no-next; fail "could not tap Choose device"; }
 ad wait 'label="Send to CI Emulator Inbox"' 15000 >/dev/null 2>&1 || true
 tap_only "Send to CI Emulator Inbox" || { step 08-no-send; fail "could not tap Send for the CLI receiver"; }
@@ -308,7 +308,7 @@ before=$(size_at)
 sleep 4
 after=$(size_at)
 [ "$before" = "$after" ] || fail "the receiver kept getting data while paused ($before -> $after bytes)"
-note "- Paused from the app: the receiver held at $after of 8000000 bytes"
+note "- Paused from the app: the receiver held at $after of 24000000 bytes"
 tap_only Resume || fail "could not tap Resume"
 src_sum=$(sh_ "sha256sum /sdcard/Download/$out_file" | awk '{ print $1 }')
 got_sum=

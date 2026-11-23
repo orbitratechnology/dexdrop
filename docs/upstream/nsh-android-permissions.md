@@ -58,3 +58,14 @@ and opening received APKs needs `REQUEST_INSTALL_PACKAGES`.
 makes (apktool, then zipalign and apksigner with the same debug key), in
 CI after packaging. With `android.queries` and `android.permissions` in a
 released CLI, they move to `nsh.json` and the script goes.
+
+## ndk-context for Iroh (Android)
+
+Iroh's DNS resolver (`n0-dns-resolver`) and network watcher (`netdev`) read
+the Java VM and application `Context` from `ndk-context`, and panic in a
+background task when it is not set — which NSH 0.6.1 does not do. The
+engine sets it before starting Iroh (`dexdrop_net::jvm::ensure_ndk_context`,
+from the `JNI_GetCreatedJavaVMs` VM and `ActivityThread.currentApplication()`);
+without a VM (the CLI run from a shell) internet transfers stay off instead
+of panicking. NSH's next release sets the context itself (#2686): remove
+the call then, as initializing it twice panics.
