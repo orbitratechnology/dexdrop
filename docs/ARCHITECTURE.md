@@ -90,9 +90,10 @@ must hold the private key of the ID it claims. Callers pin the expected ID
 Both UIs show a 6-digit verification number derived from TLS exporter keying
 material, which differs if anyone is in the middle.
 
-The private key is stored in an app-private file (mode 0600 on Unix).
-Moving it to the OS keystore (Keychain, Android Keystore, DPAPI, Secret
-Service) is open work.
+The private key goes to the system's credential store where one works
+without prompts (Windows Credential Manager, Linux Secret Service, iOS
+Keychain) and otherwise stays in the app-private identity file; where it is,
+why, and the threat model: [SECURITY.md](SECURITY.md).
 
 ## Code pairing (SPAKE2)
 

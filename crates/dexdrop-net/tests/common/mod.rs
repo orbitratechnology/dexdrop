@@ -33,6 +33,8 @@ impl Node {
         );
         config.discovery = false;
         config.listen = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        // Tests leave nothing in the machine's credential store.
+        config.key_storage = dexdrop_core::keystore::KeyStorage::File;
         config.default_device_name = name.to_owned();
         tweak(&mut config);
         Self::start_in(dir, config).await

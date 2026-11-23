@@ -21,7 +21,7 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 | ID | Status | Notes |
 |---|---|---|
 | FR-001 No account | Done | |
-| FR-002 Cryptographic identity | Done | Ed25519, persisted; OS keystore storage open |
+| FR-002 Cryptographic identity | Done | Ed25519; private key in the OS credential store on Windows, Linux (Secret Service) and iOS, app-private file elsewhere (docs/SECURITY.md); rotation open |
 | FR-003 Device name | Done | Generic default `Linux PC 4F2A`, renamable |
 | FR-004 Local-network permission copy | Partial | iOS plist text set; Android flow open |
 | FR-005 Empty states | Done | Searching, unavailable, browser preview |
@@ -89,6 +89,6 @@ receive journal is a snapshot plus an append-only log of changed files: for
    long transfers likely need a foreground service, a manifest `<service>` NSH's
    packaging cannot declare yet; untested).
 3. iOS: Files/Photos picker; share sheet entry (FR-035).
-4. Store the identity key in the OS keystore.
+4. Identity keys: macOS Keychain with signed releases, Android Keystore once NSH sets `ndk-context`; rotation in Settings.
 5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
 6. Remote mode (Iroh with a project-owned relay) as a separately gated phase.

@@ -58,6 +58,9 @@ pub struct EngineConfig {
     pub chunk_size: u32,
     /// Caps the sending rate, in bytes per second (`None`: no cap).
     pub max_send_rate: Option<u64>,
+    /// Where a new identity's private key is kept (and where an existing
+    /// one moves to): the platform's choice unless set.
+    pub key_storage: dexdrop_core::keystore::KeyStorage,
 }
 
 impl EngineConfig {
@@ -76,6 +79,7 @@ impl EngineConfig {
             port: None,
             chunk_size: DEFAULT_CHUNK_SIZE,
             max_send_rate: None,
+            key_storage: dexdrop_core::keystore::KeyStorage::platform_default(),
         }
     }
 }
@@ -180,7 +184,7 @@ pub async fn spawn(
 > {
     let state = StateDir::new(&config.state_dir);
     std::fs::create_dir_all(state.root())?;
-    let identity = Identity::load_or_create(&state.identity())?;
+    let identity = Identity::load_or_create_with(&state.identity(), config.key_storage)?;
     let tls = TlsContext::new(&identity)?;
 
     let mut settings = Settings::load(&state.settings());
@@ -1519,12 +1523,13 @@ impl Actor {
             DiscoveryStatus::Unavailable(_) => "unavailable",
         };
         format!(
-            "{{\n  \"app_version\": \"{}\",\n  \"protocol\": {},\n  \"os\": \"{}\",\n  \"arch\": \"{}\",\n  \"platform\": \"{}\",\n  \"transport\": \"tcp+tls1.3\",\n  \"discovery\": \"{}\",\n  \"interfaces\": {},\n  \"nearby_devices\": {},\n  \"transfers_by_state\": {:?},\n  \"recent\": [{}]\n}}\n",
+            "{{\n  \"app_version\": \"{}\",\n  \"protocol\": {},\n  \"os\": \"{}\",\n  \"arch\": \"{}\",\n  \"platform\": \"{}\",\n  \"transport\": \"tcp+tls1.3\",\n  \"identity_key\": \"{}\",\n  \"discovery\": \"{}\",\n  \"interfaces\": {},\n  \"nearby_devices\": {},\n  \"transfers_by_state\": {:?},\n  \"recent\": [{}]\n}}\n",
             env!("CARGO_PKG_VERSION"),
             dexdrop_core::protocol::PROTOCOL_VERSION,
             std::env::consts::OS,
             std::env::consts::ARCH,
             self.ctx.platform,
+            self.ctx.identity.key_storage().describe(),
             discovery,
             self.addrs.len(),
             lock(&self.ctx.peers).len(),

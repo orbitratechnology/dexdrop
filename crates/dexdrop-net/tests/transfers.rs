@@ -92,6 +92,31 @@ async fn sends_files_and_folders_with_consent() {
         .filter(|p| p.to_string_lossy().ends_with(".dexdrop-part"))
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
+
+    // Diagnostics (PRD 9.9, 12): JSON with where the key is, and never the
+    // key itself, a path or a file name.
+    b.send(Command::ExportDiagnostics);
+    let report = b
+        .wait("diagnostics", |e| match e {
+            Event::Diagnostics(report) => Some(report.clone()),
+            _ => None,
+        })
+        .await;
+    let json: serde_json::Value = serde_json::from_str(&report).expect("diagnostics are JSON");
+    assert_eq!(json["identity_key"], "app-private file");
+    assert_eq!(json["recent"][0]["outcome"], "completed");
+    let stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(b.state().join("identity.json")).unwrap()).unwrap();
+    let key = stored["key_pkcs8"].as_str().unwrap();
+    for secret in [
+        key,
+        &key[..16],
+        &b.dir.path().to_string_lossy(),
+        "photo.jpg",
+        "main.rs",
+    ] {
+        assert!(!report.contains(secret), "diagnostics contain {secret:?}");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

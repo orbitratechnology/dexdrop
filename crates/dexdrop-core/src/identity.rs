@@ -14,7 +14,10 @@ use data_encoding::BASE64;
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::fsutil;
+use crate::{
+    fsutil,
+    keystore::{self, KeyStorage},
+};
 
 /// A peer's stable identifier: BLAKE3 of its certificate's public key info.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -78,6 +81,8 @@ pub enum IdentityError {
     Certificate(String),
     #[error("not a valid peer ID")]
     InvalidPeerId,
+    #[error("the system's credential store: {0}")]
+    KeyStore(String),
 }
 
 /// This device's key pair and certificate.
@@ -86,15 +91,29 @@ pub enum IdentityError {
 pub struct Identity {
     key_pkcs8: Vec<u8>,
     cert_der: Vec<u8>,
+    storage: KeyStorage,
     peer_id: PeerId,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// The identity file. Version 1 always held the key; version 2 holds it
+/// only when it is not in the system's credential store.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Serialize, Deserialize)]
 struct StoredIdentity {
     version: u32,
-    key_pkcs8: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    key_pkcs8: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    key_in_system_store: bool,
     cert_der: String,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decode(text: &str) -> Result<Vec<u8>, IdentityError> {
+    BASE64
+        .decode(text.as_bytes())
+        .map_err(|e| IdentityError::Certificate(e.to_string()))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -112,44 +131,118 @@ impl Identity {
         let cert = params
             .self_signed(&key)
             .map_err(|e| IdentityError::Generate(e.to_string()))?;
-        Self::from_parts(key.serialize_der(), cert.der().to_vec())
+        Self::from_parts(key.serialize_der(), cert.der().to_vec(), KeyStorage::File)
     }
 
-    fn from_parts(key_pkcs8: Vec<u8>, cert_der: Vec<u8>) -> Result<Self, IdentityError> {
+    /// An identity from its parts, after checking that the key is the
+    /// certificate's: a key from a store must not pair with another cert.
+    fn from_parts(
+        key_pkcs8: Vec<u8>,
+        cert_der: Vec<u8>,
+        storage: KeyStorage,
+    ) -> Result<Self, IdentityError> {
+        use rcgen::PublicKeyData;
         let peer_id = PeerId::from_cert_der(&cert_der)?;
+        let key = rcgen::KeyPair::try_from(key_pkcs8.as_slice())
+            .map_err(|e| IdentityError::Certificate(format!("private key: {e}")))?;
+        if PeerId::from_spki(&key.subject_public_key_info()) != peer_id {
+            return Err(IdentityError::Certificate(
+                "the private key does not belong to the certificate".into(),
+            ));
+        }
         Ok(Self {
             key_pkcs8,
             cert_der,
+            storage,
             peer_id,
         })
     }
 
-    /// Loads the identity stored at `path`, creating and storing one on first
-    /// run. The file is private to the app (mode 0600 on Unix).
-    pub fn load_or_create(path: &Path) -> Result<Self, IdentityError> {
-        if let Some(stored) = fsutil::read_json::<StoredIdentity>(path)? {
-            let key = BASE64
-                .decode(stored.key_pkcs8.as_bytes())
-                .map_err(|e| IdentityError::Certificate(e.to_string()))?;
-            let cert = BASE64
-                .decode(stored.cert_der.as_bytes())
-                .map_err(|e| IdentityError::Certificate(e.to_string()))?;
-            return Self::from_parts(key, cert);
+    /// A new identity whose key is kept as `want` says, or in the file when
+    /// the system's store does not work.
+    fn generate_in(want: KeyStorage) -> Result<Self, IdentityError> {
+        let mut identity = Self::generate()?;
+        if want == KeyStorage::System
+            && keystore::put_checked(&identity.peer_id.to_string(), &identity.key_pkcs8).is_ok()
+        {
+            identity.storage = KeyStorage::System;
         }
-        let identity = Self::generate()?;
+        Ok(identity)
+    }
+
+    /// Loads the identity stored at `path`, creating and storing one on first
+    /// run, with the key where this platform keeps it
+    /// ([`KeyStorage::platform_default`]).
+    pub fn load_or_create(path: &Path) -> Result<Self, IdentityError> {
+        Self::load_or_create_with(path, KeyStorage::platform_default())
+    }
+
+    /// [`Identity::load_or_create`], keeping a new key as `want` says. A key
+    /// found in the file moves to the system's store when `want` is
+    /// [`KeyStorage::System`] and the store works; until then it stays put.
+    pub fn load_or_create_with(path: &Path, want: KeyStorage) -> Result<Self, IdentityError> {
+        if let Some(stored) = fsutil::read_json::<StoredIdentity>(path)? {
+            let cert = decode(&stored.cert_der)?;
+            let account = PeerId::from_cert_der(&cert)?.to_string();
+            if let Some(key) = &stored.key_pkcs8 {
+                let mut identity = Self::from_parts(decode(key)?, cert, KeyStorage::File)?;
+                if want == KeyStorage::System
+                    && keystore::put_checked(&account, &identity.key_pkcs8).is_ok()
+                {
+                    // The file loses its copy only once the store holds it.
+                    identity.storage = KeyStorage::System;
+                    identity.save(path)?;
+                }
+                return Ok(identity);
+            }
+            if stored.key_in_system_store {
+                // A store that does not answer is an error, not a reason
+                // to replace the device's identity.
+                if let Some(key) = keystore::get(&account).map_err(IdentityError::KeyStore)? {
+                    return Self::from_parts(key, cert, KeyStorage::System);
+                }
+                // The key was removed from the store: start over.
+            }
+        }
+        let identity = Self::generate_in(want)?;
         identity.save(path)?;
         Ok(identity)
     }
 
-    /// Stores the identity at `path`.
+    /// Replaces the identity at `path` with a new one (PRD 9.9): a new peer
+    /// ID, so devices that trusted the old one see a new device. The old key
+    /// is removed from the system's store.
+    pub fn rotate(path: &Path, want: KeyStorage) -> Result<Self, IdentityError> {
+        let old = fsutil::read_json::<StoredIdentity>(path)?;
+        let identity = Self::generate_in(want)?;
+        identity.save(path)?;
+        if let Some(old) = old
+            && old.key_in_system_store
+            && let Ok(cert) = decode(&old.cert_der)
+            && let Ok(id) = PeerId::from_cert_der(&cert)
+        {
+            let _ = keystore::delete(&id.to_string());
+        }
+        Ok(identity)
+    }
+
+    /// Stores the identity at `path`: the certificate, and the key unless it
+    /// is in the system's credential store.
     pub fn save(&self, path: &Path) -> Result<(), IdentityError> {
+        let in_file = self.storage == KeyStorage::File;
         let stored = StoredIdentity {
-            version: 1,
-            key_pkcs8: BASE64.encode(&self.key_pkcs8),
+            version: 2,
+            key_pkcs8: in_file.then(|| BASE64.encode(&self.key_pkcs8)),
+            key_in_system_store: !in_file,
             cert_der: BASE64.encode(&self.cert_der),
         };
         fsutil::write_json(path, &stored)?;
         Ok(())
+    }
+
+    /// Where the private key is kept.
+    pub fn key_storage(&self) -> KeyStorage {
+        self.storage
     }
 
     /// The PKCS#8 private key, DER.
@@ -194,11 +287,83 @@ mod tests {
     fn identity_round_trips_and_is_stable() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("identity.json");
-        let a = Identity::load_or_create(&path).unwrap();
-        let b = Identity::load_or_create(&path).unwrap();
+        let a = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
+        let b = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
         assert_eq!(a.peer_id(), b.peer_id());
+        assert_eq!(b.key_storage(), KeyStorage::File);
+        assert_eq!(a.key_pkcs8(), b.key_pkcs8());
         let c = Identity::generate().unwrap();
         assert_ne!(a.peer_id(), c.peer_id());
+    }
+
+    #[test]
+    fn a_version_1_file_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.json");
+        let id = Identity::generate().unwrap();
+        let v1 = serde_json::json!({
+            "version": 1,
+            "key_pkcs8": BASE64.encode(id.key_pkcs8()),
+            "cert_der": BASE64.encode(id.cert_der()),
+        });
+        std::fs::write(&path, v1.to_string()).unwrap();
+        let loaded = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
+        assert_eq!(loaded.peer_id(), id.peer_id());
+    }
+
+    #[test]
+    fn a_key_that_is_not_the_certificates_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.json");
+        let (a, b) = (Identity::generate().unwrap(), Identity::generate().unwrap());
+        let mixed = serde_json::json!({
+            "version": 2,
+            "key_pkcs8": BASE64.encode(a.key_pkcs8()),
+            "cert_der": BASE64.encode(b.cert_der()),
+        });
+        std::fs::write(&path, mixed.to_string()).unwrap();
+        let err = Identity::load_or_create_with(&path, KeyStorage::File).unwrap_err();
+        assert!(err.to_string().contains("does not belong"), "{err}");
+    }
+
+    #[test]
+    fn rotation_gives_a_new_peer_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.json");
+        let old = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
+        let new = Identity::rotate(&path, KeyStorage::File).unwrap();
+        assert_ne!(old.peer_id(), new.peer_id());
+        let loaded = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
+        assert_eq!(loaded.peer_id(), new.peer_id());
+    }
+
+    /// The system's store where it works (Windows in CI; Linux with a
+    /// Secret Service), the file where it does not: either way the identity
+    /// survives a reload, and a key in the store is not also in the file.
+    #[test]
+    fn the_system_store_keeps_the_key_or_the_file_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.json");
+        // An identity from before, key in the file: it moves when it can.
+        let old = Identity::load_or_create_with(&path, KeyStorage::File).unwrap();
+        let moved = Identity::load_or_create_with(&path, KeyStorage::System).unwrap();
+        assert_eq!(moved.peer_id(), old.peer_id());
+        let text = std::fs::read_to_string(&path).unwrap();
+        match moved.key_storage() {
+            KeyStorage::System => assert!(!text.contains("key_pkcs8"), "{text}"),
+            KeyStorage::File => assert!(text.contains("key_pkcs8"), "{text}"),
+        }
+        let again = Identity::load_or_create_with(&path, KeyStorage::System).unwrap();
+        assert_eq!(again.peer_id(), old.peer_id());
+        assert_eq!(again.key_pkcs8(), old.key_pkcs8());
+        assert_eq!(again.key_storage(), moved.key_storage());
+        // Rotating removes the old key from the store.
+        let new = Identity::rotate(&path, KeyStorage::System).unwrap();
+        if moved.key_storage() == KeyStorage::System {
+            assert_eq!(keystore::get(&old.peer_id().to_string()).unwrap(), None);
+        }
+        let _ = keystore::delete(&new.peer_id().to_string());
+        eprintln!("key storage here: {}", moved.key_storage().describe());
     }
 
     #[test]

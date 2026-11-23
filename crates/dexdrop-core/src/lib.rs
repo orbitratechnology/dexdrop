@@ -19,6 +19,8 @@ pub mod fsutil;
 pub mod identity;
 pub mod invitation;
 pub mod journal;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod keystore;
 pub mod manifest;
 pub mod naming;
 pub mod pathsafe;
