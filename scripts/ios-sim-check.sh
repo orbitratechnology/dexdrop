@@ -37,10 +37,16 @@ step() { # step <name>: screenshot and full accessibility snapshot
   ad screenshot "$out/$1.png" >/dev/null 2>&1 || note "(no screenshot for $1)"
   ad snapshot >"$out/$1.txt" 2>&1 || true
 }
+# click1 <label>: a button with that label first (a view around a button can
+# carry the same label), then anything with it (tabs, sidebar items).
+click1() {
+  ad click "role=button label=\"$1\"" --settle >/dev/null 2>&1 ||
+    ad click "label=\"$1\"" --settle >/dev/null 2>&1
+}
 tap() { # tap <label>: scroll down once if it is not on screen yet
-  ad click "label=\"$1\"" --settle >/dev/null 2>&1 && return 0
+  click1 "$1" && return 0
   ad scroll down >/dev/null 2>&1
-  ad click "label=\"$1\"" --settle >/dev/null 2>&1
+  click1 "$1"
 }
 
 app=$(find "$dist" -maxdepth 2 -name '*.app' -type d | head -1)

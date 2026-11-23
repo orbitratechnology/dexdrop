@@ -314,10 +314,29 @@ fn control(
     variant: Variant,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    view()
+    // One button, circle and caption: one "Pause" for a screen reader, in
+    // the colours of `ui::round_btn`.
+    type Color = fn() -> AdaptiveColor;
+    let (bg, fg): (Color, Color) = match variant {
+        Variant::Primary => (|| theme().primary, || theme().primary_foreground),
+        Variant::Secondary | Variant::Plain => (|| theme().muted, || theme().foreground),
+        Variant::Danger => (|| theme().destructive.opacity(0.12), || theme().destructive),
+    };
+    ui::pressable()
+        .accessibility_label(label)
+        .on_press(on_press)
         .items_center()
         .gap(px(space::S))
-        .child(ui::round_btn(i, label, variant, 64.0).on_press(on_press))
+        .active(|s| s.opacity(0.7).scale(0.95))
+        .child(
+            view()
+                .size(px(64.0))
+                .rounded(px(32.0))
+                .items_center()
+                .justify_center()
+                .bg(bg)
+                .child(ui::icon(i, 26.0, fg)),
+        )
         .child(muted(label).font_weight(FontWeight::MEDIUM))
 }
 

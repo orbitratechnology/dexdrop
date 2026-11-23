@@ -42,7 +42,13 @@ step() { # step <name>: screenshot and full accessibility snapshot
   ad screenshot "$out/$1.png" >/dev/null 2>&1 || screencapture -x "$out/$1.png" 2>/dev/null || true
   ad snapshot --force-full >"$out/$1.txt" 2>&1 || true
 }
-tap() { ad click "label=\"$1\"" --settle >/dev/null 2>&1; }
+# click1 <label>: a button with that label first (a view around a button can
+# carry the same label), then anything with it (tabs, sidebar items).
+click1() {
+  ad click "role=button label=\"$1\"" --settle >/dev/null 2>&1 ||
+    ad click "label=\"$1\"" --settle >/dev/null 2>&1
+}
+tap() { click1 "$1"; }
 
 # Answers "Allow DexDrop to find devices on local networks?" if it shows.
 allow_local_network() {

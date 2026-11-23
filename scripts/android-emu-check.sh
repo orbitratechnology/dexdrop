@@ -49,14 +49,20 @@ step() { # step <name>: screenshot and full accessibility snapshot
   # --force-full: agent-device otherwise answers "unchanged" with no tree.
   ad snapshot --force-full >"$out/$1.txt" 2>&1 || true
 }
+# click1 <label>: a button with that label first (a view around a button can
+# carry the same label), then anything with it (tabs, sidebar items).
+click1() {
+  ad click "role=button label=\"$1\"" --settle >/dev/null 2>&1 ||
+    ad click "label=\"$1\"" --settle >/dev/null 2>&1
+}
 tap() { # tap <label>: scroll down once if it is not on screen yet
-  ad click "label=\"$1\"" --settle >/dev/null 2>&1 && return 0
+  click1 "$1" && return 0
   ad scroll down >/dev/null 2>&1
-  ad click "label=\"$1\"" --settle >/dev/null 2>&1
+  click1 "$1"
 }
 # tap_only <label>: no scrolling. A scroll with nothing to scroll can act as
 # the system's home gesture and send the app to the background (seen in CI).
-tap_only() { ad click "label=\"$1\"" --settle >/dev/null 2>&1; }
+tap_only() { click1 "$1"; }
 # The app in front again if something sent it away.
 front() { ad open "$pkg" >/dev/null 2>&1 || true; }
 
