@@ -4,7 +4,7 @@
 //! header. Overlays every page shares: an incoming request, dialogs and
 //! toasts.
 
-use dexdrop_core::api::{NoticeKind, TransferState};
+use dexdrop_core::api::{Command, NoticeKind, TransferState};
 use nsh_base::{button, nav_page, nav_stack, theme};
 use nsh_core::{
     element::{AccessibilityRole, Screen},
@@ -13,7 +13,7 @@ use nsh_core::{
 };
 
 use crate::{
-    pages,
+    bridge, pages,
     state::{Route, Sheet, Tab, model, pop, set_tab, sheet, stack, tab, toasts, truncate, wide},
     ui::{self, Icon, Tone, Variant, btn, muted, space},
 };
@@ -48,7 +48,60 @@ pub fn shell() -> impl IntoElement {
         .child(when(wide, desktop).otherwise(phone))
         .child(pages::transfer::request_overlay())
         .child(overlay_sheet())
+        .child(when(needs_local_network_intro, local_network_intro))
         .child(toast_stack())
+}
+
+/// Whether to say why DexDrop uses the local network before the system asks
+/// (FR-004): on iOS and macOS, once, after the engine has started.
+fn needs_local_network_intro() -> bool {
+    matches!(nsh_core::element::os().name(), "ios" | "macos")
+        && model().with(|m| {
+            m.status.is_some() && m.offline.is_none() && !m.settings.local_network_explained
+        })
+}
+
+/// One screen: what DexDrop does on the network, and that the system will
+/// ask. Continue starts discovery, which brings the system's prompt.
+fn local_network_intro() -> impl IntoElement {
+    let enter = motion().entering(MotionPreset::FadeInUp);
+    view()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .bg(move || theme().background)
+        .items_center()
+        .justify_center()
+        .px(px(space::XL))
+        .role(AccessibilityRole::Dialog)
+        .child(
+            view()
+                .bind_motion(&enter)
+                .w_full()
+                .max_w(px(420.0))
+                .items_center()
+                .gap(px(space::L))
+                .child(ui::radar(
+                    ui::SEND,
+                    200.0,
+                    ui::glyph(Icon::Wifi, ui::SEND, 84.0),
+                ))
+                .child(ui::title("Find your devices").text_center())
+                .child(
+                    ui::muted(
+                        "DexDrop finds your devices on this Wi‑Fi and sends files straight to them. \
+                         Allow access to your local network when asked.",
+                    )
+                    .text_center(),
+                )
+                .child(
+                    ui::btn("Continue", Variant::Primary)
+                        .self_stretch()
+                        .on_press(|| bridge::send(Command::LocalNetworkExplained)),
+                ),
+        )
 }
 
 /// Requests waiting for an answer and transfers running.

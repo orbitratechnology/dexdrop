@@ -465,6 +465,20 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                         format::bytes(r.total_bytes)
                     ))
                     .text_center(),
+                )
+                // Where it goes, before accepting (FR-041).
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(space::XS))
+                        .child(ui::icon(Icon::Folder, 14.0, move || {
+                            theme().muted_foreground
+                        }))
+                        .child(
+                            muted(crate::pages::settings::saves_to())
+                                .text_size(px(ui::size::CAPTION)),
+                        ),
                 ),
         )
         .child(

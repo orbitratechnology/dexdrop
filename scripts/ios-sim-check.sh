@@ -76,6 +76,14 @@ note "- App installed, agent-device runner ready at $(($(date +%s) - t0)) s"
 
 ad open "$bundle" || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
+# The first launch says why the local network is used (FR-004); the
+# system's prompt follows Continue.
+if ad wait 'label="Continue"' 30000 >/dev/null 2>&1; then
+  step 00-intro
+  tap Continue || fail "could not tap Continue on the first screen"
+  note "- First launch: the local-network explanation, then Continue"
+fi
+ad alert accept >/dev/null 2>&1 || true
 ad wait text "Nearby" 30000 >/dev/null || { step 00-launch-failed; fail "the home screen did not appear"; }
 step 01-nearby
 note "- Launched: home screen shown (Send, Receive, Nearby)"

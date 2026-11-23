@@ -1259,3 +1259,18 @@ async fn the_default_listener_takes_ipv4_and_ipv6() {
         );
     }
 }
+
+/// The explanation of the local network is asked for once and remembered
+/// (FR-004); the engine reports it with the settings.
+#[tokio::test]
+async fn the_local_network_explanation_is_remembered() {
+    let mut a = Node::start_with("Alice", |c| c.explain_local_network_first = true).await;
+    a.send(Command::LocalNetworkExplained);
+    a.wait("the settings", |e| match e {
+        Event::Settings(s) if s.local_network_explained => Some(()),
+        _ => None,
+    })
+    .await;
+    let saved = dexdrop_core::store::Settings::load(&a.state().join("settings.json"));
+    assert!(saved.local_network_explained);
+}

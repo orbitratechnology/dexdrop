@@ -126,17 +126,29 @@ fn device() -> impl IntoElement {
         }))
 }
 
+/// The name of the folder received files go to (FR-042).
+pub fn save_folder() -> String {
+    model().with(|m| {
+        m.settings
+            .download_dir
+            .clone()
+            .or_else(default_dir)
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_default()
+    })
+}
+
+/// Where received files go, in a few words (FR-041, FR-073).
+pub fn saves_to() -> String {
+    if desktop_platform() {
+        format!("Saves to {}", save_folder())
+    } else {
+        "Kept in DexDrop until you share or save them".to_owned()
+    }
+}
+
 fn receiving() -> impl IntoElement {
-    let folder = move || {
-        model().with(|m| {
-            m.settings
-                .download_dir
-                .clone()
-                .or_else(default_dir)
-                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-                .unwrap_or_default()
-        })
-    };
+    let folder = save_folder;
     view()
         .gap(px(space::S))
         .child(ui::section("Receiving"))
@@ -177,6 +189,14 @@ fn receiving() -> impl IntoElement {
                     ))
                 })),
         )
+        .child(when(
+            move || !desktop_platform(),
+            || {
+                muted("Received files are kept in DexDrop until you share or save them.")
+                    .px(px(space::L))
+                    .text_size(px(ui::size::CAPTION))
+            },
+        ))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -245,7 +265,8 @@ fn privacy() -> impl IntoElement {
                 .child(ui::icon(Icon::Lock, 14.0, move || theme().muted_foreground))
                 .child(
                     muted(
-                        "Files go straight between your devices, encrypted. Nothing is uploaded.",
+                        "Files go straight between your devices, encrypted; nothing is uploaded. \
+                         Your device name, trusted devices and history stay on this device.",
                     )
                     .flex_1()
                     .text_size(px(ui::size::CAPTION)),

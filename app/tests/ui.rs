@@ -8,21 +8,56 @@ use nsh_testing::{DialogAnswer, Headless};
 
 /// The headless engine is an iPhone: its tab bar is the system's (a native
 /// view tests cannot press), so tests switch tabs with the app's shortcuts
-/// (mod+1 Share, mod+2 History, mod+3 Settings).
+/// (mod+1 Share, mod+2 History, mod+3 Settings). The first launch explains
+/// the local network (FR-004); `start` reads it and goes on.
 fn start() -> (Headless, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
+    let mut app = open(&dir);
+    app.wait_for_within("role:button[Continue]", Duration::from_secs(10))
+        .unwrap();
+    app.press("role:button[Continue]").unwrap();
+    app.wait_for_gone("Find your devices", Duration::from_secs(5))
+        .unwrap();
+    (app, dir)
+}
+
+/// The app on the state in `dir`, at its first screen.
+fn open(dir: &tempfile::TempDir) -> Headless {
     // SAFETY: every test sets the same values before starting the app.
     unsafe {
         std::env::set_var("DEXDROP_NO_DISCOVERY", "1");
         // Keys stay in the test's files, not the machine's keyring.
         std::env::set_var("DEXDROP_KEY_STORE", "file");
     }
-    let state = dir.path().to_path_buf();
     let mut config = EngineConfig::new(Root::of::<dexdrop_app::App>());
-    config.data_dir = Some(state);
+    config.data_dir = Some(dir.path().to_path_buf());
     let mut app = Headless::start(config).unwrap();
     app.wait_for("Nearby").unwrap();
-    (app, dir)
+    app
+}
+
+/// iOS asks before an app uses the local network: the first launch says
+/// why, once (FR-004).
+#[test]
+fn explains_the_local_network_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = open(&dir);
+    app.wait_for_within("Find your devices", Duration::from_secs(10))
+        .unwrap();
+    wait_for_text(&mut app, "Allow access to your local network");
+    app.press("role:button[Continue]").unwrap();
+    app.wait_for_gone("Find your devices", Duration::from_secs(5))
+        .unwrap();
+    drop(app);
+
+    let mut again = open(&dir);
+    wait_for_text(&mut again, "Visible as ");
+    again.wait(Duration::from_millis(500)).unwrap();
+    assert!(
+        !again.screen().texts().contains(&"Find your devices"),
+        "explained again: {:?}",
+        again.screen().texts()
+    );
 }
 
 /// Waits until some text on screen contains `part`.

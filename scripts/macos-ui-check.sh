@@ -90,6 +90,13 @@ ad prepare ios-runner --timeout 600000 >/dev/null 2>&1 ||
 note "- agent-device runner ready at $(($(date +%s) - t0)) s"
 
 ad open "$app_name" || fail "the app did not open"
+# The first launch says why the local network is used (FR-004); the
+# system's prompt follows Continue.
+if ad wait 'label="Continue"' 60000 >/dev/null 2>&1; then
+  step 00-intro
+  tap Continue || fail "could not tap Continue on the first screen"
+  note "- First launch: the local-network explanation, then Continue"
+fi
 allow_local_network 10
 ad wait text "Nearby" 60000 >/dev/null || { step 00-launch-failed; fail "the home screen did not appear"; }
 step 01-nearby

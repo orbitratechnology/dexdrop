@@ -196,7 +196,8 @@ def main() -> None:
     cli_id = peer_id_of(cli, cli_state)
     settings_path = app_state / "settings.json"
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-    settings.update(device_name=APP_NAME, visible=True, auto_accept_trusted=True)
+    settings.update(device_name=APP_NAME, visible=True, auto_accept_trusted=True,
+                    local_network_explained=True)  # no first-use screen to tap
     settings_path.write_text(json.dumps(settings))
     (app_state / "trusted-devices.json").write_text(
         json.dumps(

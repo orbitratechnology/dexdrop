@@ -207,11 +207,17 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
 
 /// No device yet: a small radar while discovery looks.
 fn looking() -> impl IntoElement {
+    // After a while with nobody found, say what to check (FR-005).
+    let waited = signal(false);
+    set_timeout(std::time::Duration::from_secs(8), move || waited.set(true));
     let line = move || {
         model().with(|m| match m.status.as_ref().map(|s| &s.discovery) {
             _ if m.offline.is_some() => "Nearby devices show up in the app".to_owned(),
             Some(dexdrop_core::api::DiscoveryStatus::Unavailable(_)) => {
-                "Can't look on this network — use Receive to show a code".to_owned()
+                "This network doesn't let devices find each other. Tap Receive on the other device and use its code.".to_owned()
+            }
+            _ if waited.get() => {
+                "Not here yet? Open DexDrop on the other device, on the same Wi‑Fi. Or tap Receive there and use its code.".to_owned()
             }
             _ => "Looking for devices on this Wi‑Fi…".to_owned(),
         })

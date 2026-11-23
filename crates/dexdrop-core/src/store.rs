@@ -74,6 +74,10 @@ pub struct Settings {
     pub allow_metered: bool,
     /// The TCP port to listen on; 0: any free port.
     pub port: u16,
+    /// The user has seen why DexDrop uses the local network (FR-004). On
+    /// platforms that ask permission for it (iOS, macOS), discovery waits
+    /// for this, so the system's prompt follows the explanation.
+    pub local_network_explained: bool,
 }
 
 impl Default for Settings {
@@ -86,6 +90,7 @@ impl Default for Settings {
             keep_history: true,
             allow_metered: false,
             port: 0,
+            local_network_explained: false,
         }
     }
 }

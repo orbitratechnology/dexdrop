@@ -67,6 +67,9 @@ pub enum Command {
     ForgetPeer(PeerId),
     ClearHistory,
     RefreshDiscovery,
+    /// The user read why the local network is used (FR-004): discovery
+    /// starts, and with it the system's permission prompt where there is one.
+    LocalNetworkExplained,
     ExportDiagnostics,
     Shutdown,
 }

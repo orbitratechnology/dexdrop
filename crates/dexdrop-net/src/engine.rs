@@ -51,6 +51,11 @@ pub struct EngineConfig {
     pub default_device_name: String,
     /// Advertise and browse with mDNS.
     pub discovery: bool,
+    /// Discovery waits until the user has read why the local network is
+    /// used (`Settings::local_network_explained`, FR-004), so a system
+    /// permission prompt follows an explanation. Apps set it where the OS
+    /// asks (iOS, macOS); default off.
+    pub explain_local_network_first: bool,
     /// The address to listen on.
     pub listen: IpAddr,
     /// Overrides the settings' port.
@@ -77,6 +82,7 @@ impl EngineConfig {
             platform: platform.to_owned(),
             default_device_name: String::new(),
             discovery: true,
+            explain_local_network_first: false,
             listen: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             port: None,
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -284,6 +290,7 @@ pub async fn spawn(
         addrs: Vec::new(),
         port,
         listener_task,
+        internal: None,
     };
     actor.boot(internal_tx);
     tokio::spawn(async move {
@@ -511,6 +518,7 @@ struct Actor {
     addrs: Vec<IpAddr>,
     port: u16,
     listener_task: tokio::task::JoinHandle<()>,
+    internal: Option<mpsc::UnboundedSender<Internal>>,
 }
 
 const MAX_PENDING_REQUESTS: usize = 8;
@@ -536,24 +544,9 @@ impl Actor {
 
     fn boot(&mut self, internal: mpsc::UnboundedSender<Internal>) {
         self.addrs = local_addrs();
-        if self.config.discovery {
-            let (tx, mut rx) = mpsc::unbounded_channel();
-            match Discovery::start(self.ctx.identity.peer_id(), tx) {
-                Ok(discovery) => {
-                    self.discovery = Some(discovery);
-                    self.discovery_status = DiscoveryStatus::Active;
-                    tokio::spawn(async move {
-                        while let Some(event) = rx.recv().await {
-                            if internal.send(Internal::Discovery(event)).is_err() {
-                                break;
-                            }
-                        }
-                    });
-                }
-                Err(err) => {
-                    self.discovery_status = DiscoveryStatus::Unavailable(err);
-                }
-            }
+        self.internal = Some(internal);
+        if self.config.discovery && !self.awaiting_explanation() {
+            self.start_discovery();
         }
         self.readvertise();
         self.restore();
@@ -562,6 +555,35 @@ impl Actor {
         self.emit_peers();
         self.emit(Event::Trusted(self.trust.peers.clone()));
         self.emit(Event::History(self.history.entries.clone()));
+    }
+
+    /// Whether discovery waits for the user to read why the local network is
+    /// used: on the platforms that ask permission for it (FR-004).
+    fn awaiting_explanation(&self) -> bool {
+        self.config.explain_local_network_first && !lock(&self.ctx.settings).local_network_explained
+    }
+
+    fn start_discovery(&mut self) {
+        let Some(internal) = self.internal.clone() else {
+            return;
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        match Discovery::start(self.ctx.identity.peer_id(), tx) {
+            Ok(discovery) => {
+                self.discovery = Some(discovery);
+                self.discovery_status = DiscoveryStatus::Active;
+                tokio::spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        if internal.send(Internal::Discovery(event)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            Err(err) => {
+                self.discovery_status = DiscoveryStatus::Unavailable(err);
+            }
+        }
     }
 
     /// Loads interrupted transfers from disk (resume after restart).
@@ -773,6 +795,15 @@ impl Actor {
                 }
             }
             Command::ClearHistory => self.clear_history(),
+            Command::LocalNetworkExplained => {
+                self.update_settings(|s| s.local_network_explained = true);
+                if self.config.discovery && self.discovery.is_none() {
+                    self.start_discovery();
+                    self.advertised = None;
+                    self.readvertise();
+                    self.emit_status();
+                }
+            }
             Command::RefreshDiscovery => {
                 self.addrs = local_addrs();
                 self.advertised = None;

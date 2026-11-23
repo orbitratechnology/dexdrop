@@ -54,6 +54,9 @@ mod native {
         let (state, downloads) = dirs(platform);
         let mut config = EngineConfig::new(state, downloads, platform);
         config.discovery = std::env::var_os("DEXDROP_NO_DISCOVERY").is_none();
+        // iOS and macOS ask before an app uses the local network: say why
+        // first (FR-004).
+        config.explain_local_network_first = matches!(platform, "ios" | "macos");
         if let Some(port) = std::env::var("DEXDROP_PORT")
             .ok()
             .and_then(|p| p.parse().ok())
