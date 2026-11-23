@@ -151,7 +151,7 @@ fn receiving() -> impl IntoElement {
                 .child(ui::separator(58.0))
                 .child(ui::switch_row(
                     g(Icon::UserCheck, GREEN),
-                    "Accept trusted devices automatically",
+                    "Auto-accept trusted devices",
                     move || settings().auto_accept_trusted,
                     |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
                 ))
@@ -296,25 +296,32 @@ fn reset_identity() {
 pub fn trusted_page() -> impl IntoElement {
     let empty = move || model().with(|m| m.trusted.is_empty());
     body(
-        when(empty, || ui::empty(Icon::Devices, "Devices you trust when accepting a transfer show up here."))
-            .otherwise(|| {
-                view()
-                    .gap(px(space::S))
-                    .child(ui::group().child(each(
-                        move || model().with(|m| m.trusted.clone()),
-                        |p: &TrustedPeer| p.peer_id,
-                        |p, i| {
-                            view()
-                                .child(when(move || i.get() > 0, || ui::separator(16.0)))
-                                .child(trusted_row(p))
-                        },
-                    )))
-                    .child(
-                        muted("“Accept without asking” works while “Accept trusted devices automatically” is on.")
-                            .px(px(space::L))
-                            .text_size(px(ui::size::CAPTION)),
+        when(empty, || {
+            ui::empty(
+                Icon::Devices,
+                "Devices you trust when accepting a transfer show up here.",
+            )
+        })
+        .otherwise(|| {
+            view()
+                .gap(px(space::S))
+                .child(ui::group().child(each(
+                    move || model().with(|m| m.trusted.clone()),
+                    |p: &TrustedPeer| p.peer_id,
+                    |p, i| {
+                        view()
+                            .child(when(move || i.get() > 0, || ui::separator(16.0)))
+                            .child(trusted_row(p))
+                    },
+                )))
+                .child(
+                    muted(
+                        "“Accept without asking” works while “Auto-accept trusted devices” is on.",
                     )
-            }),
+                    .px(px(space::L))
+                    .text_size(px(ui::size::CAPTION)),
+                )
+        }),
     )
 }
 
