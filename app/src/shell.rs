@@ -21,12 +21,8 @@ use crate::{
 /// Desktop keyboard shortcuts (PRD 7.3); `mod` is Cmd on Apple platforms
 /// and Ctrl elsewhere.
 fn shortcuts() {
-    use nsh_core::file_dialog::OpenDialog;
-    on_key("mod+o", |_| pages::send::choose(OpenDialog::files()));
-    on_key(
-        "mod+shift+o",
-        |_| pages::send::choose(OpenDialog::folders()),
-    );
+    on_key("mod+o", |_| send_files());
+    on_key("mod+shift+o", |_| send_folder());
     on_key("mod+1", |_| set_tab(Tab::Share));
     on_key("mod+2", |_| set_tab(Tab::History));
     on_key("mod+3", |_| set_tab(Tab::Settings));
@@ -40,8 +36,113 @@ fn shortcuts() {
     });
 }
 
+/// Opens Send and the system's file dialog (PRD 7.3: Cmd/Ctrl+O).
+fn send_files() {
+    crate::state::open(Tab::Share, Route::Send);
+    pages::send::choose(nsh_core::file_dialog::OpenDialog::files());
+}
+
+fn send_folder() {
+    crate::state::open(Tab::Share, Route::Send);
+    pages::send::choose(nsh_core::file_dialog::OpenDialog::folders());
+}
+
+/// The application menu on macOS, Windows and Linux (PRD 7.3, 10.3), with
+/// the shortcuts the app's keys also take; nothing on phones.
+fn application_menu() {
+    use nsh_core::{
+        desktop::MenuRole,
+        element::desktop::{MenuItem, set_application_menu},
+        platform::Os,
+    };
+    let mac = nsh_core::element::os() == Os::MacOs;
+    let mut menus = Vec::new();
+    if mac {
+        menus.push(MenuItem::submenu(
+            "DexDrop",
+            [
+                MenuItem::role(MenuRole::About),
+                MenuItem::separator(),
+                MenuItem::new("Settings…")
+                    .shortcut("mod+,")
+                    .on_select(|| set_tab(Tab::Settings)),
+                MenuItem::separator(),
+                MenuItem::role(MenuRole::Hide),
+                MenuItem::role(MenuRole::HideOthers),
+                MenuItem::role(MenuRole::ShowAll),
+                MenuItem::separator(),
+                MenuItem::role(MenuRole::Quit),
+            ],
+        ));
+    }
+    let mut file = vec![
+        MenuItem::new("Send Files…")
+            .shortcut("mod+o")
+            .on_select(send_files),
+        MenuItem::new("Send Folder…")
+            .shortcut("mod+shift+o")
+            .on_select(send_folder),
+        MenuItem::new("Receive")
+            .shortcut("mod+r")
+            .on_select(|| crate::state::open(Tab::Share, Route::Receive)),
+        MenuItem::separator(),
+    ];
+    if mac {
+        file.push(MenuItem::role(MenuRole::Close));
+    } else {
+        file.push(
+            MenuItem::new("Settings")
+                .shortcut("mod+,")
+                .on_select(|| set_tab(Tab::Settings)),
+        );
+        file.push(MenuItem::separator());
+        file.push(MenuItem::role(MenuRole::Quit).label("Exit"));
+    }
+    menus.push(MenuItem::submenu("File", file));
+    // Copy and paste in text fields (the code entry, renaming) need these.
+    menus.push(MenuItem::submenu(
+        "Edit",
+        [
+            MenuItem::role(MenuRole::Undo),
+            MenuItem::role(MenuRole::Redo),
+            MenuItem::separator(),
+            MenuItem::role(MenuRole::Cut),
+            MenuItem::role(MenuRole::Copy),
+            MenuItem::role(MenuRole::Paste),
+            MenuItem::role(MenuRole::SelectAll),
+        ],
+    ));
+    let mut view_menu = vec![
+        MenuItem::new("Share")
+            .shortcut("mod+1")
+            .on_select(|| set_tab(Tab::Share)),
+        MenuItem::new("History")
+            .shortcut("mod+2")
+            .on_select(|| set_tab(Tab::History)),
+        MenuItem::new("Settings")
+            .shortcut("mod+3")
+            .on_select(|| set_tab(Tab::Settings)),
+    ];
+    if mac {
+        view_menu.push(MenuItem::separator());
+        view_menu.push(MenuItem::role(MenuRole::ToggleFullScreen));
+    }
+    menus.push(MenuItem::submenu("View", view_menu));
+    if mac {
+        menus.push(MenuItem::submenu(
+            "Window",
+            [
+                MenuItem::role(MenuRole::Minimize),
+                MenuItem::role(MenuRole::Zoom),
+            ],
+        ));
+    }
+    set_application_menu(menus);
+}
+
 pub fn shell() -> impl IntoElement {
     shortcuts();
+    application_menu();
     view()
         .flex_1()
         .bg(move || theme().background)
