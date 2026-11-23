@@ -269,10 +269,27 @@ def main() -> None:
         # app because it trusts the CLI.
         src = work / "src"
         files = write_payload(src)
-        send = run(
-            [cli, "--state", cli_state, "send", target, src / "photo.bin", src / "Docs"],
-            timeout=180,
-        )
+        try:
+            send = run(
+                [cli, "--state", cli_state, "send", target, src / "photo.bin", src / "Docs"],
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired as stuck:
+            # Keep what shows where it stopped: the CLI's output so far, and
+            # what reached the app's download folder (temporary files too).
+            out = (stuck.stdout or b"") + (stuck.stderr or b"")
+            if isinstance(out, bytes):
+                out = out.decode(errors="replace")
+            arrived = sorted(
+                f"{p.relative_to(app_dl)} {p.stat().st_size}"
+                for p in app_dl.rglob("*")
+                if p.is_file()
+            ) if app_dl.exists() else []
+            (args.out / "cli-send.log").write_text(
+                out + "\n--- in the app's download folder:\n" + "\n".join(arrived)
+            )
+            check.note("FAILED: the transfer did not finish in 180 s (cli-send.log)")
+            return
         (args.out / "cli-send.log").write_text(send.stdout + send.stderr)
         if send.returncode != 0:
             check.note(f"FAILED: the CLI reported a failed transfer (cli-send.log)")

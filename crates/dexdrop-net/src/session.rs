@@ -1313,6 +1313,10 @@ impl DiskWriter {
                                 .and_then(|()| file.sync_all())
                                 .map(|()| (*whole.finalize().as_bytes(), corrupt)),
                         };
+                        // Closed before answering: the receiver renames or
+                        // links the file next, which Windows refuses or
+                        // defers while a handle is open.
+                        drop(file);
                         let _ = answer.send(result);
                         return;
                     }
