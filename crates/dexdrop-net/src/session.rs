@@ -642,20 +642,38 @@ async fn stream_file<W: AsyncWrite + Unpin>(
             hash: protocol::chunk_hash(data),
         };
         // A write blocks while the receiver does not read: give up when it
-        // stops, the user pauses, or nothing moves for a minute.
-        let write = async {
+        // stops or nothing moves for a minute. When the user pauses or
+        // cancels, the chunk being written is finished first: the Pause or
+        // Cancel that follows must start on a message boundary, or the
+        // receiver reads it as chunk data and fails instead of pausing.
+        let mut write = std::pin::pin!(async {
             wire::write_msg(wr, &Message::Chunk(header)).await?;
             wr.write_all(data).await.map_err(WireError::from)
-        };
-        tokio::select! {
-            written = write => written?,
+        });
+        let stall = tokio::time::sleep(WRITE_STALL);
+        tokio::pin!(stall);
+        let stop_after = tokio::select! {
+            written = &mut write => {
+                written?;
+                false
+            }
             _ = peer_stopped.wait() => return Ok(counted),
-            _ = watch_control.changed() => return Ok(counted),
-            _ = tokio::time::sleep(WRITE_STALL) => return Err(WireError::Timeout.into()),
-        }
+            _ = watch_control.changed() => {
+                tokio::select! {
+                    written = &mut write => written?,
+                    _ = peer_stopped.wait() => return Ok(counted),
+                    _ = &mut stall => return Err(WireError::Timeout.into()),
+                }
+                true
+            }
+            _ = &mut stall => return Err(WireError::Timeout.into()),
+        };
         pos += n as u64;
         counted += n as u64;
         lock(live).bytes_done += n as u64;
+        if stop_after {
+            return Ok(counted);
+        }
         pacer.pace(n as u64).await;
     }
     if !unchanged(&file, entry).await {
@@ -1743,5 +1761,68 @@ struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
 impl<T> Drop for AbortOnDrop<T> {
     fn drop(&mut self) {
         self.0.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::AsyncReadExt;
+
+    use super::*;
+
+    /// A pause while a chunk is half-written must not leave half a chunk
+    /// on the wire: the Pause that follows would be read as chunk data.
+    #[tokio::test]
+    async fn a_pause_mid_chunk_leaves_whole_messages_on_the_wire() {
+        const CHUNK: u32 = 64 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.bin");
+        std::fs::write(&path, vec![7u8; 4 * CHUNK as usize]).unwrap();
+        let manifest = Manifest::build(std::slice::from_ref(&path)).unwrap();
+        let entry = manifest.entries[0].clone();
+        // A pipe far smaller than a chunk: each chunk write blocks until read.
+        let (mut wr, mut rd) = tokio::io::duplex(4096);
+        let (pause, control) = watch::channel(Control::Run);
+        let live = LiveCell::default();
+        let stopped = Stop::default();
+        let (entry, live, control, stopped) = (&entry, &live, &control, &stopped);
+        let sender = async move {
+            let mut buf = Vec::new();
+            let mut pacer = Pacer::new(None);
+            let sent = stream_file(
+                &mut wr, entry, 0, 0, CHUNK, &mut buf, live, control, stopped, &mut pacer,
+            )
+            .await
+            .unwrap();
+            drop(wr); // the end of the stream for the reader
+            sent
+        };
+        let receiver = async move {
+            // The first chunk is mid-write (blocked on the pipe) when the
+            // user pauses.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            pause.send(Control::Pause).unwrap();
+            let mut chunks = 0u64;
+            loop {
+                match wire::read_msg(&mut rd).await {
+                    Ok(Message::FileStart { .. }) => {}
+                    Ok(Message::Chunk(header)) => {
+                        let mut data = vec![0; header.len as usize];
+                        rd.read_exact(&mut data)
+                            .await
+                            .expect("the chunk was cut short");
+                        assert_eq!(protocol::chunk_hash(&data), header.hash);
+                        chunks += 1;
+                    }
+                    Ok(other) => panic!("unexpected {}", other.name()),
+                    Err(_) => break, // the sender stopped
+                }
+            }
+            chunks
+        };
+        let (sent, chunks) = tokio::join!(sender, receiver);
+        assert!(chunks >= 1, "no chunk arrived");
+        assert!(chunks < 4, "the pause did not stop the file");
+        assert_eq!(sent, chunks * u64::from(CHUNK));
     }
 }

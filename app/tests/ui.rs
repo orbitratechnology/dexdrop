@@ -11,6 +11,8 @@ fn start() -> (Headless, tempfile::TempDir) {
     // SAFETY: every test sets the same values before starting the app.
     unsafe {
         std::env::set_var("DEXDROP_NO_DISCOVERY", "1");
+        // Keys stay in the test's files, not the machine's keyring.
+        std::env::set_var("DEXDROP_KEY_STORE", "file");
     }
     let state = dir.path().to_path_buf();
     let mut config = EngineConfig::new(Root::of::<dexdrop_app::App>());
@@ -146,4 +148,57 @@ fn phone_controls_meet_the_minimum_hit_target() {
         ],
     );
     assert!(too_small.is_empty(), "controls under 44 pt: {too_small:#?}");
+}
+
+/// The " · ID xxxx-xxxx-xxxx" line under the device name in Settings.
+fn device_id(app: &mut Headless) -> String {
+    for _ in 0..100 {
+        if let Some(id) = app
+            .screen()
+            .texts()
+            .iter()
+            .find_map(|t| t.split_once(" · ID ").map(|(_, id)| id.to_owned()))
+        {
+            return id;
+        }
+        app.wait(Duration::from_millis(100)).unwrap();
+    }
+    panic!("no device ID on screen: {:?}", app.screen().texts());
+}
+
+#[test]
+fn resetting_the_identity_gives_a_new_device_id() {
+    let (mut app, _dir) = start();
+    wait_for_text(&mut app, "is visible to nearby devices");
+    app.press("role:tab[Settings]").unwrap();
+    let before = device_id(&mut app);
+    app.press("role:button[Reset device identity…]").unwrap();
+    app.wait_for("Reset this device's identity?").unwrap();
+    // Cancel changes nothing.
+    app.press("role:button[Cancel]").unwrap();
+    app.wait_for_gone("Reset this device's identity?", Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(device_id(&mut app), before);
+
+    app.press("role:button[Reset device identity…]").unwrap();
+    app.press("role:button[Reset identity]").unwrap();
+    wait_for_text(&mut app, "This device has a new identity.");
+    let mut after = device_id(&mut app);
+    for _ in 0..100 {
+        if after != before {
+            break;
+        }
+        app.wait(Duration::from_millis(100)).unwrap();
+        after = device_id(&mut app);
+    }
+    assert_ne!(after, before, "the device ID did not change");
+    // The restarted engine is running: no "stopped" banner.
+    assert!(
+        !app.screen()
+            .texts()
+            .iter()
+            .any(|t| t.contains("The transfer service stopped")),
+        "{:?}",
+        app.screen().texts()
+    );
 }

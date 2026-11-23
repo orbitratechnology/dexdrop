@@ -88,6 +88,8 @@ pub enum Sheet {
     /// The diagnostics report.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Diagnostics(String),
+    /// Confirms giving this device a new identity.
+    ResetIdentity,
 }
 
 pub fn sheet() -> Signal<Sheet> {

@@ -66,13 +66,25 @@ mod native {
     }
 }
 
+/// Which engine's events count: each start gets the next number, so a
+/// stopped engine's last events cannot overwrite its successor's state.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[derive(Clone, Copy, Default, PartialEq)]
+struct Generation(u64);
+
 /// Starts the engine and applies its events to the model.
 pub fn start() {
     #[cfg(not(target_arch = "wasm32"))]
     match native::start() {
         Ok(mut events) => {
+            let generation = global::<Generation>().with_untracked(|g| g.0 + 1);
+            global::<Generation>().set(Generation(generation));
+            model().update(|m| m.offline = None);
             spawn(async move {
                 while let Some(event) = events.recv().await {
+                    if global::<Generation>().with_untracked(|g| g.0) != generation {
+                        break;
+                    }
                     apply(event);
                 }
             });
@@ -90,6 +102,53 @@ pub fn start() {
              connections, so transfers need the DexDrop app on Android, Windows, macOS or Linux."
                 .into(),
         )
+    });
+}
+
+/// Gives this device a new identity (PRD 9.9): stops the engine, replaces
+/// the identity (the old key leaves the credential store) and starts the
+/// engine again with the new peer ID. Callers check that nothing is
+/// transferring.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn reset_identity() {
+    let (state, _) = native::dirs(os().name());
+    let path = dexdrop_core::store::StateDir::new(state).identity();
+    // The old engine's last events ("stopped") no longer count.
+    global::<Generation>().update(|g| g.0 += 1);
+    // Dropping the engine stops it and waits for its thread.
+    global::<native::Slot>().set(native::Slot(None));
+    model().update(|m| {
+        m.status = None;
+        m.peers.clear();
+        m.invitation = None;
+        m.code = None;
+    });
+    // Not owned by the confirmation sheet, which closes now: the restarted
+    // engine's event loop must outlive it.
+    Owner::detached().run(move || {
+        spawn(async move {
+            let rotated = off_thread(move || {
+                dexdrop_core::identity::Identity::rotate(
+                    &path,
+                    dexdrop_core::keystore::KeyStorage::platform_default(),
+                )
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+            })
+            .await;
+            match rotated {
+                Some(Ok(())) => toast(
+                    NoticeKind::Success,
+                    "This device has a new identity. Other devices see it as a new device.",
+                ),
+                Some(Err(err)) => toast(
+                    NoticeKind::Error,
+                    format!("The identity could not be reset: {err}"),
+                ),
+                None => {}
+            }
+            start();
+        })
     });
 }
 

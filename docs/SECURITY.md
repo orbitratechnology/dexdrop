@@ -44,6 +44,10 @@ Behaviour:
   (deleted by the user), DexDrop creates a new identity: other devices then
   see a new device and must trust it again.
 - A key that does not belong to the stored certificate is refused.
+- **Settings → Reset device identity…** creates a new key and peer ID
+  (PRD 9.9: rotate local identity) and removes the old key from the store.
+  Other devices then see a new device; trusted devices, history and
+  received files stay. It waits until no transfer is running.
 - `DEXDROP_KEY_STORE=file` keeps the key in the file on every platform.
 - The diagnostics report says where the key is (`identity_key`) and never
   contains the key, file names or paths (checked by the transfer tests).

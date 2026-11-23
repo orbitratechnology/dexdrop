@@ -10,7 +10,7 @@ use nsh_core::{file_dialog::OpenDialog, prelude::*};
 
 use crate::{
     bridge,
-    state::{desktop_platform, model, platform_label, toast},
+    state::{Sheet, desktop_platform, model, platform_label, sheet, toast},
     ui::{self, Variant, btn, card, divider, muted, section_label, space, switch_row},
 };
 
@@ -280,12 +280,59 @@ fn about() -> impl IntoElement {
             env!("CARGO_PKG_VERSION")
         )))
         .child(
-            view().flex_row().flex_wrap().gap(px(space::S)).child(
-                btn("Export diagnostics", Variant::Secondary)
-                    .on_press(|| bridge::send(Command::ExportDiagnostics)),
-            ),
+            view()
+                .flex_row()
+                .flex_wrap()
+                .gap(px(space::S))
+                .child(
+                    btn("Export diagnostics", Variant::Secondary)
+                        .on_press(|| bridge::send(Command::ExportDiagnostics)),
+                )
+                .child(
+                    btn("Reset device identity…", Variant::Secondary)
+                        .on_press(|| sheet().set(Sheet::ResetIdentity)),
+                ),
         )
         .child(muted(
             "Diagnostics contain no file names, paths, contents or keys.",
         ))
+}
+
+/// Asks before giving this device a new identity (PRD 9.9).
+pub fn reset_identity_sheet() -> impl IntoElement {
+    let busy = move || {
+        model()
+            .with(|m| m.transfers.iter().any(|t| !t.state.is_finished()) || !m.requests.is_empty())
+    };
+    view()
+        .gap(px(space::M))
+        .child(ui::body(
+            "Other devices will see this one as a new device. Devices that trusted it will \
+             ask again before accepting its files, and its old ID stops working.",
+        ))
+        .child(muted(
+            "Your device name, trusted devices, history and received files stay.",
+        ))
+        .child(when(busy, || {
+            muted("Finish or cancel the transfers in progress first.")
+        }))
+        .child(
+            view()
+                .flex_row()
+                .justify_end()
+                .gap(px(space::S))
+                .child(btn("Cancel", Variant::Secondary).on_press(|| sheet().set(Sheet::None)))
+                .child(btn("Reset identity", Variant::Danger).on_press(move || {
+                    if busy() {
+                        toast(
+                            NoticeKind::Error,
+                            "Finish or cancel the transfers in progress first.",
+                        );
+                        return;
+                    }
+                    sheet().set(Sheet::None);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    bridge::reset_identity();
+                })),
+        )
 }

@@ -329,6 +329,7 @@ fn sheet_title(s: &Sheet) -> &'static str {
         Sheet::Receive => "Receive with a code",
         Sheet::Connect => "Send with a code",
         Sheet::Diagnostics(_) => "Diagnostics",
+        Sheet::ResetIdentity => "Reset this device's identity?",
     }
 }
 
@@ -366,6 +367,9 @@ fn overlay_sheet() -> impl IntoElement {
                         Sheet::Receive => pages::nearby::receive_sheet().into_element(),
                         Sheet::Connect => pages::nearby::connect_sheet().into_element(),
                         Sheet::Diagnostics(report) => diagnostics(report).into_element(),
+                        Sheet::ResetIdentity => {
+                            pages::settings::reset_identity_sheet().into_element()
+                        }
                         _ => view().into_element(),
                     })),
             )
