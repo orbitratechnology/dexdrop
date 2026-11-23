@@ -47,45 +47,107 @@ every action, and the platform's own controls where NSH has them.
   as SVG; file types and settings rows have their own colors; devices get
   an avatar with a platform badge.
 
-## Functional requirements
+## Functional requirements (PRD 6), audited 2026-11-23
 
-| ID | Status | Notes |
+Every requirement was checked against the code, the tests and the running
+app: CI's device checks (Android emulator, iOS Simulator, macOS, Windows and
+Linux desktops) and a live iOS 26 Simulator session (native-sim). Evidence
+names the test or check; "Gap" is what is still missing.
+
+| ID | P | Status | Evidence | Gap |
+|---|---|---|---|---|
+| FR-001 No account | P0 | Done | Starts on the home screen; no sign-in exists | |
+| FR-002 Cryptographic identity | P0 | Done | Ed25519, OS credential store on Windows, Linux, iOS (core unit tests, CI Windows keystore) | macOS Keychain needs signed builds; Android Keystore needs NSH's `ndk-context` |
+| FR-003 Device name | P0 | Done | Generic default (`iPhone DSO6`), rename in Settings (UI test) | |
+| FR-004 Local-network explanation | P0 | Done | iOS/macOS: one screen before discovery starts, then the system prompt (UI test `explains_the_local_network_once`, engine test, seen in the iOS Simulator); plist strings set | Android 17's permission (target API 37) when the target moves |
+| FR-005 Empty states | P0 | Done | Home: looking / blocked network → use a code / after 8 s what to check; History, Trusted devices, browser preview | |
+| FR-010 Discover on LAN | P0 | Done | Bonjour (`dns_sd`) on Apple devices, NsdManager on Android, mdns-sd elsewhere; CI: both directions on Android, iOS, macOS; desktop CLI→app | Real cross-device pairs (phone ⇄ computer) not run |
+| FR-011 Device info | P0 | Done | Avatar, name, platform badge; no IP or port in the UI | |
+| FR-012 Deduplicate | P0 | Done | Keyed by peer ID (engine) | |
+| FR-013 Network changes | P0 | Done | Re-advertises on address change (5 s poll); refreshes when the app returns from the background | |
+| FR-014 Denied permission | P0 | Done | Discovery failure says the network blocks it and points to the code; no prompt loop (the app never asks itself) | No deep link to iOS Settings (NSH has none) |
+| FR-015 Trusted devices | P1 | Done | Trust on accept, list, forget (engine tests) | |
+| FR-016 Connection quality | P1 | Done | Measured MB/s only, after a transfer | |
+| FR-020 QR invitation | P0 | Done | Receive page: QR + code, single-use tokens (CI iOS/Android: invitation read from the QR) | |
+| FR-021 Join by invitation/code | P0 | Done | Code entry, paste, QR from a picture; SPAKE2 for codes (engine tests, CI on iOS, Android, macOS) | |
+| FR-022 Expiry | P0 | Done | 10 min, 5 attempts, replay rejected (engine tests `invitations_are_single_use`, `code_guesses_are_limited…`) | |
+| FR-023 Confirm peer | P0 | Done | Name, platform and the 6-digit verification number on both screens | |
+| FR-024 Camera QR | P1 | Open | — | NSH 0.6.1 has no camera API; iOS VisionKit needs a device to test; Android needs a manifest permission NSH cannot declare |
+| FR-025 QR from image | P1 | Done | App and CLI (tests) | |
+| FR-030 Select files | P0 | Done | Desktop dialogs (CI macOS Open panel); iOS Photos/Files pickers (iOS Simulator); Android picker (CI) | |
+| FR-031 Folders | P0 | Partial | Desktop: folder dialog and drop, nested, empty folders (CI desktop check) | Phones cannot pick a folder (NSH pickers are files only) |
+| FR-032 Streaming | P0 | Done | Bounded pipeline; 300 MB byte-identical; memory flat | 20 GB test not run |
+| FR-033 Pre-send summary | P0 | Done | Selection with count and size; "Send to <device>" | |
+| FR-034 Any file type | P0 | Done | Opaque bytes, no compression | |
+| FR-035 Share-sheet entry | P1 | Open | — | Needs an iOS share extension / Android intent filter NSH's packaging cannot add |
+| FR-036 Drag and drop | P1 | Done | Desktop drop overlay; path parsing tests on every OS | |
+| FR-037 Clipboard text | P2 | Open | — | Later |
+| FR-040 Consent | P0 | Done | Request sheet; nothing saved before Accept (engine tests) | |
+| FR-041 Details before accepting | P0 | Done | Sender, files, size, verification number, where it is saved | |
+| FR-042 Destination | P0 | Done | Desktop: "Save to" folder; phones: app storage + "Share or save" | |
+| FR-043 No silent overwrite | P0 | Done | Keep both / Skip / Replace (confirmed) / Decline (engine tests) | |
+| FR-044 Free space | P0 | Done | Checked before and during (RAM-disk test) | |
+| FR-045 Path safety | P0 | Done | Traversal, absolute, reserved names, symlinks (adversarial tests) | One local race noted under Security |
+| FR-046 Verified commit | P0 | Done | Temp file → BLAKE3 → atomic rename | |
+| FR-047 Per-device policy | P1 | Done | "Accept without asking" per trusted device | |
+| FR-050 Queue states | P0 | Done (adapted) | Preparing, connecting, waiting for an answer, transferring, paused, reconnecting, done, declined, cancelled, failed (History "This session", home "Now") | No separate "Verifying": chunks and files are verified as they arrive |
+| FR-051 Progress | P0 | Done | Bytes, MB/s, time left after a stable sample; ≤ 4 updates/s | |
+| FR-052 Pause/resume | P0 | Done | From the app in CI (Android, macOS): receiver holds still, file arrives intact | |
+| FR-053 Recover after a drop | P0 | Done | Journals every 2 s; reconnect and request what is missing (engine test through a dropping link) | |
+| FR-054 Cancel | P0 | Done | Confirmed with the system alert; temp files removed | |
+| FR-055 Retry | P0 | Done | Retry with a plain reason; permanent failures not retried | |
+| FR-056 Integrity | P0 | Done | Per-chunk and whole-file BLAKE3 (corruption tests) | |
+| FR-057 Many files | P0 | Done | 250k cap, paged manifest; 20,000 files at 40 MB peak | |
+| FR-058 Concurrency | P1 | Done (adapted) | 64 pipelined requests on one stream | |
+| FR-059 Duplicates | P1 | Done | Name and size, then hash, receiver side | |
+| FR-060 History | P1 | Done | Local, capped, Clear, Keep-history switch | |
+| FR-070 Device name | P0 | Done | | |
+| FR-071 Visibility | P0 | Done | Switch; hidden devices still receive by code | |
+| FR-072 Network data policy | P0 | Done | Local only: transfers never use mobile data or a relay; the switch returns with remote mode | |
+| FR-073 Privacy and storage | P0 | Done | Settings says what stays on the device and where files go | |
+| FR-074 Trusted devices | P1 | Done | | |
+| FR-075 Diagnostics export | P1 | Done | No names, paths, contents or keys | |
+| FR-080 – FR-082 Remote | P1 | Open | — | Phase 6: Iroh with a project relay |
+| FR-083 – FR-084 Browser | P2 | Partial | Web preview says browsers cannot discover or connect | Phase 7 |
+
+## UX and platform requirements (PRD 7, 8, 10)
+
+| Requirement | Status | Evidence / gap |
 |---|---|---|
-| FR-001 No account | Done | |
-| FR-002 Cryptographic identity | Done | Ed25519; private key in the OS credential store on Windows, Linux (Secret Service) and iOS, app-private file elsewhere (docs/SECURITY.md); "Reset device identity" in Settings gives a new peer ID (PRD 9.9) |
-| FR-003 Device name | Done | Generic default `Linux PC 4F2A`, renamable |
-| FR-004 Local-network permission copy | Partial | iOS plist text set; Android flow open |
-| FR-005 Empty states | Done | Searching, unavailable, browser preview |
-| FR-010 – FR-012 Discovery, info, dedupe | Done (desktop, iOS Simulator, Android emulator) | System Bonjour (`dns_sd`) on macOS and iOS devices, the system's `NsdManager` on Android, mdns-sd on Windows, Linux and the iOS Simulator; deduped by peer ID; TXT updates in place when a code opens |
-| FR-013 Network changes | Done | Re-advertises on address change (5 s poll) |
-| FR-014 Denied permission | Partial | Fallbacks shown; platform permission flows open |
-| FR-015 Trusted devices | Done | Trust on accept, forget, per-device auto-accept |
-| FR-016 Connection quality | Done | Measured average speed (time spent transferring only) shown on finished transfers and as "last … MB/s" on each nearby device; nothing shown until measured |
-| FR-020 – FR-023 QR, code, expiry, confirmation | Done | QR shown; single-use tokens; codes proven with SPAKE2 (never sent; a device faking an open code gets nothing), 10 min, 5 attempts; SAS on both sides; the receive sheet closes a used code and offers a new one |
-| FR-024 Camera QR scanning | Open | Needs a native camera bridge |
-| FR-025 QR from a picture | Done | Screenshot or photo, in the app and the CLI; paste from clipboard too |
-| FR-030 – FR-034 Selecting and sending | Done (desktop) | Native file/folder dialogs, drag and drop; phones stage picked files |
-| FR-035 Share sheet entry | Open | |
-| FR-036 Drag and drop | Done | Desktop drop zone |
-| Desktop shortcuts (PRD 7.3) | Done | Ctrl/Cmd+O files, Ctrl/Cmd+Shift+O folder, Ctrl/Cmd+1–3 tabs, Ctrl/Cmd+, settings, Esc goes back |
-| System notifications (P4-006) | Done | When a transfer finishes, fails or arrives |
-| FR-040 – FR-046 Receiving | Done (phones: "Share or save" exports received files through the system share sheet) | Consent, details, destination, keep-both/skip/replace (confirmed), space check, path safety, atomic commit |
-| FR-047 Per-device receive policy | Done | |
-| FR-050 – FR-056 Lifecycle | Done | Queue states, throttled progress, rate after samples, ETA after 3 s, pause/resume, reconnect with backoff, cancel cleans temp files, verify-and-retry |
-| FR-057 Many files | Done for 250k entries | Paged manifest, 250k entry cap; 20,000 files transfer with 40 MB peak memory for both ends (`dexdrop bench --files 20000`) |
-| FR-058 Concurrent streams | Done (adapted) | One encrypted stream per transfer with up to 64 pipelined file requests; files that fit in one chunk are read, written, synced and committed in single blocking calls, 8 commits in parallel |
-| FR-059 Duplicate detection | Done | Only for a name and size already at the destination; the receiver compares hashes, the sender never sees the receiver's |
-| FR-060 History | Done | Local, capped, clearable |
-| FR-070 – FR-074 Settings | Done | No mobile-data switch shown: local transfers never use mobile data; the stored setting returns with remote transfers |
-| FR-075 Diagnostics | Done | No names, paths or keys |
-| FR-080 – FR-084 Remote / browser transfer | Open (P1/P2) | Browser preview explains the limitation |
+| 7.1 Structure | Done | Share (home), History, Settings; native stacks; desktop sidebar |
+| 7.2 Mobile home | Done | Device name and visibility, nearby devices, Send / Receive, activity badge on History; code fallback under Send › Choose device |
+| 7.3 Desktop home | Done | Sidebar, drop target, application menu (File, Edit, View; macOS app and Window menus), Cmd/Ctrl shortcuts, notifications |
+| 7.4 Transfer card | Done | Peer and platform, name, size, state, MB/s, time left, Pause/Resume/Retry/Cancel, plain errors |
+| 7.5 States | Done | Pressed, hover, keyboard focus ring (every control), disabled, loading, success, error |
+| 7.6 Visual design | Done | Theme tokens, light and dark, system type; richer visuals than the PRD's "minimal" at the product owner's request |
+| 7.7 Accessibility | Done | Labels and roles (UI tests), focus rings, text follows Dynamic Type / font size (NSH), 44 pt iOS / 48 dp Android targets (UI test), reduced motion, state announcements |
+| 8.3 iOS Bonjour without multicast entitlement | Done | Fixed service type, plist keys |
+| 8.4 Android local network | Partial | NSD; API 37 permission/picker not needed at target 35 |
+| 8.5 / 10.2 Android background transfers | Open | Needs a foreground service or user-initiated job: NSH's packaging cannot declare the `<service>` |
+| 8.5 / 10.1 iOS background | Done | Foreground transfers; journals every 2 s; resume on return |
+| 10.1 iOS files | Done | Photos and Files pickers, app storage, share sheet export |
+| 10.3 macOS | Done | Open panels, Finder drop, menus, Show in folder; menu-bar extra not done (optional) |
+| 10.4 Windows | Partial | Dialogs, Explorer drop, notifications, per-user installer; taskbar progress has no NSH API |
+| 10.5 Linux | Partial | GTK 4.14+ documented, dialogs; tested under X11 (Xvfb) only, not GNOME/KDE on Wayland |
+
+## Quality, acceptance and release gates (PRD 11, 13, 16)
+
+| Area | Status | Gap |
+|---|---|---|
+| Release blockers (16) | None open | Corruption, unauthenticated transfers, overwrite, traversal, unbounded memory, no resume, relay leaks: each covered by tests |
+| Discovery ≤ 3 s, setup ≤ 2 s (11.1) | Not measured | Needs real devices on a LAN |
+| Goodput vs reference (11.1) | Loopback only | `dexdrop-bench` on real Wi-Fi/Ethernet |
+| 20 GB file (11.1, 11.3) | Not run | Needs a machine with the space |
+| Interop matrix (13.1) | Partial | Each app ⇄ CLI on its own runner in CI; real cross-device pairs (Android ⇄ Windows, macOS ⇄ Android, …) need hardware |
+| Network matrix (13.2) | Partial | Isolation, VPN, network switches: engine tests and docs only |
+| Security tests (13.4) | Done | Adversarial and engine tests; relay review waits for remote mode |
 
 ## Tests
 
 - `dexdrop-core`: 36 unit tests (protocol bounds, path traversal and reserved
   names including `CONIN$` and `COM¹`, invitations and codes, journals (log replay, stale and torn lines),
   bounded "keep both" naming, manifests, identity).
-- `dexdrop-net`: 20 end-to-end tests over real TLS on loopback (consent,
+- `dexdrop-net`: 23 end-to-end tests over real TLS on loopback (consent,
   decline, no silent overwrite, skip policy, identical files already
   there not sent again, "keep both" never merging into a
   folder of the same transfer, pause/resume from the verified offset, cancel
@@ -97,7 +159,7 @@ every action, and the platform's own controls where NSH has them.
   names, oversized frames, offer floods, out-of-place chunks, results, probes and hashes,
   symbolic links planted at temporary names, corruption retried once and
   never saved) and 2 pairing unit tests.
-- `dexdrop-app`: 7 headless UI tests on NSH's engine (phone layout): home, tabs, the Receive page with its code and QR code, the Send page, keyboard shortcuts, identity reset through the system alert, and a 44 pt minimum hit-target check.
+- `dexdrop-app`: 9 headless UI tests on NSH's engine (phone layout): the first-launch local-network explanation (once), home, tabs, re-selecting a tab, the Receive page with its code and QR code, the Send page, keyboard shortcuts, identity reset through the system alert, and a 44 pt minimum hit-target check.
 
 ## Security review follow-up
 
@@ -111,15 +173,18 @@ receive journal is a snapshot plus an append-only log of changed files: for
   files are created with `O_EXCL | O_NOFOLLOW`; a full fix needs `openat`-style
   directory handles on every platform.
 
-## Known gaps worth doing next
+## What's next, in order
 
-1. Run on an iPhone and by hand on Windows and macOS (CI drives sending, pause and resume from the app on Android and macOS).
-2. Android: run on a phone (discovery with a computer); SAF file access and a
-   share target (need an NSH manifest extension or an app that embeds `NshView`);
-   transfers while the app is in the background (Android freezes cached apps, so
-   long transfers likely need a foreground service, a manifest `<service>` NSH's
-   packaging cannot declare yet; untested).
-3. iOS: share sheet entry (FR-035), which needs a share extension NSH's packaging cannot add yet; camera QR scanning (FR-024) through VisionKit, testable only on a device. The Photos and Files pickers work (checked in the simulator).
-4. Identity keys: macOS Keychain with signed releases, Android Keystore once NSH sets `ndk-context`.
-5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
-6. Remote mode (Iroh with a project-owned relay) as a separately gated phase.
+1. **Real devices.** Run on an Android phone and an iPhone (free Personal
+   Team) against a Windows, macOS and Linux computer on one Wi-Fi: the PRD
+   13.1 matrix, discovery and setup times (11.1), goodput against `iperf3`.
+2. **Android background transfers** (PRD 8.5): a foreground service or
+   user-initiated job, once NSH's packaging can declare it, or by embedding
+   NSH in a Gradle project; and a release keystore (P5-002).
+3. **Phones: folders and share-sheet entry** (FR-031 on phones, FR-035): need
+   NSH picker and packaging support.
+4. **Camera QR** (FR-024): VisionKit on iOS, tested on a device.
+5. **Desktop polish**: Windows taskbar progress, GNOME/KDE Wayland checks, a
+   20 GB transfer.
+6. **Identity keys**: macOS Keychain with signed builds, Android Keystore.
+7. **Remote mode** (Phase 6) and the browser client (Phase 7).
