@@ -5,7 +5,7 @@
 //! toasts.
 
 use dexdrop_core::api::{Command, NoticeKind, TransferState};
-use nsh_base::{button, nav_page, nav_stack, theme};
+use nsh_base::{nav_page, nav_stack, theme};
 use nsh_core::{
     element::{AccessibilityRole, Screen},
     mobile::{TabBarItem, tab_bar},
@@ -304,7 +304,7 @@ fn drawn_tab_bar() -> impl IntoElement {
                     theme().muted_foreground
                 }
             };
-            button()
+            ui::pressable()
                 .selected(active)
                 .role(AccessibilityRole::Tab)
                 .accessibility_label(t.title())
@@ -420,7 +420,7 @@ fn nav_item(t: Tab) -> impl IntoElement {
             theme().muted_foreground
         }
     };
-    button()
+    ui::pressable()
         .selected(active)
         .role(AccessibilityRole::Tab)
         .accessibility_label(t.title())
@@ -480,7 +480,7 @@ fn device_chip() -> impl IntoElement {
     let visible = move || {
         model().with(|m| m.status.as_ref().is_some_and(|s| s.visible) && m.offline.is_none())
     };
-    button()
+    ui::pressable()
         .accessibility_label("This device")
         .on_press(|| set_tab(Tab::Settings))
         .flex_row()

@@ -6,7 +6,7 @@ use dexdrop_core::{
     format,
     store::{Direction, HistoryEntry},
 };
-use nsh_base::{button, theme};
+use nsh_base::theme;
 use nsh_core::prelude::*;
 
 use crate::{
@@ -58,7 +58,7 @@ fn status() -> impl IntoElement {
             _ => Tone::Neutral,
         })
     };
-    button()
+    ui::pressable()
         .accessibility_label("This device")
         .on_press(|| set_tab(Tab::Settings))
         .self_center()
@@ -114,7 +114,7 @@ fn active() -> impl IntoElement {
 
 fn active_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
     let s = move || t.get();
-    button()
+    ui::pressable()
         .accessibility_label(t.with_untracked(|t| t.label.clone()))
         .on_press(move || push(Route::Transfer(Some(t.with_untracked(|t| t.id)))))
         .flex_row()
@@ -176,7 +176,7 @@ fn nearby() -> impl IntoElement {
 fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
     let name = move || peer.with(|p| p.name.clone());
     let platform = move || peer.with(|p| p.platform.clone());
-    button()
+    ui::pressable()
         .accessibility_label(format!(
             "Send to {}",
             peer.with_untracked(|p| p.name.clone())

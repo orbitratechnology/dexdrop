@@ -101,7 +101,7 @@ fn device() -> impl IntoElement {
                 },
             )
             .otherwise(move || {
-                nsh_base::button()
+                ui::pressable()
                     .accessibility_label("Rename")
                     .on_press(move || {
                         draft.set(settings().device_name);

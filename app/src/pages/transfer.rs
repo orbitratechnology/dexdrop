@@ -8,7 +8,7 @@ use dexdrop_core::{
     protocol::TransferId,
     store::Direction,
 };
-use nsh_base::{alert_dialog, button, theme};
+use nsh_base::{alert_dialog, theme};
 use nsh_core::{prelude::*, share::ShareRequest};
 
 use crate::{
@@ -126,6 +126,17 @@ fn progress(id: TransferId) -> impl IntoElement {
     let s = move || find(Some(id)).unwrap_or_default();
     let done = move || s().state == TransferState::Completed;
     let finished = move || s().state.is_finished();
+    // Screen readers hear each change of state (paused, reconnecting, done,
+    // failed), never every byte (PRD 7.7).
+    let last = std::cell::Cell::new(None::<&'static str>);
+    effect(move || {
+        let now = short_state(&s().state);
+        if let Some(before) = last.replace(Some(now))
+            && before != now
+        {
+            announce_for_accessibility(format!("{}: {now}", s().label));
+        }
+    });
     // Smaller on short screens, so the actions stay in view.
     let ring = if nsh_core::element::window().height.0 < 720.0 {
         168.0
@@ -604,7 +615,7 @@ fn conflict_picker(conflict: Signal<ConflictPolicy>) -> impl IntoElement {
                 .bg(move || theme().muted)
                 .children(POLICIES.map(|(label, policy)| {
                     let selected = move || conflict.get() == policy;
-                    button()
+                    ui::pressable()
                         .selected(selected)
                         .accessibility_label(label)
                         .on_press(move || conflict.set(policy))

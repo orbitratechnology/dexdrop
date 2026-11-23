@@ -7,7 +7,7 @@ use dexdrop_core::{
     api::{Command, NoticeKind, PeerInfo, Target},
     format,
 };
-use nsh_base::{button, theme};
+use nsh_base::theme;
 use nsh_core::{file_dialog::OpenDialog, prelude::*};
 
 use crate::{
@@ -212,7 +212,7 @@ pub fn page() -> impl IntoElement {
 /// The kinds of things to send, as big tiles.
 fn kinds() -> impl IntoElement {
     let tile = |i: Icon, label: &'static str, colors: (u32, u32), pick: fn()| {
-        button()
+        ui::pressable()
             .accessibility_label(label)
             .on_press(pick)
             .flex_1()
@@ -406,7 +406,7 @@ fn device_row(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
             parts.join(" · ")
         })
     };
-    button()
+    ui::pressable()
         .accessibility_label(format!(
             "Send to {}",
             peer.with_untracked(|p| p.name.clone())

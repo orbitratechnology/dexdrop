@@ -4,7 +4,7 @@ use dexdrop_core::{
     api::{Command, TransferSnapshot},
     store::{Direction, HistoryEntry, Outcome},
 };
-use nsh_base::{button, theme};
+use nsh_base::theme;
 use nsh_core::prelude::*;
 
 use crate::{
@@ -152,7 +152,7 @@ fn filter_bar(filter: Signal<Filter>) -> impl IntoElement {
             .bg(ui::surface)
             .children(Filter::ALL.map(|(f, label)| {
                 let selected = move || filter.get() == f;
-                button()
+                ui::pressable()
                     .selected(selected)
                     .accessibility_label(label)
                     .on_press(move || filter.set(f))
@@ -187,7 +187,7 @@ fn filter_bar(filter: Signal<Filter>) -> impl IntoElement {
 /// A transfer of this session: its progress, a tap from its details.
 fn session_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
     let s = move || t.get();
-    button()
+    ui::pressable()
         .accessibility_label(t.with_untracked(|t| t.label.clone()))
         .on_press(move || push(Route::Transfer(Some(t.with_untracked(|t| t.id)))))
         .flex_row()

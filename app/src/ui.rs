@@ -3,7 +3,7 @@
 //! where they exist (switches, segmented controls, the tab bar, headers).
 //! Pages compose these instead of styling raw views.
 
-use nsh_base::{ButtonElement, button, theme};
+use nsh_base::{ButtonElement, theme};
 use nsh_core::{element::AccessibilityRole, prelude::*};
 
 use crate::state::desktop_platform;
@@ -316,6 +316,12 @@ pub enum Variant {
 }
 
 /// A capsule button with a label and an optional icon.
+/// A press target with the keyboard's focus ring (PRD 7.5, 7.7): every
+/// control of the app is one, so Tab always shows where it is.
+pub fn pressable() -> ButtonElement {
+    nsh_base::button().focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+}
+
 pub fn btn(label: impl Into<SharedString>, variant: Variant) -> ButtonElement {
     labelled(label, None, variant)
 }
@@ -334,7 +340,7 @@ fn labelled(label: impl Into<SharedString>, i: Option<Icon>, variant: Variant) -
         Variant::Plain => (|| theme().background.opacity(0.0), || theme().primary),
         Variant::Danger => (|| theme().destructive.opacity(0.12), || theme().destructive),
     };
-    let mut b = button()
+    let mut b = pressable()
         .min_h(px(hit() + if mobile() { 6.0 } else { 0.0 }))
         .px(px(if variant == Variant::Plain { 8.0 } else { 20.0 }))
         .flex_row()
@@ -372,7 +378,7 @@ pub fn round_btn(
         Variant::Secondary | Variant::Plain => (|| theme().muted, || theme().foreground),
         Variant::Danger => (|| theme().destructive.opacity(0.12), || theme().destructive),
     };
-    button()
+    pressable()
         .size(px(side))
         .rounded(px(side / 2.0))
         .items_center()
@@ -393,7 +399,7 @@ pub fn hero_action(
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
     let side = if mobile() { 112.0 } else { 120.0 };
-    button()
+    pressable()
         .accessibility_label(label)
         .on_press(on_press)
         .items_center()
@@ -482,7 +488,7 @@ pub fn nav_row(
     value: impl IntoReactive<SharedString> + 'static,
     on_press: impl Fn() + 'static,
 ) -> ButtonElement {
-    button()
+    pressable()
         .on_press(on_press)
         .flex_row()
         .items_center()
@@ -736,9 +742,20 @@ pub fn radar(colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
                 .rounded(px(side * 0.23))
                 .bg(rgba((colors.0 << 8) | 0x18)),
         )
-        .child(ring(0.0))
-        .child(ring(800.0))
-        .child(ring(1600.0))
+        // The pings say "looking"; with reduced motion the still circles do.
+        .child(when(
+            move || !reduce_motion(),
+            move || {
+                view()
+                    .absolute()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .child(ring(0.0))
+                    .child(ring(800.0))
+                    .child(ring(1600.0))
+            },
+        ))
         .child(center)
 }
 
