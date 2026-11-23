@@ -513,6 +513,13 @@ where
             Message::Cancel(_) => return Ok(SessionEnd::Cancelled { by_peer: true }),
             other => return Err(protocol_err(format!("unexpected {}", other.name()))),
         }
+        // Nothing more asked for yet: push out what is written before
+        // waiting. TLS can hold written bytes when the socket is full (small
+        // send buffers, a slow receiver); unflushed, a small file's last
+        // bytes waited there while both sides waited for each other.
+        if rx.is_empty() {
+            wr.flush().await.map_err(WireError::from)?;
+        }
     }
 }
 
@@ -2029,5 +2036,60 @@ mod tests {
         assert!(chunks >= 1, "no chunk arrived");
         assert!(chunks < 4, "the pause did not stop the file");
         assert_eq!(sent, chunks * u64::from(CHUNK));
+    }
+
+    /// Bytes written but not flushed must not wait while the sender waits
+    /// for the next request. A writer that keeps everything until flushed
+    /// stands in for TLS over a full socket (CI's Windows runners: a small
+    /// last file never arrived, and both sides waited for each other).
+    #[tokio::test]
+    async fn the_last_file_sent_is_flushed_before_waiting() {
+        const CHUNK: u32 = 64 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("small.txt");
+        std::fs::write(&path, b"the last, small file").unwrap();
+        let manifest = Arc::new(Manifest::build(std::slice::from_ref(&path)).unwrap());
+        let (ours, mut theirs) = tokio::io::duplex(1 << 20);
+        let held = tokio::io::BufWriter::with_capacity(1 << 20, ours);
+        let (_control, control) = watch::channel(Control::Run);
+        let sender = tokio::spawn(run_sender(
+            held,
+            manifest,
+            CHUNK,
+            LiveCell::default(),
+            control,
+            None,
+        ));
+        wire::send(
+            &mut theirs,
+            &Message::Want {
+                index: 0,
+                offset: 0,
+            },
+        )
+        .await
+        .unwrap();
+        let file = async {
+            assert!(matches!(
+                wire::read_msg(&mut theirs).await,
+                Ok(Message::FileStart { index: 0, .. })
+            ));
+            let Ok(Message::Chunk(header)) = wire::read_msg(&mut theirs).await else {
+                panic!("no chunk");
+            };
+            let mut data = vec![0; header.len as usize];
+            theirs.read_exact(&mut data).await.unwrap();
+            assert!(matches!(
+                wire::read_msg(&mut theirs).await,
+                Ok(Message::FileEnd { index: 0, .. })
+            ));
+            data
+        };
+        let data = tokio::time::timeout(Duration::from_secs(5), file)
+            .await
+            .expect("the file's bytes stayed unflushed with the sender");
+        assert_eq!(data, b"the last, small file");
+        wire::send(&mut theirs, &Message::Complete).await.unwrap();
+        assert!(matches!(sender.await.unwrap(), Ok(SessionEnd::Completed)));
     }
 }

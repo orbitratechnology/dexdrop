@@ -215,6 +215,7 @@ fn local_network_intro() -> impl IntoElement {
                 )
                 .child(
                     ui::btn("Continue", Variant::Primary)
+                        .test_id("local-network-continue")
                         .self_stretch()
                         .on_press(|| bridge::send(Command::LocalNetworkExplained)),
                 ),

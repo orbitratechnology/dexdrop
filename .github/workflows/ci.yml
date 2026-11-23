@@ -81,7 +81,6 @@ jobs:
       - name: App e2e (nsh test, Linux)
         env:
           GSK_RENDERER: cairo
-          DEXDROP_NO_DISCOVERY: "1"
         run: |
           sudo apt-get install -y libsoup-3.0-dev libwebkitgtk-6.0-dev
           mkdir -p dist/desktop-check
@@ -184,8 +183,11 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
+          # Room for DexDrop and NSH's test host side by side (the default
+          # data partition refused the second: INSUFFICIENT_STORAGE).
+          disk-size: 6G
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: mkdir -p dist/android-check && (cd app && DEXDROP_NO_DISCOVERY=1 nsh test e2e/app.test.ts --target android --junit ../dist/android-check/e2e-android.xml) && bash scripts/android-emu-check.sh "$(ls dist/android/*.apk | head -1)" target/x86_64-linux-android/release/dexdrop dist/android-check
+          script: mkdir -p dist/android-check && (cd app && nsh test e2e/app.test.ts --target android --junit ../dist/android-check/e2e-android.xml) && bash scripts/android-emu-check.sh "$(ls dist/android/*.apk | head -1)" target/x86_64-linux-android/release/dexdrop dist/android-check
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -213,8 +215,6 @@ jobs:
             dist/windows
             target/release/dexdrop.exe
       - name: App e2e (nsh test, Windows)
-        env:
-          DEXDROP_NO_DISCOVERY: "1"
         shell: bash
         run: |
           mkdir -p dist/desktop-check
@@ -273,23 +273,6 @@ jobs:
             gh release create native-sim-build --title "native-sim builds" \
               --notes "DexDrop simulator builds for native-sim sessions, published by CI from the development branch. Safe to delete."
           gh release upload native-sim-build DexDrop.app.tar.gz --clobber
-      # NSH's runner (app/e2e) on the Mac and in the iOS simulator: the same
-      # file as on every platform; the agent-device checks below cover what
-      # crosses apps.
-      - name: App e2e (nsh test, macOS)
-        timeout-minutes: 25
-        env:
-          DEXDROP_NO_DISCOVERY: "1"
-        run: |
-          mkdir -p dist/desktop-check
-          cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/desktop-check/e2e-macos.xml
-      - name: App e2e (nsh test, iOS simulator)
-        timeout-minutes: 30
-        env:
-          DEXDROP_NO_DISCOVERY: "1"
-        run: |
-          mkdir -p dist/ios-screens
-          cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/ios-screens/e2e-ios.xml
       - name: Desktop app check (macOS)
         run: python3 scripts/desktop-check.py --require-discovery --app dist/macos/DexDrop.app --cli target/release/dexdrop --out dist/desktop-check
       - uses: actions/upload-artifact@v4
@@ -333,3 +316,25 @@ jobs:
         with:
           name: ios-simulator-screens
           path: dist/ios-screens
+      # NSH's runner (app/e2e) on the Mac and in the iOS simulator: the same
+      # file as on every platform. After the agent-device checks: its first
+      # launch goes through the local-network explanation, which starts
+      # discovery in NSH's development host, and the system's prompt for it
+      # must not be the one those checks answer.
+      - name: App e2e (nsh test, macOS)
+        timeout-minutes: 25
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p dist/e2e-apple
+          cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/e2e-apple/e2e-macos.xml
+      - name: App e2e (nsh test, iOS simulator)
+        timeout-minutes: 30
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p dist/e2e-apple
+          cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/e2e-apple/e2e-ios.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-apple
+          path: dist/e2e-apple

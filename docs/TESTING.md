@@ -15,7 +15,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default) |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
-| Every platform, real app | `cd app && nsh test e2e/app.test.ts --target <linux\|macos\|windows\|ios\|android>` | 2–3 s a test once built (first build 0.5–2 min) | the development host through the platform's input, with the same `id:` selectors |
+| Every platform, real app | `cd app && nsh test e2e/app.test.ts --target <linux\|macos\|windows\|ios\|android>` | 2–6 s a test once built (CI: Windows ~2 s, macOS 3–6 s, Linux under Xvfb ~27 s); building the development host takes 3–7 min on CI, ~0.5 s when reused | the development host through the platform's input, with the same `id:` selectors |
 | Cross-app, CI | `scripts/{android-emu,ios-sim,macos-ui}-check.sh` (agent-device) | 5–30 min | system pickers, the CLI as the other device, discovery over the network, the share sheet |
 
 Run the first four before every push (about 25 s together):
@@ -59,8 +59,21 @@ kebab-case:
 | `pause`, `resume`, `retry`, `done` | a transfer's controls |
 | `copy-invitation` | Receive |
 | `change-avatar`, `rename` | Settings |
+| `local-network-continue` | the first-launch local-network explanation (macOS, iOS) |
 
 Add an id when a test needs a control; add it to this table.
+
+### Notes for `nsh test`
+
+- **First launch on Apple platforms** shows the local-network explanation
+  over Home, once the engine has started. `e2e/app.test.ts` waits for the
+  engine (Home's "Visible as …" line, a `text:/…/` regex selector), then
+  presses `id:local-network-continue` if it is there, as a person would.
+- **Environment variables do not reach the app** under `nsh test` unless
+  `nsh.json` declares them in `capabilities.process.env`, and declaring any
+  capability makes NSH refuse everything undeclared. DexDrop declares none,
+  so `DEXDROP_NO_DISCOVERY` works in the headless tests (same process) but
+  not in `nsh test`: the e2e suite runs with discovery on.
 
 ### Speed
 
@@ -95,8 +108,14 @@ Add an id when a test needs a control; add it to this table.
 | App UI tests (Linux) | `cargo test -p dexdrop-app` (iPhone, Android, performance) | — |
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
-| Package macOS and iOS | `nsh test … --target macos`, `--target ios` | agent-device macOS and iOS checks |
-| Package Android | `nsh test … --target android` on the emulator | agent-device emulator check |
+| Package macOS and iOS | `nsh test … --target macos`, `--target ios`, after the checks (the e2e first launch starts discovery in NSH's host; its system prompt must not be the one the checks answer) | desktop check, agent-device macOS and iOS checks (run first) |
+| Package Android | `nsh test … --target android` on the emulator (6 GB data partition: DexDrop and NSH's test host side by side; the default refused the second) | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
-(`desktop-check-*`, `ios-simulator-screens`, `android-check`).
+(`desktop-check-*`, `e2e-apple`, `android-check`).
+
+Measured in CI run 64: on Linux the e2e step takes 4.7 min (2.8 min
+building the development host, 3 tests at ~27 s under Xvfb), on Windows
+7 min (6.8 min building, 3 tests at ~2 s), on macOS 4.5 min (4.2 min
+building, 3–6 s a test). On Android `nsh test` builds the development host
+for all three ABIs (~12 min).

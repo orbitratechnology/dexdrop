@@ -17,6 +17,14 @@ describe("DexDrop", () => {
   beforeEach(async () => {
     // A fresh engine and storage for each test.
     app = await open("../nsh.json");
+    // The engine has started once Home says how this device shows; on
+    // Apple platforms the first launch then explains the local network
+    // (in the same update), as it does for a person: go through it.
+    await app.waitFor("text:/^Visible as |· hidden$/", { timeout: 10000 });
+    if (app.count("id:local-network-continue") > 0) {
+      await app.press("id:local-network-continue");
+      await app.waitFor("id:local-network-continue", { state: "gone" });
+    }
     await app.waitFor("text:Nearby");
   });
 
