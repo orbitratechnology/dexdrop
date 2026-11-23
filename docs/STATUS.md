@@ -138,9 +138,10 @@ names the test or check; "Gap" is what is still missing.
 | Discovery ≤ 3 s, setup ≤ 2 s (11.1) | Not measured | Needs real devices on a LAN |
 | Goodput vs reference (11.1) | Loopback only | `dexdrop-bench` on real Wi-Fi/Ethernet |
 | 20 GB file (11.1, 11.3) | Not run | Needs a machine with the space |
-| Interop matrix (13.1) | Partial | Each app ⇄ CLI on its own runner in CI; real cross-device pairs (Android ⇄ Windows, macOS ⇄ Android, …) need hardware |
+| Interop matrix (13.1) | Partial | In CI (run 45180003839, all green on the redesigned UI): Android emulator and macOS app receive by code and invitation, then send from the app with Pause and Resume to a CLI; the iOS Simulator receives by code and invitation; Windows and Linux apps receive from the CLI. Real cross-device pairs (Android ⇄ Windows, macOS ⇄ Android, …) need hardware |
 | Network matrix (13.2) | Partial | Isolation, VPN, network switches: engine tests and docs only |
 | Security tests (13.4) | Done | Adversarial and engine tests; relay review waits for remote mode |
+| Windows engine tests | Watch | Twice a transfer test timed out on Windows CI waiting for the receiver to complete (different tests; never on Linux or macOS): a suspected Windows-only stall. The test harness now prints the last engine events on a timeout to locate it |
 
 ## Tests
 

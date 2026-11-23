@@ -82,16 +82,38 @@ impl Node {
         self.engine.send(command);
     }
 
-    /// Waits for an event matching `pred`.
+    /// Waits for an event matching `pred`. On a timeout the panic lists the
+    /// last events seen, so a stall in CI says where the transfer stopped.
     pub async fn wait<T>(&mut self, what: &str, mut pred: impl FnMut(&Event) -> Option<T>) -> T {
         let deadline = tokio::time::Instant::now() + self.timeout;
+        let mut recent: std::collections::VecDeque<String> = std::collections::VecDeque::new();
         loop {
-            let event = tokio::time::timeout_at(deadline, self.events.recv())
-                .await
-                .unwrap_or_else(|_| panic!("timed out waiting for {what}"))
-                .expect("engine stopped");
+            let Ok(event) = tokio::time::timeout_at(deadline, self.events.recv()).await else {
+                panic!(
+                    "timed out waiting for {what}; last events:\n  {}",
+                    Vec::from(recent).join("\n  ")
+                );
+            };
+            let event = event.expect("engine stopped");
             if let Some(found) = pred(&event) {
                 return found;
+            }
+            let line = match &event {
+                Event::Transfer(t) => format!(
+                    "transfer {:?} {}/{} bytes, {}/{} files",
+                    t.state, t.bytes_done, t.total_bytes, t.files_done, t.files
+                ),
+                other => {
+                    let mut s = format!("{other:?}");
+                    s.truncate(160);
+                    s
+                }
+            };
+            if recent.back() != Some(&line) {
+                recent.push_back(line);
+                if recent.len() > 16 {
+                    recent.pop_front();
+                }
             }
         }
     }
