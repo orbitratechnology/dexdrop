@@ -32,23 +32,32 @@ pub fn model() -> Signal<Model> {
     global::<Model>()
 }
 
-/// A section of the app (PRD 7.1).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// A section of the app (PRD 7.1): the system's tab bar on phones, the
+/// sidebar on desktops.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Tab {
     #[default]
-    Nearby,
-    Transfers,
+    Share,
+    History,
     Settings,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Nearby, Tab::Transfers, Tab::Settings];
+    pub const ALL: [Tab; 3] = [Tab::Share, Tab::History, Tab::Settings];
 
     pub fn title(self) -> &'static str {
         match self {
-            Tab::Nearby => "Nearby",
-            Tab::Transfers => "Transfers",
+            Tab::Share => "Share",
+            Tab::History => "History",
             Tab::Settings => "Settings",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Tab::Share => 0,
+            Tab::History => 1,
+            Tab::Settings => 2,
         }
     }
 }
@@ -62,6 +71,86 @@ pub fn tab() -> Tab {
 
 pub fn set_tab(tab: Tab) {
     global::<CurrentTab>().set(CurrentTab(tab));
+}
+
+/// A page of a tab's navigation stack.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Route {
+    /// The root of a tab.
+    Root,
+    /// Choosing what to send.
+    Send,
+    /// Choosing who to send it to.
+    Devices,
+    /// Sending with a code or an invitation.
+    Code,
+    /// Showing this device to others: radar, code and QR.
+    Receive,
+    /// A transfer's progress; `None`: the newest outgoing one.
+    Transfer(Option<dexdrop_core::protocol::TransferId>),
+    /// Settings: trusted devices.
+    Trusted,
+}
+
+/// Each tab's pages, root first.
+#[derive(Clone, Debug, PartialEq)]
+struct Stacks([Vec<Route>; 3]);
+
+impl Default for Stacks {
+    fn default() -> Self {
+        Stacks([vec![Route::Root], vec![Route::Root], vec![Route::Root]])
+    }
+}
+
+/// The pages of `tab`, root first.
+pub fn stack(tab: Tab) -> Vec<Route> {
+    global::<Stacks>().with(|s| s.0[tab.index()].clone())
+}
+
+/// Opens `route` on top of the current tab.
+pub fn push(route: Route) {
+    let t = global::<CurrentTab>().get_untracked().0;
+    global::<Stacks>().update(|s| s.0[t.index()].push(route));
+}
+
+/// Goes back one page on the current tab.
+pub fn pop() {
+    let t = global::<CurrentTab>().get_untracked().0;
+    global::<Stacks>().update(|s| {
+        let stack = &mut s.0[t.index()];
+        if stack.len() > 1 {
+            stack.pop();
+        }
+    });
+}
+
+/// Keeps the first `len` pages of `tab` (the system went back).
+pub fn truncate(tab: Tab, len: usize) {
+    global::<Stacks>().update(|s| s.0[tab.index()].truncate(len.max(1)));
+}
+
+/// Shows `route` right above the current tab's root (a flow that ends).
+pub fn reset_to(route: Route) {
+    let t = global::<CurrentTab>().get_untracked().0;
+    global::<Stacks>().update(|s| {
+        let stack = &mut s.0[t.index()];
+        stack.truncate(1);
+        if route != Route::Root {
+            stack.push(route);
+        }
+    });
+}
+
+/// Switches to `tab` and shows `route` on top of its root.
+pub fn open(tab: Tab, route: Route) {
+    global::<Stacks>().update(|s| {
+        let stack = &mut s.0[tab.index()];
+        stack.truncate(1);
+        if route != Route::Root {
+            stack.push(route);
+        }
+    });
+    set_tab(tab);
 }
 
 /// Files the user chose to send, before choosing a device.
@@ -81,15 +170,9 @@ pub fn selection() -> Signal<Selection> {
 pub enum Sheet {
     #[default]
     None,
-    /// Show this device's QR invitation and code.
-    Receive,
-    /// Send with a code or an invitation.
-    Connect,
     /// The diagnostics report.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Diagnostics(String),
-    /// Confirms giving this device a new identity.
-    ResetIdentity,
 }
 
 pub fn sheet() -> Signal<Sheet> {
@@ -149,7 +232,7 @@ mod toast_tests {
     }
 }
 
-/// The device picked on the Nearby screen.
+/// The device picked before choosing files (a tap on a nearby device).
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct Picked(pub Option<PeerId>);
 

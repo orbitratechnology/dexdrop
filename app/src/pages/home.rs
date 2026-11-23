@@ -1,0 +1,297 @@
+//! Home: send or receive, nearby devices, what is moving now, and recent
+//! transfers.
+
+use dexdrop_core::{
+    api::{Command, PeerInfo, TransferSnapshot},
+    format,
+    store::{Direction, HistoryEntry},
+};
+use nsh_base::{button, theme};
+use nsh_core::prelude::*;
+
+use crate::{
+    bridge,
+    pages::{body, history, send, transfer},
+    state::{Picked, Route, Tab, model, open, picked, push, set_tab},
+    ui::{self, Icon, Tone, Variant, muted, space},
+};
+
+pub fn page() -> impl IntoElement {
+    let dropping = signal(false);
+    view()
+        .flex_1()
+        .on_file_drag_enter(move |_: &FileDragEvent| dropping.set(true))
+        .on_file_drag_leave(move || dropping.set(false))
+        .on_file_drop(move |event: &FileDropEvent| {
+            dropping.set(false);
+            send::select(send::file_paths(&event.uris));
+            push(Route::Send);
+        })
+        .child(body(
+            view()
+                .gap(px(space::XXL))
+                .child(status())
+                .child(actions())
+                .child(when(
+                    move || model().with(|m| m.transfers.iter().any(|t| !t.state.is_finished())),
+                    active,
+                ))
+                .child(nearby())
+                .child(recent()),
+        ))
+        .child(when(move || dropping.get(), drop_hint))
+}
+
+/// "Visible as Pixel 8": this device, and whether others can see it.
+fn status() -> impl IntoElement {
+    let line = move || {
+        model().with(|m| match (&m.status, &m.offline) {
+            (_, Some(_)) => "Preview — open the app to share".to_owned(),
+            (Some(s), _) if s.visible => format!("Visible as {}", s.device_name),
+            (Some(s), _) => format!("{} · hidden", s.device_name),
+            (None, _) => "Starting…".to_owned(),
+        })
+    };
+    let tone = move || {
+        model().with(|m| match &m.status {
+            Some(s) if s.visible && m.offline.is_none() => Tone::Success,
+            _ => Tone::Neutral,
+        })
+    };
+    button()
+        .accessibility_label("This device")
+        .on_press(|| set_tab(Tab::Settings))
+        .self_center()
+        .flex_row()
+        .items_center()
+        .gap(px(space::S))
+        .px(px(space::M))
+        .py(px(6.0))
+        .rounded(px(999.0))
+        .bg(move || theme().card)
+        .active(|s| s.opacity(0.7))
+        .child(ui::dot(tone))
+        .child(muted(line).font_weight(FontWeight::MEDIUM))
+}
+
+fn actions() -> impl IntoElement {
+    view()
+        .flex_row()
+        .justify_center()
+        .gap(px(if ui::mobile() { 40.0 } else { 64.0 }))
+        .pt(px(space::S))
+        .child(ui::hero_action(Icon::Send, "Send", ui::SEND, || {
+            push(Route::Send)
+        }))
+        .child(ui::hero_action(
+            Icon::Receive,
+            "Receive",
+            ui::RECEIVE,
+            || {
+                bridge::send(Command::CreateCode);
+                bridge::send(Command::CreateInvitation);
+                push(Route::Receive);
+            },
+        ))
+}
+
+/// Transfers running now, each a tap away from its progress.
+fn active() -> impl IntoElement {
+    let running = move || {
+        model().with(|m| {
+            m.transfers
+                .iter()
+                .filter(|t| !t.state.is_finished())
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    };
+    view()
+        .gap(px(space::M))
+        .child(ui::section("Now"))
+        .child(ui::group().child(each(
+            running,
+            |t: &TransferSnapshot| t.id,
+            |t, _| active_row(t),
+        )))
+}
+
+fn active_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
+    let s = move || t.get();
+    button()
+        .accessibility_label(t.with_untracked(|t| t.label.clone()))
+        .on_press(move || push(Route::Transfer(Some(t.with_untracked(|t| t.id)))))
+        .flex_row()
+        .items_center()
+        .gap(px(space::M))
+        .px(px(space::L))
+        .py(px(space::M))
+        .active(move |st| st.bg(move || theme().muted))
+        .child(ui::progress_ring(
+            move || s().progress(),
+            move || transfer::tone_of(&s().state),
+            40.0,
+        ))
+        .child(
+            view()
+                .flex_1()
+                .gap(px(2.0))
+                .child(ui::strong(move || s().label).number_of_lines(1))
+                .child(muted(move || transfer::one_line(&s())).number_of_lines(1)),
+        )
+        .child(ui::icon(Icon::ChevronRight, 18.0, move || {
+            theme().muted_foreground
+        }))
+}
+
+// ---------------------------------------------------------------- nearby
+
+fn nearby() -> impl IntoElement {
+    let peers = move || model().with(|m| m.peers.clone());
+    let empty = move || model().with(|m| m.peers.is_empty());
+    view()
+        .gap(px(space::M))
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(ui::section("Nearby"))
+                .child(when(
+                    move || !ui::mobile(),
+                    || {
+                        ui::round_btn(Icon::Refresh, "Look again", Variant::Secondary, 32.0)
+                            .on_press(|| bridge::send(Command::RefreshDiscovery))
+                    },
+                )),
+        )
+        .child(when(empty, looking).otherwise(move || {
+            scroll().horizontal().child(
+                view()
+                    .flex_row()
+                    .gap(px(space::L))
+                    .py(px(space::XS))
+                    .child(each(peers, |p: &PeerInfo| p.peer_id, |p, _| bubble(p))),
+            )
+        }))
+}
+
+/// A nearby device: tap to send to it.
+fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
+    let name = move || peer.with(|p| p.name.clone());
+    let platform = move || peer.with(|p| p.platform.clone());
+    button()
+        .accessibility_label(format!(
+            "Send to {}",
+            peer.with_untracked(|p| p.name.clone())
+        ))
+        .on_press(move || {
+            let id = peer.with_untracked(|p| p.peer_id);
+            if send::has_selection() {
+                send::send_to(dexdrop_core::api::Target::Peer(id));
+            } else {
+                picked().set(Picked(Some(id)));
+                push(Route::Send);
+            }
+        })
+        .w(px(84.0))
+        .items_center()
+        .gap(px(space::S))
+        .active(|s| s.scale(0.94))
+        .child(ui::avatar(name, platform, 60.0))
+        .child(
+            text(name)
+                .text_size(px(ui::size::CAPTION + 1.0))
+                .font_weight(FontWeight::MEDIUM)
+                .number_of_lines(2)
+                .text_center()
+                .text_color(move || theme().foreground),
+        )
+}
+
+/// No device yet: a small radar while discovery looks.
+fn looking() -> impl IntoElement {
+    let line = move || {
+        model().with(|m| match m.status.as_ref().map(|s| &s.discovery) {
+            _ if m.offline.is_some() => "Nearby devices show up in the app".to_owned(),
+            Some(dexdrop_core::api::DiscoveryStatus::Unavailable(_)) => {
+                "Can't look on this network — use Receive to show a code".to_owned()
+            }
+            _ => "Looking for devices on this Wi‑Fi…".to_owned(),
+        })
+    };
+    ui::tile()
+        .flex_row()
+        .items_center()
+        .gap(px(space::L))
+        .child(ui::radar(
+            ui::SEND,
+            56.0,
+            ui::icon(Icon::Wifi, 22.0, rgb(ui::SEND.0)),
+        ))
+        .child(muted(line).flex_1())
+}
+
+// ---------------------------------------------------------------- recent
+
+fn recent() -> impl IntoElement {
+    let entries = move || model().with(|m| m.history.iter().take(4).cloned().collect::<Vec<_>>());
+    when(
+        move || model().with(|m| !m.history.is_empty()),
+        move || {
+            view()
+                .gap(px(space::M))
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .child(ui::section("Recent"))
+                        .child(
+                            ui::btn("See all", Variant::Plain)
+                                .on_press(|| open(Tab::History, Route::Root)),
+                        ),
+                )
+                .child(ui::group().child(each(
+                    entries,
+                    |h: &HistoryEntry| h.transfer_id.clone(),
+                    |h, i| {
+                        view()
+                            .child(when(move || i.get() > 0, || ui::separator(68.0)))
+                            .child(history::row(h))
+                    },
+                )))
+        },
+    )
+}
+
+/// The overlay while files are dragged over the window.
+fn drop_hint() -> impl IntoElement {
+    view()
+        .absolute()
+        .top(px(space::L))
+        .left(px(space::L))
+        .right(px(space::L))
+        .bottom(px(space::L))
+        .rounded(px(24.0))
+        .border_2()
+        .border_dashed()
+        .border_color(rgb(ui::SEND.0))
+        .bg(rgba((ui::SEND.0 << 8) | 0x14))
+        .items_center()
+        .justify_center()
+        .gap(px(space::M))
+        .pointer_events(PointerEvents::None)
+        .child(ui::glyph(Icon::Plus, ui::SEND, 64.0))
+        .child(ui::strong("Drop to send"))
+}
+
+/// What a past transfer says in one line.
+pub fn summary(e: &HistoryEntry) -> String {
+    let dir = if e.direction == Direction::Outgoing {
+        "To"
+    } else {
+        "From"
+    };
+    format!("{dir} {} · {}", e.peer_name, format::bytes(e.bytes))
+}

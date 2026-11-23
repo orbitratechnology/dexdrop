@@ -29,14 +29,16 @@ network printers) on the local network. Check, in this order:
      below); use a code or an invitation.
 
 If discovery still fails, **pair with a code**: on the receiving device
-choose *Receive with a code*; on the sending device choose *Send with a code*
-and type it. Or copy the invitation, or read its QR code from a screenshot
-with *Read QR from picture*. Invitations contain the receiver's addresses,
+tap *Receive*, which shows a code and a QR code; on the sending device tap
+*Send*, choose the files, then *Choose device* → *Use a code* and type it.
+Or copy the invitation, or read its QR code from a screenshot with *QR
+picture*. Invitations contain the receiver's addresses,
 so they work even where discovery is blocked, as long as the devices can
 reach each other directly.
 
-Settings → *Nearby discovery is …* shows whether discovery is running, and
-*Refresh* on the Nearby screen restarts it after a network change.
+When discovery cannot run on the network, the Nearby section of the home
+screen says so; on desktops, its refresh button (*Look again*) restarts
+discovery after a network change.
 
 ## "The device could not be reached"
 

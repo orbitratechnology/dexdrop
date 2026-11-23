@@ -2,7 +2,7 @@
 
 ```text
 ┌──────────────────────────── app/ (NSH, Rust only) ───────────────────────────┐
-│ shell (sidebar ⇄ tab bar) · pages (Nearby, Transfers, Settings) · ui tokens   │
+│ shell (sidebar ⇄ tab bar) · pages (home, send, receive, transfer, …) · ui     │
 │ state: global signals  ◀── events ──  bridge  ── commands ──▶                 │
 └──────────────────────────────────────────────┬───────────────────────────────┘
                                                │ dexdrop_core::api (Command/Event)

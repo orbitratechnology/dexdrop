@@ -16,6 +16,37 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 | macOS | CI on `macos-15` (free for this public repository) | Verified in CI: the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`); the app also lists the CLI as a trusted nearby device | Unsigned, local use only. Uses the system's Bonjour service; macOS 15 asks before an app uses the local network, and the prompt shows `NSLocalNetworkUsageDescription` from `nsh.json` (the CI check answers Allow) |
 | iOS | CI on `macos-15` (`ios-simulator`) | Verified in the iOS Simulator by agent-device on every CI run (`scripts/ios-sim-check.sh`, screenshots in `docs/screenshots/ios/`): launch and tabs; the app and the CLI on the Mac discover each other; a 3 MB file sent with the pairing code (read through its screen-reader label) and a 200 KB file sent with the invitation link, both accepted in the app and received byte-identical. Not yet run on a device | Devices discover through the system's Bonjour service (`dns_sd`), declared in `NSBonjourServices` with `NSLocalNetworkUsageDescription`; the simulator build uses the mdns-sd responder, because the Mac's mDNSResponder refuses simulator apps on CI (local-network trust check) |
 
+## App design
+
+The app is built for people who are not technical: few words, an icon on
+every action, and the platform's own controls where NSH has them.
+
+- **Navigation:** three tabs, *Share*, *History* and *Settings*, each a
+  native navigation stack (`nav_stack`, back by swipe or the system's back
+  button). The tab bar is the system's (`UITabBar`, Liquid Glass on iOS 26;
+  Material 3 on Android); desktops and the web get a sidebar with the same
+  tabs. Switches are the system's on phones (`UISwitch`, Material), and the
+  file-conflict choice and the History filter use iOS's segmented control.
+- **Share (home):** two large *Send* and *Receive* buttons, nearby devices as
+  avatars (tap one to send to it), what is moving now, and recent
+  transfers.
+- **Send:** Photos, Videos or Files on phones (Files or Folder on
+  desktops, plus drag and drop), the selection with its size, then *Choose
+  device*: a radar with the nearby devices, or *Use a code*.
+- **Receive:** this device on a radar, ready for nearby devices, with its
+  code and QR code for devices that cannot see it.
+- **Incoming request:** a bottom sheet with the sender, what it sends, the
+  verification number to compare and *Accept* / *Decline*; trust and
+  what to do with existing files are under *Options*.
+- **Transfer:** a progress ring with speed and time left, *Pause* /
+  *Resume* (*Retry* after a failure), *Cancel* (confirmed with the system's
+  alert), *Reconnecting* while a dropped connection is retried, and a check
+  mark when done, with *Share or save* on phones and *Show in folder* on
+  desktops.
+- **Icons:** 37 original 24 × 24 line icons (`app/assets/icons/`), embedded
+  as SVG; file types and settings rows have their own colors; devices get
+  an avatar with a platform badge.
+
 ## Functional requirements
 
 | ID | Status | Notes |
@@ -36,7 +67,7 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 | FR-030 – FR-034 Selecting and sending | Done (desktop) | Native file/folder dialogs, drag and drop; phones stage picked files |
 | FR-035 Share sheet entry | Open | |
 | FR-036 Drag and drop | Done | Desktop drop zone |
-| Desktop shortcuts (PRD 7.3) | Done | Ctrl/Cmd+O files, Ctrl/Cmd+Shift+O folder, Ctrl/Cmd+1–3 sections, Ctrl/Cmd+, settings, Esc closes sheets |
+| Desktop shortcuts (PRD 7.3) | Done | Ctrl/Cmd+O files, Ctrl/Cmd+Shift+O folder, Ctrl/Cmd+1–3 tabs, Ctrl/Cmd+, settings, Esc goes back |
 | System notifications (P4-006) | Done | When a transfer finishes, fails or arrives |
 | FR-040 – FR-046 Receiving | Done (phones: "Share or save" exports received files through the system share sheet) | Consent, details, destination, keep-both/skip/replace (confirmed), space check, path safety, atomic commit |
 | FR-047 Per-device receive policy | Done | |
@@ -66,7 +97,7 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
   names, oversized frames, offer floods, out-of-place chunks, results, probes and hashes,
   symbolic links planted at temporary names, corruption retried once and
   never saved) and 2 pairing unit tests.
-- `dexdrop-app`: 6 headless UI tests on NSH's engine (phone layout), including keyboard shortcuts and a 44 pt minimum hit-target check.
+- `dexdrop-app`: 7 headless UI tests on NSH's engine (phone layout): home, tabs, the Receive page with its code and QR code, the Send page, keyboard shortcuts, identity reset through the system alert, and a 44 pt minimum hit-target check.
 
 ## Security review follow-up
 

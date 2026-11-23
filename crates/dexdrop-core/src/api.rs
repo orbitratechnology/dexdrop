@@ -210,6 +210,38 @@ pub struct TransferSnapshot {
     pub saved_files: Vec<std::path::PathBuf>,
 }
 
+/// An empty snapshot (a transfer the engine no longer reports): cancelled,
+/// nothing moved.
+impl Default for TransferSnapshot {
+    fn default() -> Self {
+        Self {
+            id: [0; 16],
+            direction: Direction::Outgoing,
+            peer_id: None,
+            peer_name: String::new(),
+            peer_platform: String::new(),
+            label: String::new(),
+            files: 0,
+            folders: 0,
+            total_bytes: 0,
+            bytes_done: 0,
+            files_done: 0,
+            files_failed: 0,
+            files_skipped: 0,
+            rate: None,
+            eta: None,
+            state: TransferState::Cancelled { by_peer: false },
+            sas: None,
+            saved_to: None,
+            failures: Vec::new(),
+            current: None,
+            started: 0,
+            average_rate: None,
+            saved_files: Vec::new(),
+        }
+    }
+}
+
 impl TransferSnapshot {
     pub fn progress(&self) -> f64 {
         if self.total_bytes == 0 {

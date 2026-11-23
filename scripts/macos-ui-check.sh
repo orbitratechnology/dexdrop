@@ -91,15 +91,15 @@ note "- agent-device runner ready at $(($(date +%s) - t0)) s"
 
 ad open "$app_name" || fail "the app did not open"
 allow_local_network 10
-ad wait text "Nearby" 60000 >/dev/null || { step 00-launch-failed; fail "the Nearby screen did not appear"; }
+ad wait text "Nearby" 60000 >/dev/null || { step 00-launch-failed; fail "the home screen did not appear"; }
 step 01-nearby
-note "- Launched: Nearby shown"
+note "- Launched: home shown (Send, Receive, Nearby)"
 
-for section in Transfers Settings Nearby; do
+for section in History Settings Share; do
   tap "$section" || { step "02-$section-failed"; fail "could not open $section"; }
 done
 step 02-sections
-note "- Sidebar: Transfers, Settings and back to Nearby"
+note "- Sidebar: History, Settings and back to Share"
 
 # Discovery: does the app list a receiver running on this Mac?
 "$cli" --state "$work/cli-r" receive --name "CI Mac CLI" --dir "$work/cli-r-dl" >"$out/cli-receive.log" 2>&1 &
@@ -117,13 +117,13 @@ wait "$receiver" 2>/dev/null
 
 # 1. Receiving with the pairing code, read from its screen-reader label, and
 #    accepting in the app.
-tap "Receive with a code" || fail "could not open the receive sheet"
-ad wait text "Pairing code" 10000 >/dev/null 2>&1 || { step 04-no-sheet; fail "the receive sheet did not open"; }
+tap Receive || fail "could not open the Receive page"
+ad wait text "Pairing code" 10000 >/dev/null 2>&1 || { step 04-no-sheet; fail "the Receive page did not open"; }
 step 04-receive-code
 code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/04-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')
 [ ${#code} -ge 8 ] || fail "the pairing code is not readable by screen readers"
 code="${code:0:4}-${code:4:4}"
-note "- Receive sheet shows code $code, readable by screen readers"
+note "- Receive page shows code $code, readable by screen readers"
 payload="$work/payload.bin"
 head -c 3000000 /dev/urandom >"$payload"
 "$cli" --state "$work/cli-s" send "$code" "$payload" >"$out/cli-send-code.log" 2>&1 &
@@ -134,11 +134,10 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 grep -q 'to accept' "$out/cli-send-code.log" || { kill "$sender" 2>/dev/null; fail "the CLI did not reach the app with the code (cli-send-code.log)"; }
-tap Done || true
+# The request shows over the Receive page (leaving it would end the code).
 accepted=no
 for _ in $(seq 1 20); do
   tap Accept && { accepted=yes; break; }
-  tap Transfers || true
   sleep 1
 done
 [ "$accepted" = yes ] || { step 05-no-accept; kill "$sender" 2>/dev/null; fail "could not accept the request in the app"; }
@@ -155,7 +154,9 @@ outgoing="$work/dexdrop-out.bin"
 head -c 8000000 /dev/urandom >"$outgoing"
 "$cli" --max-rate 1 --state "$work/inbox-state" receive --yes --name "CI Mac Inbox" --dir "$work/inbox" >"$out/cli-inbox.log" 2>&1 &
 inbox=$!
+tap Done || true # the received transfer's progress, back to home
 ad wait text "CI Mac Inbox" 30000 >/dev/null 2>&1 || { step 07-no-inbox; fail "discovery: the app does not list the receiving CLI"; }
+tap Send || { step 07-no-send-page; fail "could not open Send"; }
 tap "Choose files" || fail "could not open the Open panel"
 sleep 2
 osascript >/dev/null 2>&1 <<EOF || true
@@ -170,9 +171,12 @@ tell application "System Events"
   key code 36
 end tell
 EOF
-ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || { step 07-not-selected; fail "the file picked in the Open panel is not selected"; }
+ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || ad wait text "dexdrop-out.bin" 5000 >/dev/null 2>&1 ||
+  { step 07-not-selected; fail "the file picked in the Open panel is not selected"; }
 step 07-selected
 note "- Picked \`dexdrop-out.bin\` (8 MB) in the Open panel"
+tap "Choose device" || { step 07-no-next; fail "could not tap Choose device"; }
+ad wait 'label="Send to CI Mac Inbox"' 15000 >/dev/null 2>&1 || true
 tap "Send to CI Mac Inbox" || { step 07-no-send; fail "could not tap Send"; }
 ad wait 'label="Pause"' 30000 >/dev/null 2>&1 || { step 08-not-sending; fail "the transfer did not start (no Pause button)"; }
 tap Pause || fail "could not tap Pause"

@@ -117,16 +117,16 @@ No paid Apple Developer Program membership is assumed. The iOS app is built
 for the simulator; physical-device testing is possible with a free Personal
 Team. DexDrop is **not** available on the App Store or TestFlight.
 
-## Screenshots (Linux build, GTK)
+## Screenshots
 
-Two instances discovering each other; incoming request with verification number:
+Desktop (Linux build): home with *Send*, *Receive* and nearby devices; the
+Receive page with its code and QR code; an incoming request with the
+verification number; progress; History; Settings:
 
-![Consent](docs/screenshots/linux-consent.png)
+![Desktop](docs/screenshots/app-desktop.png)
 
-Pairing code and QR invitation; the phone layout with bottom tabs:
+Phone layout (the same build at phone width; on iOS and Android the tab bar
+and switches are the system's own): home, Receive, an incoming request,
+received:
 
-![Code and phone layout](docs/screenshots/linux-code-and-phone-layout.png)
-
-Web preview:
-
-![Web preview](docs/screenshots/web-preview.png)
+![Phone layout](docs/screenshots/app-phone.png)

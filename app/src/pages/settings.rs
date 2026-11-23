@@ -1,121 +1,127 @@
-//! Settings: device name, visibility, receiving, trusted devices, privacy
-//! and diagnostics (FR-070 – FR-075).
+//! Settings: this device, receiving, trusted devices, privacy (FR-070 –
+//! FR-075), in grouped rows with the platform's own switches.
 
 use dexdrop_core::{
-    api::{Command, DiscoveryStatus, NoticeKind},
+    api::{Command, NoticeKind},
     store::TrustedPeer,
 };
-use nsh_base::theme;
+use nsh_base::{alert_dialog, theme};
 use nsh_core::{file_dialog::OpenDialog, prelude::*};
 
 use crate::{
     bridge,
-    state::{Sheet, desktop_platform, model, platform_label, sheet, toast},
-    ui::{self, Variant, btn, card, divider, muted, section_label, space, switch_row},
+    pages::body,
+    state::{Route, desktop_platform, model, platform_label, push, toast},
+    ui::{self, Icon, Variant, muted, space},
 };
-
-pub fn page() -> impl IntoElement {
-    view()
-        .gap(px(space::XL))
-        .child(ui::page_header("Settings", || {
-            "Everything stays on this device.".to_owned()
-        }))
-        .child(device())
-        .child(receiving())
-        .child(trusted())
-        .child(privacy())
-        .child(about())
-}
 
 fn settings() -> dexdrop_core::store::Settings {
     model().with(|m| m.settings.clone())
 }
 
+/// Glyph colors, one per kind of setting.
+const BLUE: (u32, u32) = (0x3b82f6, 0x2563eb);
+const GREEN: (u32, u32) = (0x22c55e, 0x16a34a);
+const ORANGE: (u32, u32) = (0xf59e0b, 0xea580c);
+const PURPLE: (u32, u32) = (0x8b5cf6, 0x7c3aed);
+const GRAY: (u32, u32) = (0x94a3b8, 0x64748b);
+const RED: (u32, u32) = (0xf43f5e, 0xe11d48);
+
+fn g(i: Icon, colors: (u32, u32)) -> View {
+    ui::glyph(i, colors, 30.0)
+}
+
+pub fn page() -> impl IntoElement {
+    body(
+        view()
+            .gap(px(space::XL))
+            .child(device())
+            .child(receiving())
+            .child(trust())
+            .child(privacy())
+            .child(
+                muted(format!("DexDrop {}", env!("CARGO_PKG_VERSION")))
+                    .self_center()
+                    .text_size(px(ui::size::CAPTION)),
+            ),
+    )
+}
+
+/// This device: its avatar and name, renamed in place.
 fn device() -> impl IntoElement {
     let draft = signal(String::new());
     let editing = signal(false);
     let save = move || {
         let name = draft.get_untracked();
         if name.trim().is_empty() {
-            toast(NoticeKind::Error, "The device name cannot be empty.");
+            toast(NoticeKind::Error, "The name can't be empty.");
             return;
         }
         bridge::send(Command::SetDeviceName(name));
         editing.set(false);
     };
-    card()
-        .child(section_label("This device"))
+    let name = move || settings().device_name;
+    let platform = move || {
+        model().with(|m| {
+            m.status
+                .as_ref()
+                .map(|s| s.platform.clone())
+                .unwrap_or_default()
+        })
+    };
+    ui::tile()
+        .items_center()
+        .gap(px(space::M))
+        .py(px(space::XL))
+        .child(ui::avatar(name, platform, 80.0))
         .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap(px(space::M))
-                .child(ui::avatar(move || settings().device_name, 44.0))
-                .child(
+            when(
+                move || editing.get(),
+                move || {
                     view()
-                        .flex_1()
-                        .gap(px(2.0))
+                        .flex_row()
+                        .items_center()
+                        .gap(px(space::S))
                         .child(
-                            when(
-                                move || editing.get(),
-                                move || {
-                                    nsh_base::input()
-                                        .value(move || draft.get())
-                                        .on_change(move |v: &str| draft.set(v.to_owned()))
-                                        .on_submit(move |_: &str| save())
-                                        .placeholder("Device name")
-                                        .min_h(px(ui::hit()))
-                                        .px(px(space::M))
-                                        .border_1()
-                                        .border_color(move || theme().input)
-                                        .rounded(move || theme().radius)
-                                        .text_color(move || theme().foreground)
-                                },
-                            )
-                            .otherwise(move || {
-                                ui::body(move || settings().device_name)
-                                    .font_weight(FontWeight::SEMIBOLD)
-                            }),
+                            nsh_base::input()
+                                .value(move || draft.get())
+                                .on_change(move |v: &str| draft.set(v.to_owned()))
+                                .on_submit(move |_: &str| save())
+                                .placeholder("Device name")
+                                .label("Device name")
+                                .w(px(220.0))
+                                .min_h(px(ui::hit()))
+                                .px(px(space::M))
+                                .rounded(px(12.0))
+                                .bg(move || theme().muted)
+                                .text_size(px(ui::size::BODY))
+                                .text_color(move || theme().foreground),
                         )
-                        .child(muted(move || {
-                            model().with(|m| match &m.status {
-                                Some(s) => format!(
-                                    "{} · ID {}",
-                                    platform_label(&s.platform),
-                                    s.fingerprint
-                                ),
-                                None => "Starting…".into(),
-                            })
-                        })),
-                )
-                .child(
-                    when(
-                        move || editing.get(),
-                        move || btn("Save", Variant::Primary).on_press(save),
-                    )
-                    .otherwise(move || {
-                        btn("Rename", Variant::Secondary).on_press(move || {
-                            draft.set(settings().device_name);
-                            editing.set(true);
-                        })
-                    }),
-                ),
+                        .child(ui::btn("Save", Variant::Primary).on_press(save))
+                },
+            )
+            .otherwise(move || {
+                nsh_base::button()
+                    .accessibility_label("Rename")
+                    .on_press(move || {
+                        draft.set(settings().device_name);
+                        editing.set(true);
+                    })
+                    .flex_row()
+                    .items_center()
+                    .gap(px(space::S))
+                    .min_h(px(ui::hit()))
+                    .active(|s| s.opacity(0.6))
+                    .child(ui::title(name))
+                    .child(ui::icon(Icon::Pencil, 18.0, move || theme().primary))
+            }),
         )
-        .child(divider())
-        .child(switch_row(
-            "Visible to nearby devices",
-            "Other devices on this network can see this one and offer files. You can always send.",
-            move || settings().visible,
-            |on| bridge::send(Command::SetVisible(on)),
-        ))
         .child(muted(move || {
-            model().with(|m| match m.status.as_ref().map(|s| &s.discovery) {
-                Some(DiscoveryStatus::Active) => "Nearby discovery is on.".to_owned(),
-                Some(DiscoveryStatus::Unavailable(why)) => {
-                    format!("Nearby discovery is unavailable: {why}")
-                }
-                Some(DiscoveryStatus::Disabled) => "Nearby discovery is turned off.".to_owned(),
-                None => m.offline.clone().unwrap_or_default(),
+            model().with(|m| {
+                m.status
+                    .as_ref()
+                    .map(|s| format!("{} · {}", platform_label(&s.platform), s.fingerprint))
+                    .unwrap_or_default()
             })
         }))
 }
@@ -127,64 +133,58 @@ fn receiving() -> impl IntoElement {
                 .download_dir
                 .clone()
                 .or_else(default_dir)
-                .map(|p| p.display().to_string())
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
                 .unwrap_or_default()
         })
     };
-    card()
-        .child(section_label("Receiving"))
+    view()
+        .gap(px(space::S))
+        .child(ui::section("Receiving"))
         .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap(px(space::M))
-                .child(
-                    view()
-                        .flex_1()
-                        .gap(px(2.0))
-                        .child(ui::body("Save received files to"))
-                        .child(muted(folder).number_of_lines(2)),
-                )
-                .child(when(desktop_platform, || {
-                    btn("Change…", Variant::Secondary).on_press(|| {
-                        let picked =
-                            pick_paths(OpenDialog::folders().button_label("Use this folder"));
-                        spawn(async move {
-                            if let Ok(Some(paths)) = picked.await
-                                && let Some(dir) = paths.into_iter().next()
-                            {
-                                bridge::send(Command::SetDownloadDir(Some(dir)));
-                            }
-                        });
-                    })
+            ui::group()
+                .child(ui::switch_row(
+                    g(Icon::Eye, BLUE),
+                    "Visible to nearby devices",
+                    move || settings().visible,
+                    |on| bridge::send(Command::SetVisible(on)),
+                ))
+                .child(ui::separator(58.0))
+                .child(ui::switch_row(
+                    g(Icon::UserCheck, GREEN),
+                    "Accept trusted devices automatically",
+                    move || settings().auto_accept_trusted,
+                    |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
+                ))
+                .child(when(
+                    move || !desktop_platform(),
+                    move || {
+                        view().child(ui::separator(58.0)).child(ui::switch_row(
+                            g(Icon::Cellular, ORANGE),
+                            "Use mobile data",
+                            move || settings().allow_metered,
+                            |on| bridge::send(Command::SetAllowMetered(on)),
+                        ))
+                    },
+                ))
+                .child(when(desktop_platform, move || {
+                    view().child(ui::separator(58.0)).child(ui::nav_row(
+                        g(Icon::Folder, ORANGE),
+                        "Save to",
+                        folder,
+                        || {
+                            let picked =
+                                pick_paths(OpenDialog::folders().button_label("Use this folder"));
+                            spawn(async move {
+                                if let Ok(Some(paths)) = picked.await
+                                    && let Some(dir) = paths.into_iter().next()
+                                {
+                                    bridge::send(Command::SetDownloadDir(Some(dir)));
+                                }
+                            });
+                        },
+                    ))
                 })),
         )
-        .child(when(
-            move || settings().download_dir.is_some(),
-            || {
-                btn("Use the default folder", Variant::Ghost)
-                    .self_start()
-                    .on_press(|| bridge::send(Command::SetDownloadDir(None)))
-            },
-        ))
-        .child(divider())
-        .child(switch_row(
-            "Accept trusted devices automatically",
-            "Only devices you trusted and allowed below. Everything else always asks first.",
-            move || settings().auto_accept_trusted,
-            |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
-        ))
-        .child(when(
-            move || !desktop_platform(),
-            move || {
-                switch_row(
-                    "Use mobile data",
-                    "Off: transfers stay on Wi‑Fi and local networks.",
-                    move || settings().allow_metered,
-                    |on| bridge::send(Command::SetAllowMetered(on)),
-                )
-            },
-        ))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -197,52 +197,147 @@ fn default_dir() -> Option<std::path::PathBuf> {
     None
 }
 
-fn trusted() -> impl IntoElement {
+fn trust() -> impl IntoElement {
+    let count = move || {
+        let n = model().with(|m| m.trusted.len());
+        if n == 0 {
+            "None".to_owned()
+        } else {
+            n.to_string()
+        }
+    };
+    view()
+        .gap(px(space::S))
+        .child(ui::section("Devices"))
+        .child(ui::group().child(ui::nav_row(
+            g(Icon::Shield, PURPLE),
+            "Trusted devices",
+            count,
+            || push(Route::Trusted),
+        )))
+}
+
+fn privacy() -> impl IntoElement {
+    view()
+        .gap(px(space::S))
+        .child(ui::section("Privacy"))
+        .child(
+            ui::group()
+                .child(ui::switch_row(
+                    g(Icon::Clock, GRAY),
+                    "Keep transfer history",
+                    move || settings().keep_history,
+                    |on| bridge::send(Command::SetKeepHistory(on)),
+                ))
+                .child(ui::separator(58.0))
+                .child(ui::nav_row(
+                    g(Icon::Info, GRAY),
+                    "Export diagnostics",
+                    "",
+                    || bridge::send(Command::ExportDiagnostics),
+                ))
+                .child(ui::separator(58.0))
+                .child(ui::nav_row(
+                    g(Icon::Refresh, RED),
+                    "Reset device identity…",
+                    "",
+                    reset_identity,
+                )),
+        )
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .gap(px(space::S))
+                .px(px(space::L))
+                .child(ui::icon(Icon::Lock, 14.0, move || theme().muted_foreground))
+                .child(
+                    muted(
+                        "Files go straight between your devices, encrypted. Nothing is uploaded.",
+                    )
+                    .flex_1()
+                    .text_size(px(ui::size::CAPTION)),
+                ),
+        )
+}
+
+/// Asks, with the system's alert, before giving this device a new
+/// identity (PRD 9.9).
+fn reset_identity() {
+    let busy = model().with_untracked(|m| {
+        m.transfers.iter().any(|t| !t.state.is_finished()) || !m.requests.is_empty()
+    });
+    if busy {
+        toast(
+            NoticeKind::Error,
+            "Finish or cancel the transfers in progress first.",
+        );
+        return;
+    }
+    let answer = alert_dialog()
+        .title("Reset this device's identity?")
+        .description("Other devices will see it as a new device and ask before trusting it again. Your name, trusted devices and files stay.")
+        .cancel("cancel", "Cancel")
+        .destructive("reset", "Reset identity")
+        .show();
+    spawn(async move {
+        if answer
+            .await
+            .is_ok_and(|a| a.action.as_deref() == Some("reset"))
+        {
+            #[cfg(not(target_arch = "wasm32"))]
+            bridge::reset_identity();
+        }
+    });
+}
+
+// ---------------------------------------------------------------- trusted
+
+pub fn trusted_page() -> impl IntoElement {
     let empty = move || model().with(|m| m.trusted.is_empty());
-    card().child(section_label("Trusted devices")).child(
-        when(empty, || {
-            muted("None yet. When you accept a transfer you can choose to trust the sender.")
-        })
-        .otherwise(|| {
-            view().gap(px(space::S)).child(each(
-                move || model().with(|m| m.trusted.clone()),
-                |p: &TrustedPeer| p.peer_id,
-                |p, _| trusted_row(p),
-            ))
-        }),
+    body(
+        when(empty, || ui::empty(Icon::Devices, "Devices you trust when accepting a transfer show up here."))
+            .otherwise(|| {
+                view()
+                    .gap(px(space::S))
+                    .child(ui::group().child(each(
+                        move || model().with(|m| m.trusted.clone()),
+                        |p: &TrustedPeer| p.peer_id,
+                        |p, i| {
+                            view()
+                                .child(when(move || i.get() > 0, || ui::separator(16.0)))
+                                .child(trusted_row(p))
+                        },
+                    )))
+                    .child(
+                        muted("“Accept without asking” works while “Accept trusted devices automatically” is on.")
+                            .px(px(space::L))
+                            .text_size(px(ui::size::CAPTION)),
+                    )
+            }),
     )
 }
 
 fn trusted_row(peer: ReadSignal<TrustedPeer>) -> impl IntoElement {
     let p = move || peer.get();
+    let name = move || p().name;
+    let platform = move || p().platform;
     view()
-        .gap(px(space::XS))
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap(px(space::M))
-                .child(ui::avatar(move || p().name, 32.0))
-                .child(
-                    view()
-                        .flex_1()
-                        .child(ui::body(move || p().name))
-                        .child(muted(move || {
-                            format!(
-                                "{} · {}",
-                                platform_label(&p().platform),
-                                p().peer_id.fingerprint()
-                            )
-                        })),
-                )
-                .child(
-                    btn("Forget", Variant::Danger)
-                        .on_press(move || bridge::send(Command::ForgetPeer(p().peer_id))),
-                ),
-        )
-        .child(switch_row(
+        .child(ui::row(
+            ui::avatar(name, platform, 40.0),
+            name,
+            move || platform_label(&p().platform).to_owned(),
+            ui::round_btn(
+                Icon::Trash,
+                format!("Forget {}", peer.with_untracked(|p| p.name.clone())),
+                Variant::Danger,
+                34.0,
+            )
+            .on_press(move || bridge::send(Command::ForgetPeer(p().peer_id))),
+        ))
+        .child(ui::switch_row(
+            view().w(px(40.0)),
             "Accept without asking",
-            "Requires “Accept trusted devices automatically”.",
             move || p().auto_accept,
             move |on| {
                 bridge::send(Command::SetPeerAutoAccept {
@@ -251,88 +346,4 @@ fn trusted_row(peer: ReadSignal<TrustedPeer>) -> impl IntoElement {
                 })
             },
         ))
-}
-
-fn privacy() -> impl IntoElement {
-    card()
-        .child(section_label("Privacy and storage"))
-        .child(muted(
-            "Files go directly between your devices over an encrypted connection and are never uploaded to a server. \
-             Every file is verified before it is saved, and nothing is saved without your answer unless you allowed a trusted device.",
-        ))
-        .child(muted(
-            "Stored on this device only: its name and key, your settings, trusted devices, the state needed to resume \
-             interrupted transfers and, if kept, a short history.",
-        ))
-        .child(switch_row(
-            "Keep transfer history",
-            "A local list of recent transfers.",
-            move || settings().keep_history,
-            |on| bridge::send(Command::SetKeepHistory(on)),
-        ))
-}
-
-fn about() -> impl IntoElement {
-    card()
-        .child(section_label("About"))
-        .child(muted(format!(
-            "DexDrop {} · Native Shell",
-            env!("CARGO_PKG_VERSION")
-        )))
-        .child(
-            view()
-                .flex_row()
-                .flex_wrap()
-                .gap(px(space::S))
-                .child(
-                    btn("Export diagnostics", Variant::Secondary)
-                        .on_press(|| bridge::send(Command::ExportDiagnostics)),
-                )
-                .child(
-                    btn("Reset device identity…", Variant::Secondary)
-                        .on_press(|| sheet().set(Sheet::ResetIdentity)),
-                ),
-        )
-        .child(muted(
-            "Diagnostics contain no file names, paths, contents or keys.",
-        ))
-}
-
-/// Asks before giving this device a new identity (PRD 9.9).
-pub fn reset_identity_sheet() -> impl IntoElement {
-    let busy = move || {
-        model()
-            .with(|m| m.transfers.iter().any(|t| !t.state.is_finished()) || !m.requests.is_empty())
-    };
-    view()
-        .gap(px(space::M))
-        .child(ui::body(
-            "Other devices will see this one as a new device. Devices that trusted it will \
-             ask again before accepting its files, and its old ID stops working.",
-        ))
-        .child(muted(
-            "Your device name, trusted devices, history and received files stay.",
-        ))
-        .child(when(busy, || {
-            muted("Finish or cancel the transfers in progress first.")
-        }))
-        .child(
-            view()
-                .flex_row()
-                .justify_end()
-                .gap(px(space::S))
-                .child(btn("Cancel", Variant::Secondary).on_press(|| sheet().set(Sheet::None)))
-                .child(btn("Reset identity", Variant::Danger).on_press(move || {
-                    if busy() {
-                        toast(
-                            NoticeKind::Error,
-                            "Finish or cancel the transfers in progress first.",
-                        );
-                        return;
-                    }
-                    sheet().set(Sheet::None);
-                    #[cfg(not(target_arch = "wasm32"))]
-                    bridge::reset_identity();
-                })),
-        )
 }

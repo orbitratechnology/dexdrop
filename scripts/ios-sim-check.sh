@@ -76,11 +76,11 @@ note "- App installed, agent-device runner ready at $(($(date +%s) - t0)) s"
 
 ad open "$bundle" || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
-ad wait text "Nearby" 30000 >/dev/null || { step 00-launch-failed; fail "the Nearby screen did not appear"; }
+ad wait text "Nearby" 30000 >/dev/null || { step 00-launch-failed; fail "the home screen did not appear"; }
 step 01-nearby
-note "- Launched: Nearby screen shown"
+note "- Launched: home screen shown (Send, Receive, Nearby)"
 
-for tab in Transfers Settings; do
+for tab in History Settings; do
   if tap "$tab" && ad wait text "$tab" 10000 >/dev/null; then
     step "02-$(echo "$tab" | tr '[:upper:]' '[:lower:]')"
     note "- $tab tab shown"
@@ -89,7 +89,7 @@ for tab in Transfers Settings; do
     fail "could not open the $tab tab"
   fi
 done
-tap Nearby || fail "could not return to Nearby"
+tap Share || fail "could not return to the Share tab"
 
 # Discovery the other way: does the app list a receiver running on this Mac?
 rstate=$(mktemp -d)
@@ -113,22 +113,22 @@ wait "$receiver" 2>/dev/null
 state=$(mktemp -d)
 container=$(xcrun simctl get_app_container "$udid" "$bundle" data)
 
-# open_sheet <step>: opens "Receive with a code". The device list may still
-# be changing (a device leaving), which can move the button under a tap.
+# open_sheet <step>: opens the Receive page (its code and QR code) from
+# home. Accepting a transfer leaves the Share tab on its progress, which
+# "Done" closes.
 open_sheet() {
   local _
-  # The button is on Nearby; accepting a transfer leaves the app on
-  # Transfers.
-  tap Nearby >/dev/null 2>&1 || true
+  tap Share >/dev/null 2>&1 || true
+  tap Done >/dev/null 2>&1 || true
   for _ in 1 2 3; do
-    ad wait 'label="Receive with a code"' 5000 >/dev/null 2>&1 || true
-    if tap "Receive with a code" && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
+    ad wait 'label="Receive"' 5000 >/dev/null 2>&1 || true
+    if tap Receive && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
       step "$1"
       return 0
     fi
   done
   step "$1-failed"
-  fail "the receive sheet did not open"
+  fail "the Receive page did not open"
 }
 
 # send_with <target> <label> <file>: sends, accepts in the app and waits for
@@ -136,8 +136,8 @@ open_sheet() {
 send_with() {
   "$cli" --state "$state" send "$1" "$3" >"$out/cli-send-$2.log" 2>&1 &
   local sender=$! accepted=no connected=no _
-  # Close the sheet only once the CLI is connected: "Done" also ends the
-  # code and the invitation.
+  # The request shows over any page: stay on Receive until it does, as
+  # leaving the page ends the code and the invitation.
   for _ in $(seq 1 30); do
     if grep -q 'to accept' "$out/cli-send-$2.log" 2>/dev/null; then
       connected=yes
@@ -151,14 +151,12 @@ send_with() {
     wait "$sender" 2>/dev/null
     return 2
   fi
-  tap Done >/dev/null 2>&1 || true
   for _ in $(seq 1 30); do
     if tap Accept; then
       accepted=yes
       break
     fi
     kill -0 "$sender" 2>/dev/null || break # the CLI gave up
-    tap Transfers >/dev/null 2>&1 || true
     sleep 2
   done
   if [ "$accepted" != yes ]; then
@@ -198,7 +196,7 @@ open_sheet 03-receive-code
 code=$(grep -oE 'Pairing code: [0-9A-Z ,]+' "$out/03-receive-code.txt" | head -1 | sed 's/^Pairing code://' | tr -cd 'A-Z0-9')
 [ ${#code} -ge 8 ] || fail "the pairing code is not readable by screen readers"
 code="${code:0:4}-${code:4:4}"
-note "- Receive sheet shows code $code, readable by screen readers"
+note "- Receive page shows code $code, readable by screen readers"
 name=$(grep -oE 'iPhone [A-Z0-9]{4}' "$out/01-nearby.txt" | head -1)
 "$cli" --state "$state" peers --wait 5 >"$out/cli-peers.log" 2>&1 || true
 if [ -n "$name" ] && grep -q "$name" "$out/cli-peers.log"; then
@@ -212,7 +210,7 @@ send_with "$code" code "$payload" ||
   fail "sending with the pairing code did not reach the app (cli-send-code.log)"
 note "- 3 MB sent with the pairing code, accepted, received byte-identical (\`$(received_intact "$payload")\`)"
 
-# 2. The invitation link from the same sheet ("Copy invitation").
+# 2. The invitation link from the same page ("Copy invitation").
 open_sheet 06-receive-invitation
 tap "Copy invitation" || fail "could not copy the invitation"
 invitation=$(xcrun simctl pbpaste "$udid")

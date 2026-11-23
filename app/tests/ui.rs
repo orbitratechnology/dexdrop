@@ -4,8 +4,11 @@
 use std::time::Duration;
 
 use nsh_engine::{EngineConfig, Root};
-use nsh_testing::Headless;
+use nsh_testing::{DialogAnswer, Headless};
 
+/// The headless engine is an iPhone: its tab bar is the system's (a native
+/// view tests cannot press), so tests switch tabs with the app's shortcuts
+/// (mod+1 Share, mod+2 History, mod+3 Settings).
 fn start() -> (Headless, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: every test sets the same values before starting the app.
@@ -36,80 +39,98 @@ fn wait_for_text(app: &mut Headless, part: &str) {
     );
 }
 
+/// The "Linux · abcd-efgh-ijkl" line under the device name in Settings.
+fn device_id(app: &mut Headless) -> String {
+    let is_id = |s: &str| s.len() == 14 && s.chars().filter(|c| *c == '-').count() == 2;
+    for _ in 0..100 {
+        if let Some(id) = app.screen().texts().iter().find_map(|t| {
+            t.rsplit_once(" · ")
+                .map(|(_, id)| id.to_owned())
+                .filter(|id| is_id(id))
+        }) {
+            return id;
+        }
+        app.wait(Duration::from_millis(100)).unwrap();
+    }
+    panic!("no device ID on screen: {:?}", app.screen().texts());
+}
+
 #[test]
-fn shows_the_nearby_screen_with_fallbacks() {
+fn home_offers_send_and_receive() {
     let (mut app, _dir) = start();
-    app.wait_for("WHAT TO SEND").unwrap();
-    app.wait_for("DEVICE NOT LISTED?").unwrap();
-    app.wait_for("Choose files").unwrap();
+    app.wait_for("role:button[Send]").unwrap();
+    app.wait_for("role:button[Receive]").unwrap();
     // The engine starts and names this device.
-    wait_for_text(&mut app, "is visible to nearby devices");
+    wait_for_text(&mut app, "Visible as ");
+    // No device yet: the app says it is looking.
+    wait_for_text(&mut app, "Looking for devices");
 }
 
 #[test]
-fn navigates_between_sections() {
-    let (mut app, _dir) = start();
-    app.press("role:tab[Transfers]").unwrap();
-    app.wait_for("Nothing yet. Transfers you send or receive show up here.")
-        .unwrap();
-    app.press("role:tab[Settings]").unwrap();
-    app.wait_for("Visible to nearby devices").unwrap();
-    app.wait_for("PRIVACY AND STORAGE").unwrap();
-    app.press("role:tab[Nearby]").unwrap();
-    app.wait_for("DEVICES NEARBY").unwrap();
-}
-
-#[test]
-fn shows_a_pairing_code_and_closes_it() {
-    let (mut app, _dir) = start();
-    wait_for_text(&mut app, "is visible to nearby devices");
-    app.press("role:button[Receive with a code]").unwrap();
-    app.wait_for("You'll still be asked before anything is saved.")
-        .unwrap();
-    app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
-        .unwrap();
-    app.press("role:button[Done]").unwrap();
-    app.wait_for_gone(
-        "You'll still be asked before anything is saved.",
-        Duration::from_secs(5),
-    )
-    .unwrap();
-}
-
-#[test]
-fn send_with_a_code_needs_files_first() {
-    let (mut app, _dir) = start();
-    app.press("role:button[Send with a code]").unwrap();
-    app.wait_for("Choose what to send first").unwrap();
-    assert!(!app.screen().enabled("role:button[Send]").unwrap());
-    app.wait_for("role:button[Paste]").unwrap();
-    app.wait_for("role:button[Read QR from picture]").unwrap();
-    app.press("role:button[Cancel]").unwrap();
-}
-
-#[test]
-fn keyboard_shortcuts_switch_sections_and_close_sheets() {
+fn switches_tabs() {
     let (mut app, _dir) = start();
     app.press_key("mod+2").unwrap();
-    app.wait_for("Nothing yet. Transfers you send or receive show up here.")
+    app.wait_for("Files you send and receive show up here.")
         .unwrap();
     app.press_key("mod+3").unwrap();
-    app.wait_for("PRIVACY AND STORAGE").unwrap();
+    app.wait_for("Visible to nearby devices").unwrap();
+    app.wait_for("Privacy").unwrap();
     app.press_key("mod+1").unwrap();
-    app.wait_for("DEVICES NEARBY").unwrap();
-    app.press("role:button[Send with a code]").unwrap();
-    app.wait_for("role:button[Paste]").unwrap();
+    app.wait_for("role:button[Receive]").unwrap();
+}
+
+#[test]
+fn receive_shows_a_code_and_closes_it() {
+    let (mut app, _dir) = start();
+    wait_for_text(&mut app, "Visible as ");
+    app.press("role:button[Receive]").unwrap();
+    app.wait_for("Ready to receive").unwrap();
+    wait_for_text(&mut app, "Or enter this code");
+    app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
+        .unwrap();
+    app.wait_for("role:button[Copy invitation]").unwrap();
     app.press_key("escape").unwrap();
-    app.wait_for_gone("role:button[Paste]", Duration::from_secs(5))
+    app.wait_for_gone("Ready to receive", Duration::from_secs(5))
         .unwrap();
 }
 
-/// Every control on the phone layout is at least 44 × 44 pt (PRD 7.7; the
-/// headless engine is an iPhone, where 44 pt is the minimum).
+#[test]
+fn send_offers_photos_videos_and_files() {
+    let (mut app, _dir) = start();
+    app.press("role:button[Send]").unwrap();
+    app.wait_for("role:button[Photos]").unwrap();
+    app.wait_for("role:button[Videos]").unwrap();
+    app.wait_for("role:button[Choose files]").unwrap();
+    // Nothing chosen yet: no way on to a device.
+    assert!(app.screen().id("role:button[Choose device]").is_err());
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("role:button[Photos]", Duration::from_secs(5))
+        .unwrap();
+}
+
+#[test]
+fn keyboard_shortcuts_switch_tabs_and_go_back() {
+    let (mut app, _dir) = start();
+    app.press_key("mod+2").unwrap();
+    app.wait_for("Files you send and receive show up here.")
+        .unwrap();
+    app.press_key("mod+3").unwrap();
+    app.wait_for("Visible to nearby devices").unwrap();
+    app.press_key("mod+1").unwrap();
+    app.press("role:button[Send]").unwrap();
+    app.wait_for("role:button[Photos]").unwrap();
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("role:button[Photos]", Duration::from_secs(5))
+        .unwrap();
+}
+
+/// Every control the app draws on the phone layout is at least 44 × 44 pt
+/// (PRD 7.7; the headless engine is an iPhone, where 44 pt is the minimum).
+/// The tab bar and switches are the system's own, sized by the system.
 #[test]
 fn phone_controls_meet_the_minimum_hit_target() {
     let (mut app, _dir) = start();
-    wait_for_text(&mut app, "is visible to nearby devices");
+    wait_for_text(&mut app, "Visible as ");
     let mut too_small = Vec::new();
     let mut check = |app: &mut Headless, selectors: &[&str]| {
         let nodes = app.screen().layout_nodes();
@@ -125,63 +146,52 @@ fn phone_controls_meet_the_minimum_hit_target() {
             }
         }
     };
+    check(&mut app, &["role:button[Send]", "role:button[Receive]"]);
+    app.press("role:button[Send]").unwrap();
+    app.wait_for("role:button[Photos]").unwrap();
     check(
         &mut app,
         &[
-            "role:tab[Nearby]",
-            "role:tab[Transfers]",
-            "role:tab[Settings]",
+            "role:button[Photos]",
+            "role:button[Videos]",
             "role:button[Choose files]",
-            "role:button[Receive with a code]",
-            "role:button[Send with a code]",
         ],
     );
-    app.press("role:tab[Settings]").unwrap();
-    app.wait_for("PRIVACY AND STORAGE").unwrap();
+    app.press_key("mod+3").unwrap();
+    app.wait_for("Visible to nearby devices").unwrap();
     check(
         &mut app,
         &[
             "role:button[Rename]",
             "role:button[Export diagnostics]",
-            "role:switch[Visible to nearby devices]",
-            "role:switch[Keep transfer history]",
+            "role:button[Reset device identity…]",
         ],
     );
     assert!(too_small.is_empty(), "controls under 44 pt: {too_small:#?}");
 }
 
-/// The " · ID xxxx-xxxx-xxxx" line under the device name in Settings.
-fn device_id(app: &mut Headless) -> String {
-    for _ in 0..100 {
-        if let Some(id) = app
-            .screen()
-            .texts()
-            .iter()
-            .find_map(|t| t.split_once(" · ID ").map(|(_, id)| id.to_owned()))
-        {
-            return id;
-        }
-        app.wait(Duration::from_millis(100)).unwrap();
-    }
-    panic!("no device ID on screen: {:?}", app.screen().texts());
-}
-
 #[test]
 fn resetting_the_identity_gives_a_new_device_id() {
     let (mut app, _dir) = start();
-    wait_for_text(&mut app, "is visible to nearby devices");
-    app.press("role:tab[Settings]").unwrap();
+    wait_for_text(&mut app, "Visible as ");
+    app.press_key("mod+3").unwrap();
     let before = device_id(&mut app);
+    // The system's alert asks first.
+    app.answer_dialogs_myself();
     app.press("role:button[Reset device identity…]").unwrap();
-    app.wait_for("Reset this device's identity?").unwrap();
+    let dialog = app.pending_dialog().expect("an alert").clone();
+    assert_eq!(
+        dialog.title.as_deref(),
+        Some("Reset this device's identity?")
+    );
     // Cancel changes nothing.
-    app.press("role:button[Cancel]").unwrap();
-    app.wait_for_gone("Reset this device's identity?", Duration::from_secs(5))
+    app.answer_dialog(DialogAnswer::Press("Cancel".into()))
         .unwrap();
     assert_eq!(device_id(&mut app), before);
 
     app.press("role:button[Reset device identity…]").unwrap();
-    app.press("role:button[Reset identity]").unwrap();
+    app.answer_dialog(DialogAnswer::Press("Reset identity".into()))
+        .unwrap();
     wait_for_text(&mut app, "This device has a new identity.");
     let mut after = device_id(&mut app);
     for _ in 0..100 {
