@@ -1,65 +1,39 @@
-# Request to NSH: let Rust apps on Android declare permissions and reach Android APIs
+# NSH and Android permissions / platform access: already solved upstream
 
-Draft of a feature request for NSH (Native Shell, `longbridge/nsh`), to file
-with its maintainers. DexDrop works around the gap today (below), so it is
-not blocking. Checked against NSH v0.6.1 (the latest release) and the docs at
-https://nsh.dev/llms-full.txt.
+We drafted a request to NSH (`longbridge/nsh`) for Rust apps on Android to
+declare manifest permissions and reach Android APIs. Searching its issues
+before filing showed the same requests already done on `main` (all closed as
+completed, 19–20 Nov 2026), so **no new issue is needed**:
 
-## What the docs say today
+| Issue | What it adds | In |
+|---|---|---|
+| [#2500](https://github.com/longbridge/nsh/issues/2500) | `android.permissions` in `nsh.json`, written as `<uses-permission>` | nightly (checked: `nsh 0.6.0 f577c51 nightly 2026-11-22` reads `permissions`, `queries`, `libraries`, `manifestPlaceholders` under `android`) |
+| [#2686](https://github.com/longbridge/nsh/issues/2686) | NSH sets `ndk-context` (the `JavaVM` and the application `Context`) before app code runs | `main`; DexDrop pins the crates.io crates (`=0.6.1`), so it arrives with the next release |
+| [#2531](https://github.com/longbridge/nsh/issues/2531) | `nsh_platform_android::permissions::{state, request}` for runtime permissions from Rust | `main`, next release |
 
-- A packaged Android app declares `INTERNET`, plus `POST_NOTIFICATIONS`,
-  `RECORD_AUDIO` and `CAMERA` when NSH's own features need them; the
-  `android` keys of `nsh.json` are `targetSdk` and `usesCleartextTraffic`
-  (Packaging → "Camera, Bluetooth and other hardware", Project structure →
-  `nsh.json`).
-- For anything else the documented route is: "An Android app that uses other
-  hardware embeds NSH in its own Gradle project … That project owns
-  `AndroidManifest.xml` … and the app reaches everything else through
-  `host.call`."
-- But on Android the embedding view, `NshView` from `nsh.aar`, runs **TSX
-  bundles and signed packages only** (Platforms → "Embed in a native app"),
-  while on iOS, macOS, Windows and Linux `AppView` also mounts a Rust root.
-  "An app written in Rust ships on Android as the APK `nsh package --target
-  android` builds."
+v0.6.1 (what DexDrop uses) is the latest release and has none of them; the
+docs at https://nsh.dev/llms-full.txt do not describe them yet.
 
-So an app written in Rust has no documented way on Android to declare a
-permission or reach platform APIs: it cannot add to the packaged manifest,
-and it cannot be embedded in a project that owns one.
+Not requested: embedding a Rust root in Android's `NshView` (today it runs
+TSX bundles and signed packages only). With #2500 and #2686 DexDrop does not
+need it, and NSH asks for one focused issue per concrete use case.
 
-## DexDrop's case
+## What DexDrop does now, and on the next NSH release
 
-Local-network discovery (DNS-SD). Android's Wi-Fi stack drops incoming
-multicast unless the app holds a `WifiManager.MulticastLock`, which needs
-`android.permission.CHANGE_WIFI_MULTICAST_STATE`. A pure-Rust mDNS responder
-(`mdns-sd`, which DexDrop uses on Windows and Linux) therefore cannot rely on
-receiving on Android.
+Now (v0.6.1): discovery uses the system's `NsdManager` through a small Java
+bridge loaded from memory (`crates/dexdrop-net/src/discovery/nsd.rs`). It
+needs no permission. It finds the `JavaVM` with `JNI_GetCreatedJavaVMs`
+(public from Android 12; older versions fall back to mdns-sd) and the
+`Context` with `ActivityThread.currentApplication()` by reflection — the
+same workaround #2686 describes in 14 other crates.
 
-## Requests (any one unblocks Rust apps; 1 is the smallest)
+On the release that includes #2686:
 
-1. **`android.permissions` in `nsh.json`**, written as `<uses-permission>`
-   next to the ones NSH adds, the counterpart of `ios.infoPlist` /
-   `macos.infoPlist`. Validate names (dotted identifiers) and warn on runtime
-   (dangerous) permissions the app must still request. Optionally an
-   `android.manifest` fragment for `<application>` children (intent filters
-   for a share target, `<service>` for a foreground service).
-2. **Access to Android from a packaged Rust app**: public accessors in
-   `nsh-platform-android` for the process's `JavaVM` and the application
-   `Context` (and the activity), so an app's crate can call Android APIs the
-   way an iOS or macOS crate calls the system's frameworks. Today they are
-   private (`java::init`), so an app must use `JNI_GetCreatedJavaVMs`
-   (public only from Android 12, though NSH supports Android 8) and
-   `ActivityThread.currentApplication()` by reflection.
-3. **A Rust root in Android embedding**: an `NshView` (or a Rust
-   `AppView`, like `nsh-platform-ios`) that mounts a Rust root, so Rust apps
-   can follow the documented "embed in your own Gradle project" route.
-
-## DexDrop's workaround meanwhile
-
-DexDrop uses the system's DNS-SD service, `NsdManager`, which does the
-multicast work in the system and needs no extra permission. A small Java
-bridge (callbacks into a queue) is embedded in the Rust library as a dex and
-loaded with `InMemoryDexClassLoader`; the Rust side gets the VM from
-`JNI_GetCreatedJavaVMs` and the Context by reflection inside the bridge
-(`crates/dexdrop-net/src/discovery/nsd.rs`). On Android 8–11 it falls back
-to mdns-sd. Request 2 would remove both workarounds and the Android 12
-floor.
+1. Bump the `nsh-*` crates and the CLI in CI.
+2. In `nsd.rs`, take the VM and the Context from `ndk_context::android_context()`
+   (pass the Context to the bridge instead of reflection), dropping
+   `JNI_GetCreatedJavaVMs` and with it the Android 12 floor. NSH sets the
+   context itself, so DexDrop must not call `initialize_android_context`.
+3. Keep `NsdManager`: it needs no permission. `android.permissions` (#2500)
+   becomes useful for later features (for example `ACCESS_NETWORK_STATE` to
+   react to Wi-Fi changes, or a multicast lock if mdns-sd is ever wanted).
