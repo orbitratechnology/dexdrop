@@ -274,7 +274,7 @@ ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || ad wait text "$out_file" 20000 >
   { step 08-not-selected; fail "the picked file is not selected in the app"; }
 step 08-selected
 note "- Picked \`$out_file\` (8 MB) in Android's file picker"
-tap_only Send || tap Send || { step 08-no-send; fail "could not tap Send for the CLI receiver"; }
+tap_only "Send to CI Emulator Inbox" || { step 08-no-send; fail "could not tap Send for the CLI receiver"; }
 ad wait 'label="Pause"' 30000 >/dev/null 2>&1 || { step 09-not-sending; fail "the transfer did not start (no Pause button)"; }
 tap_only Pause || fail "could not tap Pause"
 ad wait text "Paused" 15000 >/dev/null 2>&1 || { step 09-not-paused; fail "the transfer did not pause"; }

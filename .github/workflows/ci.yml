@@ -255,6 +255,17 @@ jobs:
           restore-keys: agent-device-runner-${{ runner.os }}-
       - run: npm install -g agent-device@latest
         if: ${{ !cancelled() }}
+      # The packaged macOS app through its own UI: sections, discovery, a
+      # code transfer accepted in the app, and sending from the app with
+      # Pause and Resume.
+      - name: macOS app check (agent-device)
+        if: ${{ !cancelled() }}
+        run: scripts/macos-ui-check.sh dist/macos/DexDrop.app target/release/dexdrop dist/macos-ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-ui-check
+          path: dist/macos-ui
       - name: iOS Simulator check (agent-device)
         if: ${{ !cancelled() }}
         run: scripts/ios-sim-check.sh dist/ios-simulator target/release/dexdrop dist/ios-screens
