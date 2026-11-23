@@ -27,13 +27,25 @@ needs no permission. It finds the `JavaVM` with `JNI_GetCreatedJavaVMs`
 `Context` with `ActivityThread.currentApplication()` by reflection — the
 same workaround #2686 describes in 14 other crates.
 
-On the release that includes #2686:
+Nightly does not help yet: it builds Rust apps against the crates.io `nsh-*`
+crates (v0.6.0 for the 2026-11-22 nightly, older than our 0.6.1), so #2686
+is not in them; only the CLI's `android.permissions` is. Checked by
+packaging DexDrop with that nightly.
 
-1. Bump the `nsh-*` crates and the CLI in CI.
-2. In `nsd.rs`, take the VM and the Context from `ndk_context::android_context()`
-   (pass the Context to the bridge instead of reflection), dropping
-   `JNI_GetCreatedJavaVMs` and with it the Android 12 floor. NSH sets the
-   context itself, so DexDrop must not call `initialize_android_context`.
-3. Keep `NsdManager`: it needs no permission. `android.permissions` (#2500)
-   becomes useful for later features (for example `ACCESS_NETWORK_STATE` to
-   react to Wi-Fi changes, or a multicast lock if mdns-sd is ever wanted).
+On the first release that ships both #2500 (CLI) and #2686 (crates), the
+Android workaround can go entirely:
+
+1. Bump the CLI in CI and the `nsh-*` crates.
+2. `nsh.json`: `"android": { "permissions": ["CHANGE_WIFI_MULTICAST_STATE"] }`.
+3. Take a `WifiManager.MulticastLock` through JNI with the VM and Context
+   from `ndk_context::android_context()` (plain calls, no callbacks, so no
+   Java), held while the app is in front: multicast costs battery.
+4. Use mdns-sd on Android as on Linux and Windows; delete
+   `crates/dexdrop-net/android/` (bridge and dex), `scripts/build-nsd-dex.sh`
+   and the `JNI_GetCreatedJavaVMs` / reflection lookups. The Android 12 floor
+   goes with them. NSH sets the context itself, so DexDrop must not call
+   `initialize_android_context`.
+
+Keeping `NsdManager` (with only the VM/Context lookup replaced) stays an
+option if the multicast lock's battery cost matters more than one discovery
+code path.
