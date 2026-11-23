@@ -254,9 +254,22 @@ fn tab_stack(t: Tab) -> impl IntoElement {
 /// on iOS), the app's own on desktops and the web.
 fn page(title: pages::Title, root: bool, content: AnyElement) -> Screen {
     let t = title.clone();
+    let ios = nsh_core::element::os() == nsh_core::platform::Os::Ios;
     nav_page()
         .title(move || t())
-        .header_large_title(root)
+        // iOS: the system's large, transparent header that the content
+        // scrolls under. Android: a standard header in the theme's colours
+        // (its large title would lay the page out under the header).
+        .header_large_title(root && ios)
+        .header_style_with(move |s| {
+            if ios {
+                s
+            } else {
+                s.bg(move || theme().background)
+                    .text_color(move || theme().foreground)
+                    .tint_color(move || theme().primary)
+            }
+        })
         .header(desktop_header(title, root))
         .child(content)
 }
@@ -264,6 +277,7 @@ fn page(title: pages::Title, root: bool, content: AnyElement) -> Screen {
 /// The header desktops and the web draw: a back button and the title.
 fn desktop_header(title: pages::Title, root: bool) -> impl IntoElement {
     view()
+        .bg(move || theme().background)
         .flex_row()
         .items_center()
         .gap(px(space::S))
@@ -378,7 +392,7 @@ fn tab_icon(t: Tab) -> &'static str {
         (Tab::Settings, true) => "gearshape",
         (Tab::Share, false) => "android:ic_menu_send",
         (Tab::History, false) => "android:ic_menu_recent_history",
-        (Tab::Settings, false) => "android:ic_menu_preferences",
+        (Tab::Settings, false) => "android:ic_menu_manage",
     }
 }
 

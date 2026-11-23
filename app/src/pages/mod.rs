@@ -42,7 +42,9 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
 
 /// A page's scrolling body: centered, padded, clear of the tab bar.
 pub fn body(content: impl IntoElement) -> impl IntoElement {
-    scroll().flex_1().child(
+    // The page paints the theme's background itself, so light and dark are
+    // the same on every platform (the system's page colour differs).
+    scroll().flex_1().bg(move || nsh_base::theme().background).child(
         view()
             .w_full()
             .max_w(px(ui::content_width()))

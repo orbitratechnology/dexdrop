@@ -55,8 +55,8 @@ pub fn warning() -> AdaptiveColor {
 
 /// The two brand gradients: sending (blue to indigo), receiving (green to
 /// teal). Each is `(from, to)`.
-pub const SEND: (u32, u32) = (0x3b82f6, 0x6366f1);
-pub const RECEIVE: (u32, u32) = (0x10b981, 0x14b8a6);
+pub const SEND: (u32, u32) = (0x6366f1, 0x8b5cf6);
+pub const RECEIVE: (u32, u32) = (0x10b981, 0x0d9488);
 
 /// A gradient-filled view.
 pub fn gradient(colors: (u32, u32)) -> View {
@@ -429,15 +429,10 @@ pub fn hero_action(
 
 // ---------------------------------------------------------------- surfaces
 
-/// The fill of cards and groups on a page: a light grey on phones, where the
-/// system paints pages white (as iOS's and Android's own settings do), and
-/// white on the grey page of desktops and the web.
+/// The fill of cards and groups: one step above the page's background, in
+/// light and dark alike (every page paints the theme's background).
 pub fn surface() -> AdaptiveColor {
-    if mobile() {
-        theme().secondary
-    } else {
-        theme().card
-    }
+    theme().card
 }
 
 /// A rounded group of rows on the page's grouped background.
