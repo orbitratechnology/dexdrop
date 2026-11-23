@@ -109,7 +109,7 @@ Add an id when a test needs a control; add it to this table.
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
 | Package macOS and iOS | `nsh test … --target macos`, `--target ios`, after the checks (the e2e first launch starts discovery in NSH's host; its system prompt must not be the one the checks answer) | desktop check, agent-device macOS and iOS checks (run first) |
-| Package Android | `nsh test … --target android` on the emulator (6 GB data partition: DexDrop and NSH's test host side by side; the default refused the second) | agent-device emulator check |
+| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did). Open: the emulator refuses NSH's test host with INSUFFICIENT_STORAGE even with a 6 GB data partition; the script saves the device's free space and the host APK's size in `device-storage.txt` | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
 (`desktop-check-*`, `e2e-apple`, `android-check`).
@@ -117,5 +117,6 @@ JUnit reports (`--junit`) go in each job's check artifact
 Measured in CI run 64: on Linux the e2e step takes 4.7 min (2.8 min
 building the development host, 3 tests at ~27 s under Xvfb), on Windows
 7 min (6.8 min building, 3 tests at ~2 s), on macOS 4.5 min (4.2 min
-building, 3–6 s a test). On Android `nsh test` builds the development host
-for all three ABIs (~12 min).
+building, 3–6 s a test). Run 65 ran the macOS e2e step after the
+agent-device checks: 11 min. On Android `nsh test` builds the development
+host for all three ABIs (~12 min).
