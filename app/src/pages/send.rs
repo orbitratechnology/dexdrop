@@ -451,6 +451,12 @@ fn kinds() -> impl IntoElement {
     let tile = |i: Icon, label: &'static str, colors: (u32, u32), pick: fn()| {
         ui::pressable()
             .accessibility_label(label)
+            // The same id everywhere ("Choose files" on computers is
+            // "Files" on phones), for tests that run on every platform.
+            .test_id(&format!(
+                "pick-{}",
+                label.trim_start_matches("Choose ").to_ascii_lowercase()
+            ))
             .on_press(pick)
             .flex_1()
             // Three across on an iPhone; two by two on Android, with Apps,
@@ -809,6 +815,7 @@ fn next_bar() -> impl IntoElement {
                 None => "Choose device".to_owned(),
             };
             ui::icon_btn(Icon::Paperplane, label, Variant::Primary)
+                .test_id("next")
                 .w_full()
                 .max_w(px(420.0))
                 .shadow_lg()

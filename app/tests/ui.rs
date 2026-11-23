@@ -93,8 +93,8 @@ fn device_id(app: &mut Headless) -> String {
 #[test]
 fn home_offers_send_and_receive() {
     let (mut app, _dir) = start();
-    app.wait_for("role:button[Send]").unwrap();
-    app.wait_for("role:button[Receive]").unwrap();
+    app.wait_for("id:send").unwrap();
+    app.wait_for("id:receive").unwrap();
     // The engine starts and names this device.
     wait_for_text(&mut app, "Visible as ");
     // No device yet: the app says it is looking.
@@ -111,19 +111,19 @@ fn switches_tabs() {
     app.wait_for("Visible to nearby devices").unwrap();
     app.wait_for("Privacy").unwrap();
     app.press_key("mod+1").unwrap();
-    app.wait_for("role:button[Receive]").unwrap();
+    app.wait_for("id:receive").unwrap();
 }
 
 #[test]
 fn receive_shows_a_code_and_closes_it() {
     let (mut app, _dir) = start();
     wait_for_text(&mut app, "Visible as ");
-    app.press("role:button[Receive]").unwrap();
+    app.press("id:receive").unwrap();
     app.wait_for("Ready to receive").unwrap();
     wait_for_text(&mut app, "Or enter this code");
     app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
         .unwrap();
-    app.wait_for("role:button[Copy invitation]").unwrap();
+    app.wait_for("id:copy-invitation").unwrap();
     app.press_key("escape").unwrap();
     app.wait_for_gone("Ready to receive", Duration::from_secs(5))
         .unwrap();
@@ -135,15 +135,15 @@ fn receive_shows_a_code_and_closes_it() {
 fn reselecting_a_tab_goes_home_and_receive_gets_a_fresh_code() {
     let (mut app, _dir) = start();
     wait_for_text(&mut app, "Visible as ");
-    app.press("role:button[Receive]").unwrap();
+    app.press("id:receive").unwrap();
     app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
         .unwrap();
     app.press_key("mod+1").unwrap();
     app.wait_for_gone("Ready to receive", Duration::from_secs(5))
         .unwrap();
-    app.wait_for("role:button[Receive]").unwrap();
+    app.wait_for("id:receive").unwrap();
 
-    app.press("role:button[Receive]").unwrap();
+    app.press("id:receive").unwrap();
     app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
         .unwrap();
     app.press_key("mod+2").unwrap();
@@ -169,14 +169,14 @@ fn reselecting_a_tab_goes_home_and_receive_gets_a_fresh_code() {
 #[test]
 fn send_offers_photos_videos_and_files() {
     let (mut app, _dir) = start();
-    app.press("role:button[Send]").unwrap();
-    app.wait_for("role:button[Photos]").unwrap();
-    app.wait_for("role:button[Videos]").unwrap();
-    app.wait_for("role:button[Files]").unwrap();
+    app.press("id:send").unwrap();
+    app.wait_for("id:pick-photos").unwrap();
+    app.wait_for("id:pick-videos").unwrap();
+    app.wait_for("id:pick-files").unwrap();
     // Nothing chosen yet: no way on to a device.
-    assert!(app.screen().id("role:button[Choose device]").is_err());
+    assert!(app.screen().id("id:next").is_err());
     app.press_key("escape").unwrap();
-    app.wait_for_gone("role:button[Photos]", Duration::from_secs(5))
+    app.wait_for_gone("id:pick-photos", Duration::from_secs(5))
         .unwrap();
 }
 
@@ -189,10 +189,10 @@ fn keyboard_shortcuts_switch_tabs_and_go_back() {
     app.press_key("mod+3").unwrap();
     app.wait_for("Visible to nearby devices").unwrap();
     app.press_key("mod+1").unwrap();
-    app.press("role:button[Send]").unwrap();
-    app.wait_for("role:button[Photos]").unwrap();
+    app.press("id:send").unwrap();
+    app.wait_for("id:pick-photos").unwrap();
     app.press_key("escape").unwrap();
-    app.wait_for_gone("role:button[Photos]", Duration::from_secs(5))
+    app.wait_for_gone("id:pick-photos", Duration::from_secs(5))
         .unwrap();
 }
 
@@ -218,23 +218,19 @@ fn phone_controls_meet_the_minimum_hit_target() {
             }
         }
     };
-    check(&mut app, &["role:button[Send]", "role:button[Receive]"]);
-    app.press("role:button[Send]").unwrap();
-    app.wait_for("role:button[Photos]").unwrap();
+    check(&mut app, &["id:send", "id:receive"]);
+    app.press("id:send").unwrap();
+    app.wait_for("id:pick-photos").unwrap();
     check(
         &mut app,
-        &[
-            "role:button[Photos]",
-            "role:button[Videos]",
-            "role:button[Files]",
-        ],
+        &["id:pick-photos", "id:pick-videos", "id:pick-files"],
     );
     app.press_key("mod+3").unwrap();
     app.wait_for("Visible to nearby devices").unwrap();
     check(
         &mut app,
         &[
-            "role:button[Rename]",
+            "id:rename",
             "role:button[Export diagnostics]",
             "role:button[Reset device identity…]",
         ],
@@ -292,7 +288,7 @@ fn chooses_an_avatar() {
     let (mut app, dir) = start();
     wait_for_text(&mut app, "Visible as ");
     app.press_key("mod+3").unwrap();
-    app.press("role:button[Change avatar]").unwrap();
+    app.press("id:change-avatar").unwrap();
     app.wait_for("Emoji").unwrap();
     let foxes = |app: &mut Headless| app.screen().texts().iter().filter(|t| **t == "🦊").count();
     assert_eq!(foxes(&mut app), 1, "only the choice shows a fox");

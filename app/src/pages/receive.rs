@@ -131,12 +131,12 @@ fn code_card() -> impl IntoElement {
                     .items_center()
                     .gap(px(space::M))
                     .child(
-                        ui::icon_btn(Icon::Link, "Copy invitation", Variant::Plain).on_press(
-                            move || {
+                        ui::icon_btn(Icon::Link, "Copy invitation", Variant::Plain)
+                            .test_id("copy-invitation")
+                            .on_press(move || {
                                 set_clipboard(text.clone());
                                 toast(NoticeKind::Success, "Invitation copied.");
-                            },
-                        ),
+                            }),
                     )
                     .child(ui::qr(inv.qr_width, inv.qr_modules.clone(), 188.0))
             })

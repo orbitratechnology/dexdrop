@@ -163,7 +163,7 @@ fn small_changes_send_small_updates() {
     app.wait_for("Privacy").unwrap();
     app.wait(Duration::from_millis(800)).unwrap();
     taken(&seen);
-    app.press("role:button[Rename]").unwrap();
+    app.press("id:rename").unwrap();
     app.wait(Duration::from_millis(300)).unwrap();
     let rename = taken(&seen);
     eprintln!("rename field opened: {rename} mount items");

@@ -84,7 +84,8 @@ jobs:
           DEXDROP_NO_DISCOVERY: "1"
         run: |
           sudo apt-get install -y libsoup-3.0-dev libwebkitgtk-6.0-dev
-          cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/tabs.test.ts --target linux --junit ../dist/e2e-linux.xml
+          mkdir -p dist/desktop-check
+          cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/app.test.ts --target linux --junit ../dist/desktop-check/e2e-linux.xml
       - name: Desktop app check
         env:
           GSK_RENDERER: cairo
@@ -173,8 +174,10 @@ jobs:
         with:
           node-version: "22"
       - run: npm install -g agent-device@latest && sudo apt-get install -y zbar-tools
-      - name: Android emulator check (agent-device)
-        timeout-minutes: 30
+      # NSH's runner first (app/e2e on the emulator), then what crosses
+      # apps (system pickers, the CLI as the other device) with agent-device.
+      - name: Android emulator checks (nsh test, then agent-device)
+        timeout-minutes: 50
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -182,7 +185,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash scripts/android-emu-check.sh "$(ls dist/android/*.apk | head -1)" target/x86_64-linux-android/release/dexdrop dist/android-check
+          script: mkdir -p dist/android-check && (cd app && DEXDROP_NO_DISCOVERY=1 nsh test e2e/app.test.ts --target android --junit ../dist/android-check/e2e-android.xml) && bash scripts/android-emu-check.sh "$(ls dist/android/*.apk | head -1)" target/x86_64-linux-android/release/dexdrop dist/android-check
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -209,6 +212,13 @@ jobs:
           path: |
             dist/windows
             target/release/dexdrop.exe
+      - name: App e2e (nsh test, Windows)
+        env:
+          DEXDROP_NO_DISCOVERY: "1"
+        shell: bash
+        run: |
+          mkdir -p dist/desktop-check
+          cd app && nsh test e2e/app.test.ts --target windows --junit ../dist/desktop-check/e2e-windows.xml
       - name: Desktop app check
         run: python scripts/desktop-check.py --app dist/windows/DexDrop/DexDrop.exe --cli target/release/dexdrop.exe --out dist/desktop-check
       - uses: actions/upload-artifact@v4
@@ -263,6 +273,23 @@ jobs:
             gh release create native-sim-build --title "native-sim builds" \
               --notes "DexDrop simulator builds for native-sim sessions, published by CI from the development branch. Safe to delete."
           gh release upload native-sim-build DexDrop.app.tar.gz --clobber
+      # NSH's runner (app/e2e) on the Mac and in the iOS simulator: the same
+      # file as on every platform; the agent-device checks below cover what
+      # crosses apps.
+      - name: App e2e (nsh test, macOS)
+        timeout-minutes: 25
+        env:
+          DEXDROP_NO_DISCOVERY: "1"
+        run: |
+          mkdir -p dist/desktop-check
+          cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/desktop-check/e2e-macos.xml
+      - name: App e2e (nsh test, iOS simulator)
+        timeout-minutes: 30
+        env:
+          DEXDROP_NO_DISCOVERY: "1"
+        run: |
+          mkdir -p dist/ios-screens
+          cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/ios-screens/e2e-ios.xml
       - name: Desktop app check (macOS)
         run: python3 scripts/desktop-check.py --require-discovery --app dist/macos/DexDrop.app --cli target/release/dexdrop --out dist/desktop-check
       - uses: actions/upload-artifact@v4

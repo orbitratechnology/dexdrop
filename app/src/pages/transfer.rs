@@ -355,6 +355,7 @@ fn control(
     };
     ui::pressable()
         .accessibility_label(label)
+        .test_id(&label.to_ascii_lowercase())
         .on_press(on_press)
         .items_center()
         .gap(px(space::S))
@@ -434,7 +435,11 @@ fn after(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElement 
                 })
             },
         ))
-        .child(ui::btn("Done", Variant::Secondary).on_press(|| crate::state::reset_to(Route::Root)))
+        .child(
+            ui::btn("Done", Variant::Secondary)
+                .test_id("done")
+                .on_press(|| crate::state::reset_to(Route::Root)),
+        )
 }
 
 // ---------------------------------------------------------------- requests
@@ -639,11 +644,13 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                 .gap(px(space::M))
                 .child(
                     ui::btn("Decline", Variant::Secondary)
+                        .test_id("decline")
                         .flex_1()
                         .on_press(move || respond(false)),
                 )
                 .child(
                     ui::btn("Accept", Variant::Primary)
+                        .test_id("accept")
                         .flex_1()
                         .disabled(move || !enough)
                         .on_press(accept),

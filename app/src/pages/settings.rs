@@ -77,6 +77,7 @@ fn device() -> impl IntoElement {
         .child(
             ui::pressable()
                 .accessibility_label("Change avatar")
+                .test_id("change-avatar")
                 .on_press(|| push(Route::Avatar))
                 .active(|s| s.scale(0.95))
                 .child(ui::avatar(name, platform, ui::my_avatar, 80.0))
@@ -126,6 +127,7 @@ fn device() -> impl IntoElement {
             .otherwise(move || {
                 ui::pressable()
                     .accessibility_label("Rename")
+                    .test_id("rename")
                     .on_press(move || {
                         draft.set(settings().device_name);
                         editing.set(true);

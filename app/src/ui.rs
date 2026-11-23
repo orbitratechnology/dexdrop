@@ -552,6 +552,7 @@ pub fn hero_action(
     let side = if mobile() { 112.0 } else { 120.0 };
     pressable()
         .accessibility_label(label)
+        .test_id(&label.to_ascii_lowercase())
         .on_press(on_press)
         .items_center()
         .gap(px(space::M))

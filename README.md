@@ -85,11 +85,15 @@ sudo apt-get install libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins
 ```
 
 ```sh
-cargo test --workspace                     # engine, protocol, adversarial and headless UI tests
+cargo test --workspace --features dexdrop-net/test-relay   # engine and headless UI tests (~25 s)
+(cd app && nsh test e2e/app.test.ts --target linux)        # the real app; macos, windows, ios, android too
 cargo run -p dexdrop-app                   # the app on this desktop
 nsh package app --target linux             # or windows, macos, web, android, ios-simulator
 cargo run --release -p dexdrop-cli -- bench --mb 1024
 ```
+
+Testing follows NSH's recommendations, headless first: see
+[docs/TESTING.md](docs/TESTING.md).
 
 Android packaging needs the Android SDK (`platforms;android-35`,
 `build-tools;35.0.1`, `platform-tools`), an NDK (`ANDROID_NDK_HOME`), the Rust

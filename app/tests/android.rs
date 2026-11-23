@@ -50,13 +50,13 @@ fn frame(app: &mut Headless, selector: &str) -> (f32, f32, f32, f32) {
 #[test]
 fn send_offers_four_kinds_two_by_two_on_a_small_phone() {
     let (mut app, _dir) = android(320.0, 640.0);
-    app.press("role:button[Send]").unwrap();
-    app.wait_for_within("role:button[Apps]", Duration::from_secs(5))
+    app.press("id:send").unwrap();
+    app.wait_for_within("id:pick-apps", Duration::from_secs(5))
         .unwrap();
-    let photos = frame(&mut app, "role:button[Photos]");
-    let videos = frame(&mut app, "role:button[Videos]");
-    let files = frame(&mut app, "role:button[Files]");
-    let apps = frame(&mut app, "role:button[Apps]");
+    let photos = frame(&mut app, "id:pick-photos");
+    let videos = frame(&mut app, "id:pick-videos");
+    let files = frame(&mut app, "id:pick-files");
+    let apps = frame(&mut app, "id:pick-apps");
     assert_eq!(photos.1, videos.1, "Photos and Videos share a row");
     assert_eq!(files.1, apps.1, "Files and Apps share a row");
     assert!(files.1 > photos.1, "two rows");
