@@ -261,7 +261,7 @@ tap_only Share || true
 tap_only Done || tap_only "Navigate up" || true # the last transfer's progress
 ad wait text "CI Emulator Inbox" 30000 >/dev/null 2>&1 || { step 08-no-inbox; fail "discovery: the app does not list the receiving CLI"; }
 tap_only Send || { step 08-no-send-page; fail "could not open Send"; }
-tap "Choose files" || fail "could not open the file picker"
+tap Files || fail "could not open the file picker"
 picked=no
 for _ in 1 2 3 4 5 6; do
   if tap_only "$out_file"; then

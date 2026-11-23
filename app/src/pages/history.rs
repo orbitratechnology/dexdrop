@@ -149,7 +149,7 @@ fn filter_bar(filter: Signal<Filter>) -> impl IntoElement {
             .self_start()
             .p(px(3.0))
             .rounded(px(12.0))
-            .bg(move || theme().card)
+            .bg(ui::surface)
             .children(Filter::ALL.map(|(f, label)| {
                 let selected = move || filter.get() == f;
                 button()
@@ -262,7 +262,7 @@ pub fn row(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
                     .justify_center()
                     .bg(rgb(if outgoing { ui::SEND.0 } else { ui::RECEIVE.0 }))
                     .border_2()
-                    .border_color(move || theme().card)
+                    .border_color(ui::surface)
                     .child(ui::icon(
                         if outgoing { Icon::Send } else { Icon::Receive },
                         11.0,

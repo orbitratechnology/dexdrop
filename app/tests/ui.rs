@@ -137,7 +137,7 @@ fn send_offers_photos_videos_and_files() {
     app.press("role:button[Send]").unwrap();
     app.wait_for("role:button[Photos]").unwrap();
     app.wait_for("role:button[Videos]").unwrap();
-    app.wait_for("role:button[Choose files]").unwrap();
+    app.wait_for("role:button[Files]").unwrap();
     // Nothing chosen yet: no way on to a device.
     assert!(app.screen().id("role:button[Choose device]").is_err());
     app.press_key("escape").unwrap();
@@ -191,7 +191,7 @@ fn phone_controls_meet_the_minimum_hit_target() {
         &[
             "role:button[Photos]",
             "role:button[Videos]",
-            "role:button[Choose files]",
+            "role:button[Files]",
         ],
     );
     app.press_key("mod+3").unwrap();

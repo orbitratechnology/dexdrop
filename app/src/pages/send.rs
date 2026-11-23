@@ -216,12 +216,13 @@ fn kinds() -> impl IntoElement {
             .accessibility_label(label)
             .on_press(pick)
             .flex_1()
-            .min_w(px(140.0))
+            // Three across on a phone, two (or more) on wider windows.
+            .min_w(px(if ui::mobile() { 96.0 } else { 140.0 }))
             .items_center()
             .gap(px(space::M))
             .py(px(space::XL))
             .rounded(px(20.0))
-            .bg(move || theme().card)
+            .bg(ui::surface)
             .active(|s| s.scale(0.97).opacity(0.85))
             .hover(move |s| s.bg(move || theme().muted))
             .child(ui::glyph(i, colors, 52.0))
@@ -250,12 +251,9 @@ fn kinds() -> impl IntoElement {
             .child(tile(Icon::Video, "Videos", (0x8b5cf6, 0xd946ef), || {
                 choose_staged(Kind::Videos)
             }))
-            .child(tile(
-                Icon::File,
-                "Choose files",
-                (0x3b82f6, 0x6366f1),
-                || choose_staged(Kind::Files),
-            ));
+            .child(tile(Icon::File, "Files", (0x3b82f6, 0x6366f1), || {
+                choose_staged(Kind::Files)
+            }));
     }
     grid
 }
@@ -481,7 +479,7 @@ pub fn code_page() -> impl IntoElement {
                     .min_h(px(64.0))
                     .px(px(space::L))
                     .rounded(px(18.0))
-                    .bg(move || theme().card)
+                    .bg(ui::surface)
                     .text_size(px(26.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .letter_spacing(px(2.0))

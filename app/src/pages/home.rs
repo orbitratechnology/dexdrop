@@ -68,7 +68,7 @@ fn status() -> impl IntoElement {
         .px(px(space::M))
         .py(px(6.0))
         .rounded(px(999.0))
-        .bg(move || theme().card)
+        .bg(ui::surface)
         .active(|s| s.opacity(0.7))
         .child(ui::dot(tone))
         .child(muted(line).font_weight(FontWeight::MEDIUM))

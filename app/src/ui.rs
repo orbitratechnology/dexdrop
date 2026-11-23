@@ -423,12 +423,20 @@ pub fn hero_action(
 
 // ---------------------------------------------------------------- surfaces
 
+/// The fill of cards and groups on a page: a light grey on phones, where the
+/// system paints pages white (as iOS's and Android's own settings do), and
+/// white on the grey page of desktops and the web.
+pub fn surface() -> AdaptiveColor {
+    if mobile() {
+        theme().secondary
+    } else {
+        theme().card
+    }
+}
+
 /// A rounded group of rows on the page's grouped background.
 pub fn group() -> View {
-    view()
-        .rounded(px(16.0))
-        .bg(move || theme().card)
-        .overflow_hidden()
+    view().rounded(px(16.0)).bg(surface).overflow_hidden()
 }
 
 /// A tile: a rounded card.
@@ -437,7 +445,7 @@ pub fn tile() -> View {
         .p(px(space::L))
         .gap(px(space::M))
         .rounded(px(18.0))
-        .bg(move || theme().card)
+        .bg(surface)
 }
 
 /// A row of a [`group`]: leading view, a title with a detail line under it
