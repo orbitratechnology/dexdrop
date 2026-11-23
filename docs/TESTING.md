@@ -117,6 +117,7 @@ JUnit reports (`--junit`) go in each job's check artifact
 Measured in CI run 64: on Linux the e2e step takes 4.7 min (2.8 min
 building the development host, 3 tests at ~27 s under Xvfb), on Windows
 7 min (6.8 min building, 3 tests at ~2 s), on macOS 4.5 min (4.2 min
-building, 3–6 s a test). Run 65 ran the macOS e2e step after the
-agent-device checks: 11 min. On Android `nsh test` builds the development
+building, 3–6 s a test). Run 65, after the agent-device checks: macOS
+11 min (10.7 min building, 2.5–10 s a test), iOS simulator 11.7 min
+(10.6 min building, 7–10 s a test). On Android `nsh test` builds the development
 host for all three ABIs (~12 min).
