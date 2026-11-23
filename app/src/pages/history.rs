@@ -334,6 +334,11 @@ fn details(e: HistoryEntry) -> impl IntoElement {
     let outgoing = e.direction == Direction::Outgoing;
     let (status, tone) = outcome_of(&e.outcome);
     let photos = crate::files::photo_strip(&e.items, 6);
+    let video = e
+        .items
+        .iter()
+        .filter(|i| crate::files::is_video(i.name()))
+        .find_map(|i| i.local.clone().filter(|p| p.exists()));
     let size_line = {
         let mut parts = vec![dexdrop_core::format::bytes(e.bytes)];
         parts.push(if e.files == 1 {
@@ -373,7 +378,11 @@ fn details(e: HistoryEntry) -> impl IntoElement {
         })
         .child(ui::title(e.label.clone()).text_center().number_of_lines(2))
         .child(ui::pill(status, move || tone).self_center())
-        .child(muted(size_line));
+        .child(muted(size_line))
+        .children(video.map(|path| {
+            ui::icon_btn(Icon::Play, "Play video", Variant::Primary)
+                .on_press(move || crate::files::open(path.clone()))
+        }));
 
     let (name, platform, avatar) = (
         e.peer_name.clone(),

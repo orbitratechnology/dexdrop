@@ -551,6 +551,8 @@ fn selected() -> impl IntoElement {
                                 ui::kind_glyph(Icon::Folder, 44.0)
                             } else if let Some(app) = card() {
                                 crate::files::app_icon(app.icon.as_deref(), 44.0)
+                            } else if crate::files::is_video(&label.get()) {
+                                play_thumb(at.get(), label.get())
                             } else {
                                 crate::files::thumb(&label.get(), None, 44.0, 10.0)
                             }
@@ -579,17 +581,51 @@ fn selected() -> impl IntoElement {
         ))
 }
 
+/// A picked video: its kind with a play button, which plays it.
+fn play_thumb(path: PathBuf, name: String) -> View {
+    view().child(
+        ui::pressable()
+            .accessibility_label(format!("Play {name}"))
+            .on_press(move || crate::files::open(path.clone()))
+            .active(|s| s.opacity(0.8))
+            .child(crate::files::thumb(&name, None, 44.0, 10.0))
+            .child(
+                view()
+                    .absolute()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        view()
+                            .size(px(22.0))
+                            .rounded(px(11.0))
+                            .items_center()
+                            .justify_center()
+                            .bg(rgba(0x0000_0099))
+                            .child(ui::icon(Icon::Play, 11.0, white())),
+                    ),
+            ),
+    )
+}
+
 /// A picked photo: its preview, with a button to remove it.
 fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
     let path = pick.path.clone();
+    let shown = pick.path.clone();
     view()
         .size(px(side))
-        .child(crate::files::thumb(
-            &pick.name,
-            Some(&pick.path),
-            side,
-            14.0,
-        ))
+        .child(
+            ui::pressable()
+                .accessibility_label(format!("View {}", pick.name))
+                .on_press(move || crate::files::open(shown.clone()))
+                .active(|s| s.opacity(0.8))
+                .child(crate::files::thumb(
+                    &pick.name,
+                    Some(&pick.path),
+                    side,
+                    14.0,
+                )),
+        )
         .child(
             ui::pressable()
                 .accessibility_label(format!("Remove {}", pick.name))

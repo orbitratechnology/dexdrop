@@ -64,6 +64,14 @@ every action, and the platform's own controls where NSH has them.
   a `<queries>` entry and installing needs `REQUEST_INSTALL_PACKAGES`,
   which NSH 0.6.1's `nsh.json` cannot declare: CI adds both to the packaged
   APK with apktool and signs it again (`scripts/patch-android-manifest.sh`).
+- **Player:** videos play, and photos show, inside the app (NSH's
+  `video`, with the platform's own controls: AVPlayer, MediaPlayer,
+  GStreamer through GTK, Media Foundation), from the Send selection, a
+  transfer, History or its details, with length, resolution and size,
+  and Share or save (phones) / Show in folder and Open in another app
+  (computers). On Linux GTK ends the app when GStreamer's `playbin` is
+  missing, so the player checks for the plugin first and says what to
+  install. Windows builds enable NSH's `media` feature.
 - **Icons:** devices carry their system's mark (Apple, Windows, Android,
   Linux, the browser's globe); files an icon per kind with their format on
   a colored tag (PDF, XLSX, CSV, HTML, SVG, GIF, APK, DMG, EXE, DEB, …).

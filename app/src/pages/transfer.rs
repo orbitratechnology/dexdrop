@@ -373,9 +373,25 @@ fn control(
 
 /// After a transfer: share or show what came in, and leave.
 fn after(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElement {
+    let first_video = move || {
+        s().items
+            .iter()
+            .filter(|i| crate::files::is_video(i.name()))
+            .find_map(|i| i.local.clone().filter(|p| p.exists()))
+    };
     view()
         .self_stretch()
         .gap(px(space::S))
+        .child(when(
+            move || first_video().is_some(),
+            move || {
+                ui::icon_btn(Icon::Play, "Play video", Variant::Primary).on_press(move || {
+                    if let Some(path) = first_video() {
+                        crate::files::open(path);
+                    }
+                })
+            },
+        ))
         .child(when(
             move || {
                 !desktop_platform()

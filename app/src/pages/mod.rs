@@ -8,6 +8,7 @@ pub mod receive;
 pub mod send;
 pub mod settings;
 pub mod transfer;
+pub mod viewer;
 
 use nsh_core::prelude::*;
 
@@ -36,6 +37,13 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
             transfer::page(id).into_element(),
         ),
         (_, Route::Past(id)) => (fixed("Details"), history::past_page(id).into_element()),
+        (_, Route::Viewer(path)) => {
+            let name = viewer::title(&path);
+            (
+                std::rc::Rc::new(move || name.clone()),
+                viewer::page(path).into_element(),
+            )
+        }
         (_, Route::Apps) => (fixed("Apps"), apps::page().into_element()),
         (_, Route::Avatar) => (fixed("Avatar"), profile::page().into_element()),
         (_, Route::Trusted) => (

@@ -101,6 +101,8 @@ pub enum Route {
     Avatar,
     /// Send: apps installed on this phone (Android).
     Apps,
+    /// A video playing, or a photo shown, in the app.
+    Viewer(std::path::PathBuf),
     /// History: a past transfer, by its hex ID.
     Past(String),
 }

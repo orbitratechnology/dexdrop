@@ -31,6 +31,36 @@ pub fn is_image(name: &str) -> bool {
     }
 }
 
+/// Whether the app plays this file itself (the platform decides in the
+/// end: a format it cannot decode says so in the player).
+pub fn is_video(name: &str) -> bool {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "3gp" | "avi" | "mpg" | "mpeg" | "ts" | "wmv"
+    )
+}
+
+/// A local file as a `file://` URL, for the platform's player: iOS, macOS
+/// and Android read URLs, and paths have spaces and other characters a URL
+/// must escape.
+pub fn file_url(path: &Path) -> String {
+    let mut s = path.to_string_lossy().replace('\\', "/");
+    if !s.starts_with('/') {
+        // C:/Videos → /C:/Videos
+        s.insert(0, '/');
+    }
+    let mut url = String::from("file://");
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-._~:".contains(&b) {
+            url.push(b as char);
+        } else {
+            url.push_str(&format!("%{b:02X}"));
+        }
+    }
+    url
+}
+
 /// The local file a preview can be drawn from, if any.
 pub fn preview_of(item: &FileItem) -> Option<PathBuf> {
     let local = item.local.as_ref()?;
@@ -63,6 +93,15 @@ pub fn thumb(name: &str, preview: Option<&Path>, side: f32, radius: f32) -> View
 
 /// Opens a file: in its app on computers, through the share sheet on phones.
 pub fn open(path: PathBuf) {
+    // Videos play, and photos show, in the app.
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if is_video(&name) || is_image(&name) {
+        crate::state::push(crate::state::Route::Viewer(path));
+        return;
+    }
     // An APK on Android: the system's installer, which asks first.
     let apk = path
         .to_string_lossy()
@@ -295,5 +334,28 @@ pub fn app_icon(icon: Option<&Path>, side: f32) -> View {
                     .object_fit(ResizeMode::Contain),
             ),
         None => ui::file_badge("app.apk", side, side * 0.24),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{file_url, is_video};
+
+    #[test]
+    fn local_files_become_escaped_urls() {
+        assert_eq!(
+            file_url(Path::new(
+                "/data/user/0/dev.dexdrop.app/files/My Trip #1.mp4"
+            )),
+            "file:///data/user/0/dev.dexdrop.app/files/My%20Trip%20%231.mp4"
+        );
+        assert_eq!(
+            file_url(Path::new(r"C:\Videos\été.mov")),
+            "file:///C:/Videos/%C3%A9t%C3%A9.mov"
+        );
+        assert!(is_video("clip.MOV"));
+        assert!(!is_video("clip.gif"));
     }
 }
