@@ -13,10 +13,10 @@
 //!   second responder cannot share the mDNS port with the system's, and iOS
 //!   apps get local-network discovery only through the system's service
 //!   (`NSBonjourServices` and the user's local-network permission).
+//! - Android uses the system's `NsdManager` through a small Java bridge
+//!   (`nsd`): apps cannot hold the multicast lock mdns-sd would need there.
 //! - Everywhere else, and in the iOS Simulator, the pure-Rust `mdns-sd`
-//!   responder (`mdns`).
-//!
-//! Android's `NsdManager` would be a third adapter.
+//!   responder (`mdns`), which is also Android's fallback.
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -39,16 +39,21 @@ pub mod bonjour;
 ))]
 pub mod mdns;
 
+#[cfg(any(target_os = "android", test))]
+pub mod nsd;
+
 #[cfg(all(
     target_vendor = "apple",
     not(all(target_os = "ios", target_abi = "sim"))
 ))]
 pub use bonjour::Discovery;
 #[cfg(any(
-    not(target_vendor = "apple"),
+    all(not(target_vendor = "apple"), not(target_os = "android")),
     all(target_os = "ios", target_abi = "sim")
 ))]
 pub use mdns::Discovery;
+#[cfg(target_os = "android")]
+pub use nsd::Discovery;
 
 /// A device found nearby.
 #[derive(Clone, Debug, PartialEq, Eq)]

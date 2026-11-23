@@ -135,12 +135,44 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: nsh component add android
       # Signed with the debug keystore NSH creates; release signing needs the
-      # project keystore (PRD P5-002) as a repository secret.
-      - run: nsh package app --target android -o dist/android
+      # project keystore (PRD P5-002) as a repository secret. x86_64 is for
+      # emulators (the check below) and x86 Chromebooks.
+      - run: nsh package app --target android --abi arm64-v8a,armeabi-v7a,x86_64 -o dist/android
       - uses: actions/upload-artifact@v4
         with:
           name: dexdrop-android
           path: dist/android/*.apk
+      # The CLI for the emulator: the check runs it inside, next to the app.
+      - name: Build the CLI for the emulator
+        run: |
+          bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android26-clang"
+          export CC_x86_64_linux_android="$bin/x86_64-linux-android26-clang"
+          export AR_x86_64_linux_android="$bin/llvm-ar"
+          cargo build --release -p dexdrop-cli --target x86_64-linux-android
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g agent-device@latest
+      - name: Android emulator check (agent-device)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash scripts/android-emu-check.sh "$(ls dist/android/*.apk | head -1)" target/x86_64-linux-android/release/dexdrop dist/android-check
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: android-check
+          path: dist/android-check
 
   package-windows:
     name: Package Windows

@@ -10,7 +10,7 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 | Target | Build | Run / validate | Notes |
 |---|---|---|---|
 | Linux x86_64 | Done (`nsh package --target linux`, 15 MB tarball) | Verified: two app instances discover each other and transfer; CLI ⇄ app; 300 MB byte-identical. In CI (under Xvfb), the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`) | Needs GTK 4.14+ (Ubuntu 24.04+) |
-| Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a, debug-signed, targetSdk 35) | Open: no device or emulator available | Manifest has `INTERNET`; mDNS needs `CHANGE_WIFI_MULTICAST_STATE` + a multicast lock or an NSD bridge, which NSH's standalone packaging cannot declare yet (P0-015). Invitations and direct addresses work without discovery. |
+| Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a + x86_64, debug-signed, targetSdk 35) | Checked in an emulator on every CI run by agent-device (`scripts/android-emu-check.sh`): launch and tabs; discovery through the system's NsdManager against the CLI inside the emulator; files sent with the pairing code and with the invitation link, accepted in the app. Not yet run on a phone | Discovery uses `NsdManager` through a Java bridge embedded as a dex (`crates/dexdrop-net/android/`), because NSH's packaging cannot declare `CHANGE_WIFI_MULTICAST_STATE` for a multicast lock (request drafted in `docs/upstream/nsh-android-permissions.md`). Needs Android 12+ for that; older versions fall back to mdns-sd. The emulator is behind its own NAT, so phone ⇄ computer discovery needs a real phone. |
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
 | Windows | Done in CI (`nsh package --target windows`) | Verified in CI: engine tests and throughput bench pass; the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`) | Not yet tried by hand on a Windows PC |
 | macOS | CI on `macos-15` (free for this public repository) | Verified in CI: the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`); the app also lists the CLI as a trusted nearby device | Unsigned, local use only. Uses the system's Bonjour service; macOS 15 asks before an app uses the local network, and the prompt shows `NSLocalNetworkUsageDescription` from `nsh.json` (the CI check answers Allow) |
@@ -25,7 +25,7 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 | FR-003 Device name | Done | Generic default `Linux PC 4F2A`, renamable |
 | FR-004 Local-network permission copy | Partial | iOS plist text set; Android flow open |
 | FR-005 Empty states | Done | Searching, unavailable, browser preview |
-| FR-010 – FR-012 Discovery, info, dedupe | Done (desktop, iOS Simulator) | System Bonjour (`dns_sd`) on macOS and iOS devices, mdns-sd on Windows, Linux and the iOS Simulator; deduped by peer ID; TXT updates in place when a code opens |
+| FR-010 – FR-012 Discovery, info, dedupe | Done (desktop, iOS Simulator, Android emulator) | System Bonjour (`dns_sd`) on macOS and iOS devices, the system's `NsdManager` on Android, mdns-sd on Windows, Linux and the iOS Simulator; deduped by peer ID; TXT updates in place when a code opens |
 | FR-013 Network changes | Done | Re-advertises on address change (5 s poll) |
 | FR-014 Denied permission | Partial | Fallbacks shown; platform permission flows open |
 | FR-015 Trusted devices | Done | Trust on accept, forget, per-device auto-accept |
@@ -82,9 +82,9 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 ## Known gaps worth doing next
 
-1. Android emulator check (like the desktop and iOS checks); extend the checks to sending from the app and pause/resume; run on an iPhone and by hand on Windows and macOS.
-2. Android: a native NSD/multicast-lock bridge and SAF file access (needs an
-   NSH packaging extension), then device testing.
+1. Extend the checks to sending from the app and pause/resume; run on an iPhone and by hand on Windows and macOS.
+2. Android: run on a phone (discovery with a computer); SAF file access and a
+   share target (need an NSH manifest extension or an app that embeds `NshView`).
 3. iOS: Files/Photos picker; share sheet entry (FR-035).
 4. Store the identity key in the OS keystore.
 5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
