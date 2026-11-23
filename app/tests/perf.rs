@@ -33,6 +33,12 @@ fn history(n: usize) -> String {
 /// The app on state with `entries` past transfers, past its first screen,
 /// counting the mount items of each step.
 fn start(entries: usize) -> (Headless, tempfile::TempDir, Seen) {
+    start_with(entries, false)
+}
+
+/// [`start`], on a manual clock the test moves (NSH's `Clock::manual`):
+/// the app's timers run when the test says, not after real seconds.
+fn start_with(entries: usize, manual: bool) -> (Headless, tempfile::TempDir, Seen) {
     let dir = tempfile::tempdir().unwrap();
     for state in [dir.path().to_path_buf(), dir.path().join("state")] {
         std::fs::create_dir_all(&state).unwrap();
@@ -50,6 +56,9 @@ fn start(entries: usize) -> (Headless, tempfile::TempDir, Seen) {
     }
     let mut config = EngineConfig::new(Root::of::<dexdrop_app::App>());
     config.data_dir = Some(dir.path().to_path_buf());
+    if manual {
+        config.clock = nsh_core::time::Clock::manual(std::time::SystemTime::now());
+    }
     let mut app = Headless::start(config).unwrap();
     app.wait_for("Nearby").unwrap();
     app.wait(Duration::from_secs(1)).unwrap();
@@ -120,10 +129,11 @@ fn long_history_costs_what_a_short_one_does() {
 /// (animations run natively), on every tab.
 #[test]
 fn idle_screens_send_nothing() {
-    let (mut app, _dir, seen) = start(5);
+    let (mut app, _dir, seen) = start_with(5, true);
     // Home's one-off hint ("Not here yet?") comes 8 s after it opens; tabs
-    // stay alive while others show, so let it come first.
-    app.wait(Duration::from_secs(9)).unwrap();
+    // stay alive while others show, so let it come first: at once, on the
+    // manual clock.
+    app.fast_forward(Duration::from_secs(9)).unwrap();
     for (key, shows) in [
         ("mod+1", "Nearby"),
         ("mod+2", "Earlier"),

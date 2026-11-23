@@ -76,6 +76,15 @@ jobs:
             target/release/dexdrop
       # The packaged app, started for real (on a virtual display): discovered
       # by the CLI, receives a file and a folder byte-identical.
+      # The real GTK app driven by NSH's test runner (app/e2e): the same
+      # selectors as the headless tests, through the platform's input.
+      - name: App e2e (nsh test, Linux)
+        env:
+          GSK_RENDERER: cairo
+          DEXDROP_NO_DISCOVERY: "1"
+        run: |
+          sudo apt-get install -y libsoup-3.0-dev libwebkitgtk-6.0-dev
+          cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/tabs.test.ts --target linux --junit ../dist/e2e-linux.xml
       - name: Desktop app check
         env:
           GSK_RENDERER: cairo
