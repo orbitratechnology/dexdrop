@@ -184,8 +184,18 @@ into a new snapshot once it has as many lines as the journal has files.
 
 ## Discovery
 
-`mdns-sd` advertises `_dexdrop._tcp.local.` with TXT `v`, `id`, `n`, `p`, `c`
-(code open). No file names or account names are advertised. The PRD's
-platform-specific adapters (Network framework on iOS, `NsdManager` on Android)
-plug into the same `DiscoveryEvent` contract; they need native bridges that
-standalone NSH packaging does not provide yet.
+`_dexdrop._tcp` with TXT `v`, `id`, `n`, `p`, `c` (code open) and `a`
+(avatar). No file names or account names are advertised. Each platform
+uses its own service behind one `DiscoveryEvent` contract
+(`crates/dexdrop-net/src/discovery/`):
+
+- **Apple** (iOS, macOS): the system's Bonjour (`dns_sd`), so iOS asks for
+  local-network permission once and needs no multicast entitlement
+  (`bonjour.rs`). The iOS Simulator uses mdns-sd.
+- **Android:** the system's `NsdManager` through a Java bridge loaded from
+  memory (`nsd.rs`, Android 12+; older versions fall back to mdns-sd).
+- **Windows, Linux:** mdns-sd, a Rust responder that shares port 5353
+  with Avahi or Windows' own (`mdns.rs`).
+
+Devices on other networks are not discovered: they are reached by key
+(ADR-002), from an invitation or a previous exchange.

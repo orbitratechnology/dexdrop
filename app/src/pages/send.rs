@@ -245,7 +245,26 @@ fn choose_staged(kind: Kind) {
             }
         };
         detached(async move {
-            let files = picked.await;
+            let picked = picked.await;
+            // The system hands the app each file's bytes, at most 512 MB
+            // of them (NSH's picker): a larger one comes with its name and
+            // size only. Say so, rather than send it empty.
+            let (files, too_large): (Vec<_>, Vec<_>) = picked
+                .into_iter()
+                .partition(|f| f.status != nsh_core::picker::PickedStatus::TooLarge);
+            if !too_large.is_empty() {
+                let names: Vec<String> = too_large
+                    .iter()
+                    .map(|f| format!("{} ({})", f.name, format::bytes(f.len)))
+                    .collect();
+                toast(
+                    NoticeKind::Error,
+                    format!(
+                        "Too large to send from this phone yet (512 MB at most per file): {}",
+                        names.join(", ")
+                    ),
+                );
+            }
             if files.is_empty() {
                 set_loading(None);
                 return;

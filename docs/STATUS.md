@@ -193,6 +193,36 @@ names the test or check; "Gap" is what is still missing.
 | 10.4 Windows | Partial | Dialogs, Explorer drop, notifications, per-user installer; taskbar progress has no NSH API |
 | 10.5 Linux | Partial | GTK 4.14+ documented, dialogs; tested under X11 (Xvfb) only, not GNOME/KDE on Wayland |
 
+## Against the recommended architecture (Discovery → Connection → Transfer → Verification)
+
+Audited 2026-11-23 against the PRD's technology stack.
+
+| Layer | Recommended | DexDrop | Status |
+|---|---|---|---|
+| UI | NSH.dev | NSH 0.6.1, Rust-only; native tab bar, headers, pickers, video | Done |
+| Core | Rust + Tokio, UI-independent | `dexdrop-core` (protocol, identity, manifest, journal; no I/O) and `dexdrop-net` (engine on Tokio); the app only sends commands and renders events | Done |
+| Separate modules | discovery / connection / orchestration / streaming | `discovery/`, `tls.rs` + `remote.rs` (connection), `engine.rs` (orchestration), `session.rs` (streaming); sessions run over any `AsyncRead + AsyncWrite` (`BoxLink`), so a transport is swappable | Done |
+| Discovery | mDNS + DNS-SD, Bonjour, Android NSD | Bonjour on Apple, NSD on Android, mdns-sd on Windows and Linux (not Avahi's API; it shares the port) | Done |
+| QR / short codes | QR + codes | QR invitations (shown, copied, imported from an image) and 8-character codes proven with SPAKE2 | Done; camera scanning open (FR-024: NSH has no camera API) |
+| BLE | optional | — | Not planned for v1 |
+| Identity | public-key | Ed25519 device key in the OS keystore, pinned certificates, verification number, trust list | Done |
+| Encryption | TLS 1.3 | rustls, TLS 1.3 only, mutual | Done |
+| Transport (same network) | Iroh / QUIC preferred, TCP + TLS fallback | **TCP + TLS 1.3** (ADR-001): 3.4× QUIC's throughput at a quarter of its CPU on loopback | Deviation, by benchmark; the lossy-Wi-Fi comparison on real devices is still owed |
+| Transport (other networks) | Iroh, NAT traversal, relay fallback | Iroh 1.5 with the same key; LAN first, then direct (hole punching), then relay; the route is shown | Done; production relay of our own still to deploy |
+| Manifest | before transfer | paginated, bounded, digest-pinned | Done |
+| Chunked streaming, bounded memory | yes | 4 MiB chunks streamed from disk; frames ≤ 256 KiB; 17–40 MB peak for 2,000–20,000 files | Done |
+| Backpressure | yes | ≤ 64 requests outstanding (semaphore), TCP/QUIC flow control, ≤ 8 commits in flight | Done |
+| Concurrent / multiplexed | multiple streams in one QUIC connection | one stream per transfer with pipelined requests; several transfers run at once on separate connections | Partial: no per-file streams (they help on lossy links, not on loopback) |
+| Adaptive concurrency | yes | fixed limits | Open |
+| Zero-copy / reduced-copy | where supported | reads into reused buffers; no `sendfile` (TLS is in user space) | Partial |
+| Resume | chunk-level | verified, chunk-aligned prefix per file, journaled every 2 s; the sender sends only what is missing | Done (files are received in order, so a prefix is the chunk set) |
+| Integrity | BLAKE3 | per chunk and per file; a failed file is requested again once | Done |
+| Phones' files | Files / SAF | NSH's pickers hand over each file's bytes: at most 512 MB per file and 100 per pick; larger files are named and refused instead of being sent empty | Partial: needs stream access to picked files in NSH |
+| iOS background | not guaranteed | foreground transfers, journaled, resumed on return | Done as the PRD expects |
+| Android background | — | needs a foreground service NSH's packaging cannot declare | Open |
+| Browser | WebRTC, optional | web preview of the UI only, no engine | Not planned for v1 |
+| Benchmarks | real devices | loopback benches in CI (throughput, files/s, memory, TCP vs QUIC); no real-device numbers yet | Open |
+
 ## Quality, acceptance and release gates (PRD 11, 13, 16)
 
 | Area | Status | Gap |
