@@ -143,6 +143,11 @@ done
 [ "$accepted" = yes ] || { step 05-no-accept; kill "$sender" 2>/dev/null; fail "could not accept the request in the app"; }
 step 05-accepted
 for _ in $(seq 1 60); do kill -0 "$sender" 2>/dev/null || break; sleep 1; done
+if kill -0 "$sender" 2>/dev/null; then
+  kill "$sender" 2>/dev/null
+  step 06-stuck
+  fail "the CLI did not finish sending within 60 s (cli-send-code.log)"
+fi
 wait "$sender" || fail "the CLI reported a failed transfer (cli-send-code.log)"
 cmp -s "$payload" "$work/received/payload.bin" || fail "payload.bin is missing or differs in the app's download folder"
 step 06-received

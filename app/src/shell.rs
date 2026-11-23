@@ -445,10 +445,14 @@ fn diagnostics(report: String) -> impl IntoElement {
         )
 }
 
+/// Notices drop in at the top, where they never cover a sheet's buttons,
+/// the tab bar or the controls at the bottom of a page.
 fn toast_stack() -> impl IntoElement {
     view()
         .absolute()
-        .bottom(px(if ui::mobile() { 104.0 } else { 24.0 }))
+        .top(move || {
+            px(nsh_core::element::safe_area().top.0 + if ui::mobile() { 8.0 } else { 20.0 })
+        })
         .left(px(16.0))
         .right(px(16.0))
         .items_center()
@@ -464,7 +468,7 @@ fn toast_stack() -> impl IntoElement {
                     NoticeKind::Success => (Icon::Check, Tone::Success),
                     NoticeKind::Info => (Icon::Info, Tone::Accent),
                 };
-                let enter = motion().entering(MotionPreset::FadeInUp);
+                let enter = motion().entering(MotionPreset::FadeInDown);
                 view()
                     .bind_motion(&enter)
                     .flex_row()

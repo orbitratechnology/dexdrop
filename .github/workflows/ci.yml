@@ -163,6 +163,7 @@ jobs:
           node-version: "22"
       - run: npm install -g agent-device@latest && sudo apt-get install -y zbar-tools
       - name: Android emulator check (agent-device)
+        timeout-minutes: 30
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -277,6 +278,7 @@ jobs:
       # code transfer accepted in the app, and sending from the app with
       # Pause and Resume.
       - name: macOS app check (agent-device)
+        timeout-minutes: 20
         if: ${{ !cancelled() }}
         run: scripts/macos-ui-check.sh dist/macos/DexDrop.app target/release/dexdrop dist/macos-ui
       - uses: actions/upload-artifact@v4
@@ -285,6 +287,7 @@ jobs:
           name: macos-ui-check
           path: dist/macos-ui
       - name: iOS Simulator check (agent-device)
+        timeout-minutes: 30
         if: ${{ !cancelled() }}
         run: scripts/ios-sim-check.sh dist/ios-simulator target/release/dexdrop dist/ios-screens
       - uses: actions/upload-artifact@v4

@@ -125,7 +125,8 @@ wait "$receiver" 2>/dev/null
 open_sheet() {
   local _
   tap_only Share || true
-  tap_only Done || true
+  # Done may be below the fold on a small screen: the header's back works too.
+  tap_only Done || tap_only "Navigate up" || true
   for _ in 1 2 3; do
     ad wait 'label="Receive"' 5000 >/dev/null 2>&1 || true
     if tap_only Receive && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
@@ -257,7 +258,7 @@ dexdrop --max-rate 1 --state "$dev/inbox-state" receive --yes --name "CI Emulato
 inbox=$!
 front
 tap_only Share || true
-tap_only Done || true # the last transfer's progress
+tap_only Done || tap_only "Navigate up" || true # the last transfer's progress
 ad wait text "CI Emulator Inbox" 30000 >/dev/null 2>&1 || { step 08-no-inbox; fail "discovery: the app does not list the receiving CLI"; }
 tap_only Send || { step 08-no-send-page; fail "could not open Send"; }
 tap "Choose files" || fail "could not open the file picker"

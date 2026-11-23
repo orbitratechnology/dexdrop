@@ -126,17 +126,23 @@ fn progress(id: TransferId) -> impl IntoElement {
     let s = move || find(Some(id)).unwrap_or_default();
     let done = move || s().state == TransferState::Completed;
     let finished = move || s().state.is_finished();
+    // Smaller on short screens, so the actions stay in view.
+    let ring = if nsh_core::element::window().height.0 < 720.0 {
+        168.0
+    } else {
+        220.0
+    };
     view()
         .items_center()
         .gap(px(space::XL))
         .pt(px(space::L))
         .child(
             view()
-                .size(px(220.0))
+                .size(px(ring))
                 .items_center()
                 .justify_center()
                 .child(
-                    ui::progress_ring(move || s().progress(), move || tone_of(&s().state), 220.0)
+                    ui::progress_ring(move || s().progress(), move || tone_of(&s().state), ring)
                         .absolute(),
                 )
                 .child(dynamic(move || {
