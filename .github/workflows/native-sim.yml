@@ -122,6 +122,9 @@ jobs:
       # gate at /__native-sim/log to holders of the access key.
       NSH_LOG: /tmp/nsh-run.log
       NSH_VERSION: v0.6.1
+      # Keep the Rust build cache even when a session ends abnormally: the
+      # first build takes ~15 min, later sessions reuse it.
+      CACHE_ON_FAILURE: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -426,32 +429,25 @@ jobs:
 
       - name: Build and run the app (nsh)
         if: inputs.mode == 'nsh'
-        timeout-minutes: 60
+        timeout-minutes: 5
         env:
           UDID: ${{ steps.sim.outputs.udid }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -f state=success -f "context=$STATUS_CONTEXT" \
-            -f "description=simulator live; building the app (first build ~10 min)" || true
           # `nsh run` builds the app's runner with the crate, installs it in the
           # simulator, streams its logs and rebuilds and restarts it whenever the
-          # crate's Rust code changes (the hold step moves the checkout).
+          # crate's Rust code changes (the hold step moves the checkout). It
+          # runs in the background: the agent-device proxy comes up meanwhile,
+          # and the hold step reports when the app is up.
           cd "${{ inputs.project_dir }}"
           echo "== $(date -u +%T) nsh run at $(git rev-parse --short HEAD)" > "$NSH_LOG"
           nohup nsh run --target ios --device "$UDID" < /dev/null >> "$NSH_LOG" 2>&1 &
           echo $! > /tmp/nsh-run.pid
           disown
-          for _ in $(seq 1 3600); do
-            grep -q '✓ running' "$NSH_LOG" && break
-            kill -0 "$(cat /tmp/nsh-run.pid)" 2>/dev/null || { tail -80 "$NSH_LOG"; echo "::error::nsh run exited"; exit 1; }
-            sleep 1
-          done
-          tail -20 "$NSH_LOG"
           gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=success -f "context=$STATUS_CONTEXT" \
-            -f "description=app running at $(git rev-parse --short HEAD)" || true
+            -f "description=simulator live; building the app (first build ~15 min)" || true
 
       - name: Build app
         timeout-minutes: 60
@@ -807,6 +803,16 @@ jobs:
                 nohup agent-device proxy --host 127.0.0.1 --port "$AGENT_PORT" \
                   --daemon-auth-token "$GATE_TOKEN" >> agent-device-proxy.log 2>&1 &
                 disown
+              fi
+            fi
+            # mode:nsh: say when a build is installed (each "packaged" line).
+            if [ -f "$NSH_LOG" ]; then
+              BUILT=$(grep -c '✓ packaged' "$NSH_LOG" || true)
+              if [ "${BUILT:-0}" != "${NSH_BUILT:-0}" ]; then
+                NSH_BUILT=$BUILT
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+                  -f state=success -f "context=$STATUS_CONTEXT" \
+                  -f "description=app running at $(git rev-parse --short HEAD)" >/dev/null 2>&1 || true
               fi
             fi
             # mode:nsh: follow the branch. A new commit moves the checkout and
