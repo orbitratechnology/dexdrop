@@ -21,7 +21,8 @@ use dexdrop_core::{
     naming::ConflictPolicy,
     protocol::{DEFAULT_CHUNK_SIZE, RejectReason, TransferId},
     store::{
-        Direction, History, HistoryEntry, Outcome, Settings, StateDir, TrustList, TrustedPeer,
+        Direction, FileItem, History, HistoryEntry, Outcome, Settings, StateDir, TrustList,
+        TrustedPeer,
     },
     unix_now,
 };
@@ -410,6 +411,10 @@ impl Ctx {
     pub fn device_name(&self) -> String {
         lock(&self.settings).device_name.clone()
     }
+
+    pub(crate) fn avatar(&self) -> Option<String> {
+        lock(&self.settings).avatar.clone()
+    }
 }
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -436,6 +441,7 @@ pub(crate) struct OfferArrived {
     pub offer: crate::session::ReceivedOffer,
     pub decide: oneshot::Sender<Decision>,
     pub route: Route,
+    pub avatar: Option<String>,
     /// The sender's raw Ed25519 key, remembered once the transfer completes.
     pub key: Option<[u8; 32]>,
 }
@@ -474,6 +480,7 @@ pub(crate) enum Internal {
         sas: String,
         route: Route,
         key: Option<[u8; 32]>,
+        avatar: Option<String>,
     },
     /// How a transfer's connection goes now.
     Route {
@@ -831,6 +838,12 @@ impl Actor {
                 self.readvertise();
                 self.emit_status();
             }
+            Command::SetAvatar(avatar) => {
+                let avatar = dexdrop_core::avatar::Avatar::clean(avatar.as_deref());
+                self.update_settings(|s| s.avatar = avatar);
+                self.readvertise();
+                self.emit_status();
+            }
             Command::SetVisible(visible) => {
                 self.update_settings(|s| s.visible = visible);
                 self.readvertise();
@@ -1086,6 +1099,7 @@ impl Actor {
                 platform: request.peer_platform.clone(),
                 auto_accept: false,
                 added: unix_now(),
+                avatar: request.peer_avatar.clone(),
             });
             let _ = self.trust.save(&self.ctx.state.trusted());
             self.emit(Event::Trusted(self.trust.peers.clone()));
@@ -1239,11 +1253,13 @@ impl Actor {
                 sas,
                 route,
                 key,
+                avatar,
             } => {
                 if let Some(t) = self.transfers.get_mut(&id) {
                     t.snap.peer_id = Some(peer_id);
                     t.snap.peer_name = name.clone();
                     t.snap.peer_platform = platform.clone();
+                    t.snap.peer_avatar = avatar.clone();
                     t.snap.sas = Some(sas);
                     t.snap.route = Some(route);
                     t.peer_key = key;
@@ -1251,7 +1267,7 @@ impl Actor {
                 }
                 // A device this one reached: reachable over the internet later.
                 if let Some(key) = key {
-                    self.remember(peer_id, name, platform, key);
+                    self.remember(peer_id, name, platform, avatar, key);
                 }
             }
             Internal::Route { id, route } => {
@@ -1334,6 +1350,7 @@ impl Actor {
             decide,
             route,
             key,
+            avatar,
         } = arrived;
         let id = offer.offer.transfer_id;
 
@@ -1360,6 +1377,7 @@ impl Actor {
             snap.peer_id = Some(peer_id);
             snap.peer_name = peer_name;
             snap.peer_platform = peer_platform;
+            snap.peer_avatar = avatar;
             snap.sas = Some(sas);
             snap.route = Some(route);
             fill_from_offer(&mut snap, &offer);
@@ -1423,11 +1441,13 @@ impl Actor {
                     .unwrap_or(&self.config.default_download_dir),
             ),
             route,
+            peer_avatar: avatar.clone(),
         };
         let mut snap = blank_snapshot(id, Direction::Incoming);
         snap.peer_id = Some(peer_id);
         snap.peer_name = peer_name;
         snap.peer_platform = peer_platform;
+        snap.peer_avatar = avatar;
         snap.sas = Some(sas);
         snap.saved_to = Some(request.destination.clone());
         snap.route = Some(route);
@@ -1484,6 +1504,7 @@ impl Actor {
                         peer,
                         t.snap.peer_name.clone(),
                         t.snap.peer_platform.clone(),
+                        t.snap.peer_avatar.clone(),
                         key,
                     ));
                 }
@@ -1494,6 +1515,7 @@ impl Actor {
                     .filter_map(|f| f.saved.clone())
                     .take(MAX_SAVED_LISTED)
                     .collect();
+                t.snap.items = saved_items(&t.snap.saved_files, t.snap.saved_to.as_deref());
                 if t.snap.files_failed > 0 || t.snap.files_skipped > 0 {
                     TransferState::CompletedWithIssues
                 } else {
@@ -1530,8 +1552,8 @@ impl Actor {
                 );
             }
         }
-        for (peer, name, platform, key) in remember_after {
-            self.remember(peer, name, platform, key);
+        for (peer, name, platform, avatar, key) in remember_after {
+            self.remember(peer, name, platform, avatar, key);
         }
     }
 
@@ -1581,6 +1603,7 @@ impl Actor {
             platform: self.ctx.platform.clone(),
             port: self.port,
             code_open: lock(&self.ctx.invitations).has_open_code(unix_now()),
+            avatar: settings.avatar.clone(),
         });
         if wanted == self.advertised {
             return;
@@ -1612,6 +1635,7 @@ impl Actor {
             visible: settings.visible,
             discovery: self.discovery_status.clone(),
             internet: self.ctx.remote.is_some(),
+            avatar: settings.avatar,
         }));
     }
 
@@ -1624,7 +1648,22 @@ impl Actor {
     }
 
     /// Remembers a device this one exchanged files with, with its key.
-    fn remember(&mut self, peer_id: PeerId, name: String, platform: String, key: [u8; 32]) {
+    fn remember(
+        &mut self,
+        peer_id: PeerId,
+        name: String,
+        platform: String,
+        avatar: Option<String>,
+        key: [u8; 32],
+    ) {
+        // A trusted device's avatar follows it.
+        if let Some(t) = self.trust.peers.iter_mut().find(|t| t.peer_id == peer_id)
+            && t.avatar != avatar
+        {
+            t.avatar = avatar.clone();
+            let _ = self.trust.save(&self.ctx.state.trusted());
+            self.emit(Event::Trusted(self.trust.peers.clone()));
+        }
         let peer = dexdrop_core::store::KnownPeer {
             peer_id,
             name,
@@ -1632,6 +1671,7 @@ impl Actor {
             key,
             relay: None,
             last_seen: unix_now(),
+            avatar,
         };
         let mut known = lock(&self.ctx.known);
         if known.remember(peer) {
@@ -1653,6 +1693,7 @@ impl Actor {
                 code_open: d.code_open,
                 last_rate: self.last_rate(&d.peer_id),
                 nearby: true,
+                avatar: d.avatar.clone(),
             })
             .collect();
         // Known devices not on this network: over the internet.
@@ -1670,6 +1711,7 @@ impl Actor {
                     code_open: false,
                     last_rate: self.last_rate(&k.peer_id),
                     nearby: false,
+                    avatar: k.avatar.clone(),
                 });
             }
         }
@@ -1709,6 +1751,10 @@ impl Actor {
             saved_to: snap.saved_to.clone(),
             peer_id: snap.peer_id,
             average_rate: snap.average_rate,
+            peer_avatar: snap.peer_avatar.clone(),
+            started: Some(snap.started),
+            route: snap.route,
+            items: snap.items.clone(),
         });
         let _ = self.history.save(&self.ctx.state.history());
         self.emit(Event::History(self.history.entries.clone()));
@@ -1795,6 +1841,8 @@ fn blank_snapshot(id: TransferId, direction: Direction) -> TransferSnapshot {
         average_rate: None,
         saved_files: Vec::new(),
         route: None,
+        peer_avatar: None,
+        items: Vec::new(),
     }
 }
 
@@ -1803,6 +1851,33 @@ fn fill_from_manifest(snap: &mut TransferSnapshot, manifest: &Manifest) {
     snap.files = manifest.files;
     snap.folders = manifest.folders;
     snap.total_bytes = manifest.total_bytes;
+    snap.items = manifest
+        .entries
+        .iter()
+        .filter(|e| e.source.is_some())
+        .take(FileItem::LISTED)
+        .map(|e| FileItem {
+            path: e.wire.path.clone(),
+            size: e.wire.size,
+            local: e.source.clone(),
+        })
+        .collect();
+}
+
+/// The files saved, as listed: their paths within the destination.
+fn saved_items(saved: &[std::path::PathBuf], dir: Option<&std::path::Path>) -> Vec<FileItem> {
+    saved
+        .iter()
+        .map(|p| FileItem {
+            path: dir
+                .and_then(|d| p.strip_prefix(d).ok())
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/"),
+            size: std::fs::metadata(p).map(|m| m.len()).unwrap_or(0),
+            local: Some(p.clone()),
+        })
+        .collect()
 }
 
 fn fill_from_offer(snap: &mut TransferSnapshot, offer: &crate::session::ReceivedOffer) {

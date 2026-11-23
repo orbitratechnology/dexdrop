@@ -97,6 +97,8 @@ pub enum Route {
     Transfer(Option<dexdrop_core::protocol::TransferId>),
     /// Settings: trusted devices.
     Trusted,
+    /// Settings: this device's avatar.
+    Avatar,
 }
 
 /// Each tab's pages, root first.

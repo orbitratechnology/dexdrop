@@ -357,7 +357,7 @@ pub fn devices_page() -> impl IntoElement {
                     .child(ui::radar(
                         ui::SEND,
                         220.0,
-                        ui::avatar(me, my_platform, 72.0),
+                        ui::avatar(me, my_platform, ui::my_avatar, 72.0),
                     ))
                     .child(muted(move || {
                         let n = model().with(|m| m.peers.iter().filter(|p| p.nearby).count());
@@ -422,9 +422,13 @@ fn device_row(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
         .py(px(space::M))
         .active(move |s| s.bg(move || theme().muted))
         .hover(move |s| s.bg(move || theme().muted.opacity(0.6)))
-        .child(ui::far_avatar(name, platform, 48.0, move || {
-            !peer.with(|p| p.nearby)
-        }))
+        .child(ui::far_avatar(
+            name,
+            platform,
+            move || peer.with(|p| p.avatar.clone()),
+            48.0,
+            move || !peer.with(|p| p.nearby),
+        ))
         .child(
             view()
                 .flex_1()

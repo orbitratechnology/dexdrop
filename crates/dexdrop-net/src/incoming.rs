@@ -66,7 +66,8 @@ async fn run(ctx: Arc<Ctx>, link: tls::BoxLink, via: Via) -> Result<(), SessionE
             )));
         }
     };
-    let ours = Hello::new(&ctx.device_name(), &ctx.platform, None);
+    let ours =
+        Hello::new(&ctx.device_name(), &ctx.platform, None).with_avatar(ctx.avatar().as_deref());
     if ours.negotiate(&hello).is_none() {
         wire::send(&mut stream, &Message::Reject(RejectReason::Incompatible)).await?;
         return Ok(());
@@ -173,6 +174,7 @@ async fn run(ctx: Arc<Ctx>, link: tls::BoxLink, via: Via) -> Result<(), SessionE
         decide,
         route,
         key: peer.key,
+        avatar: dexdrop_core::avatar::Avatar::clean(hello.avatar.as_deref()),
     };
     if ctx
         .internal

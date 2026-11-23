@@ -119,6 +119,85 @@ async fn sends_files_and_folders_with_consent() {
     }
 }
 
+/// Each device's avatar reaches the other, and both list the files with
+/// where each is on their side, live and in history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn avatars_and_file_lists_reach_both_sides() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    a.send(Command::SetAvatar(Some("3:🦊".into())));
+    a.wait("Alice's avatar", |e| match e {
+        Event::Status(s) => s.avatar.clone().filter(|v| v == "3:🦊"),
+        _ => None,
+    })
+    .await;
+    b.send(Command::SetAvatar(Some("5:🌵".into())));
+    b.wait("Bob's avatar", |e| match e {
+        Event::Status(s) => s.avatar.clone(),
+        _ => None,
+    })
+    .await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("cat.jpg"), 2_000, 1);
+    write_file(&src.path().join("Notes/a.txt"), 10, 2);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("cat.jpg"), src.path().join("Notes")],
+    });
+    let request = b.wait_request().await;
+    assert_eq!(request.peer_avatar.as_deref(), Some("3:🦊"));
+    b.send(Command::Respond {
+        id: request.id,
+        accept: true,
+        trust: true,
+        conflict: ConflictPolicy::KeepBoth,
+    });
+    // Bob trusts Alice: her avatar is on her trusted entry.
+    let trusted = b
+        .wait("trusted", |e| match e {
+            Event::Trusted(t) if !t.is_empty() => Some(t.clone()),
+            _ => None,
+        })
+        .await;
+    assert_eq!(trusted[0].avatar.as_deref(), Some("3:🦊"));
+    let got = b
+        .wait_state("received", |s| *s == TransferState::Completed)
+        .await;
+    let mut items: Vec<_> = got
+        .items
+        .iter()
+        .map(|i| (i.path.clone(), i.size, i.local.clone().unwrap()))
+        .collect();
+    items.sort();
+    assert_eq!(
+        items,
+        vec![
+            ("Notes/a.txt".into(), 10, b.downloads().join("Notes/a.txt")),
+            ("cat.jpg".into(), 2_000, b.downloads().join("cat.jpg")),
+        ]
+    );
+    let sent = a
+        .wait_state("sent", |s| *s == TransferState::Completed)
+        .await;
+    assert_eq!(sent.peer_avatar.as_deref(), Some("5:🌵"));
+    assert!(
+        sent.items
+            .iter()
+            .any(|i| i.path == "cat.jpg" && i.local.as_deref() == Some(&src.path().join("cat.jpg")))
+    );
+    // History keeps them, with the avatar, route and start.
+    let history = b
+        .wait("history", |e| match e {
+            Event::History(h) if !h.is_empty() => Some(h.clone()),
+            _ => None,
+        })
+        .await;
+    assert_eq!(history[0].peer_avatar.as_deref(), Some("3:🦊"));
+    assert_eq!(history[0].items.len(), 2);
+    assert!(history[0].started.is_some());
+    assert!(history[0].route.is_some());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn declining_tells_the_sender() {
     let mut a = Node::start("Alice").await;
@@ -981,6 +1060,7 @@ async fn impostor() -> (
             platform: "linux".into(),
             port,
             code_open: true,
+            avatar: None,
         })
         .unwrap();
     (id, offered, discovery)

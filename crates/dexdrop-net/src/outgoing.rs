@@ -205,6 +205,7 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
             sas: c.session.sas.clone(),
             route: c.route(),
             key: c.session.key,
+            avatar: dexdrop_core::avatar::Avatar::clean(c.hello.avatar.as_deref()),
         });
         if let Some(conn) = c.internet.clone() {
             crate::remote::follow_route(ctx.clone(), job.id, conn);
@@ -533,7 +534,8 @@ async fn handshake(
             (Some(Pairing::Pake(msg)), Some(exchange))
         }
     };
-    let ours = Hello::new(&ctx.device_name(), &ctx.platform, pairing);
+    let ours =
+        Hello::new(&ctx.device_name(), &ctx.platform, pairing).with_avatar(ctx.avatar().as_deref());
     wire::send(&mut stream, &Message::Hello(ours.clone()))
         .await
         .map_err(|e| ConnectError::Unreachable(e.to_string()))?;

@@ -55,6 +55,8 @@ pub enum Command {
     CreateCode,
     CloseInvitations,
     SetDeviceName(String),
+    /// This device's avatar ([`crate::avatar`]); `None`: its initial.
+    SetAvatar(Option<String>),
     SetVisible(bool),
     SetDownloadDir(Option<PathBuf>),
     SetAutoAcceptTrusted(bool),
@@ -100,6 +102,7 @@ pub struct Status {
     /// Transfers over the internet are running (the setting is on and the
     /// endpoint started).
     pub internet: bool,
+    pub avatar: Option<String>,
 }
 
 /// How a connection reaches the other device. A relay is always shown
@@ -129,6 +132,7 @@ pub struct PeerInfo {
     /// On the local network now. `false`: a known device, reached over the
     /// internet.
     pub nearby: bool,
+    pub avatar: Option<String>,
 }
 
 /// Where a transfer stands.
@@ -234,6 +238,10 @@ pub struct TransferSnapshot {
     pub saved_files: Vec<std::path::PathBuf>,
     /// How the data goes, once connected.
     pub route: Option<Route>,
+    pub peer_avatar: Option<String>,
+    /// The files (up to [`crate::store::FileItem::LISTED`]): outgoing once
+    /// the selection is read, incoming once saved.
+    pub items: Vec<crate::store::FileItem>,
 }
 
 /// An empty snapshot (a transfer the engine no longer reports): cancelled,
@@ -265,6 +273,8 @@ impl Default for TransferSnapshot {
             average_rate: None,
             saved_files: Vec::new(),
             route: None,
+            peer_avatar: None,
+            items: Vec::new(),
         }
     }
 }
@@ -332,6 +342,7 @@ pub struct IncomingRequest {
     pub free_space: Option<u64>,
     /// How the sender's connection arrived (over the internet: shown).
     pub route: Route,
+    pub peer_avatar: Option<String>,
 }
 
 impl IncomingRequest {

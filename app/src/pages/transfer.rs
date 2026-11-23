@@ -229,7 +229,7 @@ fn peer_card(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElem
         .flex_row()
         .items_center()
         .gap(px(space::M))
-        .child(ui::avatar(name, platform, 44.0))
+        .child(ui::avatar(name, platform, move || s().peer_avatar, 44.0))
         .child(
             view()
                 .flex_1()
@@ -475,9 +475,17 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
             })
         }
     };
-    let (n1, p1) = (
+    let (n1, p1, a1) = (
         field(|r| r.peer_name.clone()),
         field(|r| r.peer_platform.clone()),
+        move || {
+            model().with(|m| {
+                m.requests
+                    .iter()
+                    .find(|x| x.id == id)
+                    .and_then(|r| r.peer_avatar.clone())
+            })
+        },
     );
     let enough = r.enough_space();
     let trusted = r.trusted;
@@ -498,7 +506,7 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
             view()
                 .items_center()
                 .gap(px(space::S))
-                .child(ui::avatar(n1, p1, 72.0))
+                .child(ui::avatar(n1, p1, a1, 72.0))
                 .child(ui::title(name.clone()).text_center())
                 .child(
                     muted(format!(

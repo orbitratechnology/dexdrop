@@ -78,7 +78,7 @@ pub enum Pairing {
 }
 
 /// The first message each side sends.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Hello {
     pub protocol: u16,
     pub min_protocol: u16,
@@ -87,6 +87,51 @@ pub struct Hello {
     /// `"android"`, `"ios"`, `"macos"`, `"windows"`, `"linux"`, `"web"`.
     pub platform: String,
     pub pairing: Option<Pairing>,
+    /// The device's avatar ([`crate::avatar`]). Added after the first
+    /// release, last, so a hello without it still reads (as `None`) and
+    /// older builds ignore it.
+    pub avatar: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for Hello {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::{Error, SeqAccess, Visitor};
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Hello;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a hello")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Hello, A::Error> {
+                let missing = |n| A::Error::invalid_length(n, &"a hello");
+                Ok(Hello {
+                    protocol: seq.next_element()?.ok_or_else(|| missing(0))?,
+                    min_protocol: seq.next_element()?.ok_or_else(|| missing(1))?,
+                    app_version: seq.next_element()?.ok_or_else(|| missing(2))?,
+                    device_name: seq.next_element()?.ok_or_else(|| missing(3))?,
+                    platform: seq.next_element()?.ok_or_else(|| missing(4))?,
+                    pairing: seq.next_element()?.ok_or_else(|| missing(5))?,
+                    // Postcard reports the end of the frame as an error: a
+                    // hello from an older build ends before this field.
+                    avatar: seq
+                        .next_element::<Option<String>>()
+                        .ok()
+                        .flatten()
+                        .flatten(),
+                })
+            }
+        }
+        const FIELDS: &[&str] = &[
+            "protocol",
+            "min_protocol",
+            "app_version",
+            "device_name",
+            "platform",
+            "pairing",
+            "avatar",
+        ];
+        d.deserialize_struct("Hello", FIELDS, V)
+    }
 }
 
 impl Hello {
@@ -99,7 +144,14 @@ impl Hello {
             device_name: truncate(device_name, MAX_NAME_BYTES),
             platform: truncate(platform, 16),
             pairing,
+            avatar: None,
         }
+    }
+
+    /// With this device's avatar, if it is valid.
+    pub fn with_avatar(mut self, avatar: Option<&str>) -> Self {
+        self.avatar = crate::avatar::Avatar::clean(avatar);
+        self
     }
 
     /// The version both sides speak, if any.
@@ -441,6 +493,46 @@ mod tests {
             assert_eq!(Message::check_frame_len(len).unwrap(), frame.len() - 4);
             assert_eq!(Message::decode(&frame[4..]).unwrap(), message);
         }
+    }
+
+    /// A hello from a build before avatars (no last field) still reads,
+    /// and such a build reads a hello with one (postcard ignores the rest
+    /// of a frame).
+    #[test]
+    fn hellos_without_an_avatar_still_read() {
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        struct OldHello {
+            protocol: u16,
+            min_protocol: u16,
+            app_version: String,
+            device_name: String,
+            platform: String,
+            pairing: Option<Pairing>,
+        }
+        #[derive(Serialize, Deserialize)]
+        enum OldMessage {
+            Hello(OldHello),
+        }
+        let old = OldMessage::Hello(OldHello {
+            protocol: 1,
+            min_protocol: 1,
+            app_version: "0.1.0".into(),
+            device_name: "Old".into(),
+            platform: "linux".into(),
+            pairing: None,
+        });
+        let Message::Hello(read) = Message::decode(&postcard::to_stdvec(&old).unwrap()).unwrap()
+        else {
+            panic!("not a hello")
+        };
+        assert_eq!(read.device_name, "Old");
+        assert_eq!(read.avatar, None);
+
+        let new = Message::Hello(Hello::new("New", "ios", None).with_avatar(Some("2:🦊")));
+        let bytes = postcard::to_stdvec(&new).unwrap();
+        let OldMessage::Hello(old) = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(old.device_name, "New");
+        assert_eq!(Message::decode(&bytes).unwrap(), new);
     }
 
     #[test]

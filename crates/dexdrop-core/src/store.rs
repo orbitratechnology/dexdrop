@@ -85,6 +85,8 @@ pub struct Settings {
     /// Send and receive over the internet too (Phase 6): devices this one
     /// exchanged files with, and invitations, from any network.
     pub internet: bool,
+    /// This device's avatar ([`crate::avatar`]); `None`: its initial.
+    pub avatar: Option<String>,
 }
 
 impl Default for Settings {
@@ -99,6 +101,7 @@ impl Default for Settings {
             port: 0,
             local_network_explained: false,
             internet: true,
+            avatar: None,
         }
     }
 }
@@ -128,6 +131,9 @@ pub struct KnownPeer {
     pub relay: Option<String>,
     /// Unix seconds.
     pub last_seen: u64,
+    /// Its avatar when last seen.
+    #[serde(default)]
+    pub avatar: Option<String>,
 }
 
 /// The known devices, most recent first.
@@ -182,6 +188,9 @@ pub struct TrustedPeer {
     /// Accept its transfers without asking (only with the global setting).
     pub auto_accept: bool,
     pub added: u64,
+    /// Its avatar when last seen.
+    #[serde(default)]
+    pub avatar: Option<String>,
 }
 
 /// The trusted devices.
@@ -259,6 +268,39 @@ pub struct HistoryEntry {
     /// Measured average speed in bytes per second, for larger transfers.
     #[serde(default)]
     pub average_rate: Option<f64>,
+    /// The other device's avatar.
+    #[serde(default)]
+    pub peer_avatar: Option<String>,
+    /// When the transfer started, Unix seconds.
+    #[serde(default)]
+    pub started: Option<u64>,
+    /// How the data went.
+    #[serde(default)]
+    pub route: Option<crate::api::Route>,
+    /// The first files (up to [`FileItem::LISTED`]), with where each is on
+    /// this device.
+    #[serde(default)]
+    pub items: Vec<FileItem>,
+}
+
+/// A file of a transfer, as the app lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileItem {
+    /// Its `/`-separated path within the transfer.
+    pub path: String,
+    pub size: u64,
+    /// Where it is on this device: the file sent, or the file saved.
+    pub local: Option<PathBuf>,
+}
+
+impl FileItem {
+    /// The most files a transfer lists.
+    pub const LISTED: usize = 100;
+
+    /// Its name, without folders.
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
 }
 
 /// The transfer history, newest first, capped.
@@ -310,6 +352,7 @@ mod tests {
             platform: "linux".into(),
             auto_accept: false,
             added: 0,
+            avatar: None,
         };
         list.trust(peer.clone());
         list.trust(TrustedPeer {
@@ -339,6 +382,10 @@ mod tests {
                 saved_to: None,
                 peer_id: None,
                 average_rate: None,
+                peer_avatar: None,
+                started: None,
+                route: None,
+                items: Vec::new(),
             });
         }
         assert_eq!(history.entries.len(), History::CAP);

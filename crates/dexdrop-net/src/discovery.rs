@@ -64,6 +64,7 @@ pub struct Discovered {
     pub addrs: Vec<SocketAddr>,
     /// The device shows a pairing code right now.
     pub code_open: bool,
+    pub avatar: Option<String>,
 }
 
 /// What discovery reports.
@@ -83,17 +84,22 @@ pub struct Advertisement {
     pub platform: String,
     pub port: u16,
     pub code_open: bool,
+    pub avatar: Option<String>,
 }
 
 /// The TXT record entries this device advertises.
 pub(crate) fn txt_entries(ad: &Advertisement) -> Vec<(&'static str, String)> {
-    vec![
+    let mut entries = vec![
         ("v", PROTOCOL_VERSION.to_string()),
         ("id", ad.peer_id.to_string()),
         ("n", ad.name.clone()),
         ("p", ad.platform.clone()),
         ("c", if ad.code_open { "1" } else { "0" }.to_owned()),
-    ]
+    ];
+    if let Some(avatar) = &ad.avatar {
+        entries.push(("a", avatar.clone()));
+    }
+    entries
 }
 
 /// The instance name this device registers under.
@@ -108,6 +114,7 @@ pub(crate) struct PeerTxt {
     pub name: String,
     pub platform: String,
     pub code_open: bool,
+    pub avatar: Option<String>,
 }
 
 /// Reads a TXT record through `get`; `None` for anything not ours.
@@ -124,11 +131,13 @@ pub(crate) fn parse_txt(get: impl Fn(&str) -> Option<String>) -> Option<PeerTxt>
         .collect();
     let platform = get("p").unwrap_or_default().chars().take(16).collect();
     let code_open = get("c").as_deref() == Some("1");
+    let avatar = dexdrop_core::avatar::Avatar::clean(get("a").as_deref());
     Some(PeerTxt {
         peer_id,
         name,
         platform,
         code_open,
+        avatar,
     })
 }
 
@@ -147,6 +156,7 @@ pub(crate) fn discovered(txt: PeerTxt, mut addrs: Vec<SocketAddr>) -> Option<Dis
         platform: txt.platform,
         addrs,
         code_open: txt.code_open,
+        avatar: txt.avatar,
     })
 }
 

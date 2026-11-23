@@ -751,6 +751,7 @@ mod tests {
             platform: "macos".into(),
             port: 4242,
             code_open: true,
+            avatar: None,
         })
         .expect("register B");
         let mut renamed = false;
@@ -775,6 +776,7 @@ mod tests {
                                 platform: "macos".into(),
                                 port: 4242,
                                 code_open: false,
+                                avatar: None,
                             })
                             .expect("update B");
                             continue;
@@ -817,6 +819,7 @@ mod tests {
             platform: "macos".into(),
             port: 4343,
             code_open,
+            avatar: None,
         };
         b.advertise(&ad(false)).expect("register B");
         b.advertise(&ad(true)).expect("update B at once");

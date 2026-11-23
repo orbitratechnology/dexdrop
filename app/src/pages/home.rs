@@ -234,9 +234,13 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
         .items_center()
         .gap(px(space::S))
         .active(|s| s.scale(0.94))
-        .child(ui::far_avatar(name, platform, 60.0, move || {
-            !peer.with(|p| p.nearby)
-        }))
+        .child(ui::far_avatar(
+            name,
+            platform,
+            move || peer.with(|p| p.avatar.clone()),
+            60.0,
+            move || !peer.with(|p| p.nearby),
+        ))
         .child(
             text(name)
                 .text_size(px(ui::size::CAPTION + 1.0))

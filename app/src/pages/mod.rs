@@ -2,6 +2,7 @@
 
 pub mod history;
 pub mod home;
+pub mod profile;
 pub mod receive;
 pub mod send;
 pub mod settings;
@@ -33,6 +34,7 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
             std::rc::Rc::new(move || transfer::title(id)),
             transfer::page(id).into_element(),
         ),
+        (_, Route::Avatar) => (fixed("Avatar"), profile::page().into_element()),
         (_, Route::Trusted) => (
             fixed("Trusted devices"),
             settings::trusted_page().into_element(),
@@ -44,16 +46,19 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
 pub fn body(content: impl IntoElement) -> impl IntoElement {
     // The page paints the theme's background itself, so light and dark are
     // the same on every platform (the system's page colour differs).
-    scroll().flex_1().bg(move || nsh_base::theme().background).child(
-        view()
-            .w_full()
-            .max_w(px(ui::content_width()))
-            .self_center()
-            .px(px(if ui::mobile() { space::L } else { space::XL }))
-            .pt(px(space::S))
-            // The tab bar floats over the bottom of the page on phones.
-            .pb(px(if ui::mobile() { 120.0 } else { space::XXL }))
-            .gap(px(space::XL))
-            .child(content),
-    )
+    scroll()
+        .flex_1()
+        .bg(move || nsh_base::theme().background)
+        .child(
+            view()
+                .w_full()
+                .max_w(px(ui::content_width()))
+                .self_center()
+                .px(px(if ui::mobile() { space::L } else { space::XL }))
+                .pt(px(space::S))
+                // The tab bar floats over the bottom of the page on phones.
+                .pb(px(if ui::mobile() { 120.0 } else { space::XXL }))
+                .gap(px(space::XL))
+                .child(content),
+        )
 }

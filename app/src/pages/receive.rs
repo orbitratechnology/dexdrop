@@ -62,7 +62,7 @@ pub fn page() -> impl IntoElement {
                 } else {
                     240.0
                 },
-                ui::avatar(me, platform, 84.0),
+                ui::avatar(me, platform, ui::my_avatar, 84.0),
             ))
             .child(
                 view()

@@ -519,7 +519,7 @@ fn device_chip() -> impl IntoElement {
         .p(px(space::S))
         .rounded(px(12.0))
         .hover(move |s| s.bg(move || theme().primary.opacity(0.08)))
-        .child(ui::avatar(name, platform, 34.0))
+        .child(ui::avatar(name, platform, ui::my_avatar, 34.0))
         .child(
             view()
                 .flex_1()

@@ -74,7 +74,29 @@ fn device() -> impl IntoElement {
         .items_center()
         .gap(px(space::M))
         .py(px(space::XL))
-        .child(ui::avatar(name, platform, 80.0))
+        .child(
+            ui::pressable()
+                .accessibility_label("Change avatar")
+                .on_press(|| push(Route::Avatar))
+                .active(|s| s.scale(0.95))
+                .child(ui::avatar(name, platform, ui::my_avatar, 80.0))
+                .child(
+                    view()
+                        .absolute()
+                        .top(px(-2.0))
+                        .right(px(-2.0))
+                        .size(px(28.0))
+                        .rounded(px(14.0))
+                        .items_center()
+                        .justify_center()
+                        .bg(move || theme().primary)
+                        .border_2()
+                        .border_color(move || theme().card)
+                        .child(ui::icon(Icon::Pencil, 13.0, move || {
+                            theme().primary_foreground
+                        })),
+                ),
+        )
         .child(
             when(
                 move || editing.get(),
@@ -372,7 +394,7 @@ fn trusted_row(peer: ReadSignal<TrustedPeer>) -> impl IntoElement {
     let platform = move || p().platform;
     view()
         .child(ui::row(
-            ui::avatar(name, platform, 40.0),
+            ui::avatar(name, platform, move || p().avatar, 40.0),
             name,
             move || platform_label(&p().platform).to_owned(),
             ui::round_btn(

@@ -11,9 +11,11 @@
 //! - [`journal`]: the persisted resume state of incoming transfers.
 //! - [`invitation`]: QR/link invitations and short pairing codes.
 //! - [`store`]: settings, trusted devices and history, stored locally.
+//! - [`avatar`]: a device's chosen emoji and color.
 //! - [`format`]: human-readable sizes, rates and durations.
 
 pub mod api;
+pub mod avatar;
 pub mod format;
 pub mod fsutil;
 pub mod identity;

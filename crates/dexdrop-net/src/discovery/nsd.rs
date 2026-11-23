@@ -435,6 +435,7 @@ mod tests {
             platform: "android".into(),
             port: 4242,
             code_open,
+            avatar: None,
         };
         (id, encode_txt(&txt_entries(&ad)))
     }
