@@ -283,9 +283,10 @@ fn looking() -> impl IntoElement {
 // ---------------------------------------------------------------- recent
 
 fn recent() -> impl IntoElement {
-    let entries = move || model().with(|m| m.history.iter().take(4).cloned().collect::<Vec<_>>());
+    let entries =
+        move || crate::state::history().with(|h| h.0.iter().take(4).cloned().collect::<Vec<_>>());
     when(
-        move || model().with(|m| !m.history.is_empty()),
+        move || crate::state::history().with(|h| !h.0.is_empty()),
         move || {
             view()
                 .gap(px(space::M))

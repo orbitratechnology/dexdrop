@@ -77,6 +77,18 @@ every action, and the platform's own controls where NSH has them.
   they are shown, with the file's icon underneath until (or unless) they
   draw. `cargo run` lays the assets out for the desktop runner
   (`dev_assets`).
+- **Performance, against NSH's guide:** measured headless by
+  `app/tests/perf.rs`, which counts the mount items each step sends. Idle
+  screens send nothing (animations are native keyframes; no signal is
+  written per frame; no scroll listeners). A history of 2,000 costs about
+  what one of 20 does to open (virtualized). Tabs stay mounted, invisible
+  while another shows, so coming back to one sends 3 mount items, where
+  it rebuilt the page (≈1,300) before; a video pauses while its tab is
+  away. History has a signal of its own, so transfer progress does not
+  re-filter it; the Send selection reads file sizes off the engine thread
+  and removing a file updates the list in place; app rows rebind on
+  recycle instead of being rebuilt. To watch a device: `NSH_FPS=1` (frame
+  rate, frame and commit cost) on any build, `--release` for numbers.
 - **Player:** videos play, and photos show, inside the app (NSH's
   `video`, with the platform's own controls: AVPlayer, MediaPlayer,
   GStreamer through GTK, Media Foundation), from the Send selection, a

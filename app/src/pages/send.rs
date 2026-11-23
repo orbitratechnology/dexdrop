@@ -54,43 +54,78 @@ pub fn select(paths: Vec<PathBuf>) {
     if paths.is_empty() {
         return;
     }
-    let mut all = selection().with_untracked(|s| s.paths.clone());
-    for p in paths {
-        if !all.contains(&p) {
-            all.push(p);
+    selection().update(|s| {
+        for p in paths {
+            if !s.paths.contains(&p) {
+                s.paths.push(p);
+            }
         }
-    }
-    selection().set(Selection {
-        paths: all.clone(),
-        summary: None,
+        s.summary = None;
     });
+    recount();
+}
+
+/// Counts the selection and reads each new path's size, off the engine
+/// thread (a selection of thousands is thousands of disk reads), then
+/// updates it if it has not changed meanwhile.
+fn recount() {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let (all, known) = selection().with_untracked(|s| (s.paths.clone(), s.stats.clone()));
         let counting = blocking(move || {
-            dexdrop_core::manifest::Manifest::build(&all)
-                .map(|m| (m.files, m.folders, m.total_bytes))
+            let stats: Vec<(PathBuf, (bool, u64))> = all
+                .iter()
+                .filter(|p| !known.contains_key(*p))
+                .map(|p| {
+                    let meta = std::fs::metadata(p).ok();
+                    let stat = (
+                        meta.as_ref().is_some_and(|m| m.is_dir()),
+                        meta.map_or(0, |m| m.len()),
+                    );
+                    (p.clone(), stat)
+                })
+                .collect();
+            let summary = dexdrop_core::manifest::Manifest::build(&all)
+                .map(|m| (m.files, m.folders, m.total_bytes));
+            (all, stats, summary)
         });
         detached(async move {
-            match counting.await {
-                Ok(Ok(summary)) => selection().update(|s| s.summary = Some(summary)),
-                Ok(Err(err)) => {
+            let Ok((counted, stats, summary)) = counting.await else {
+                return;
+            };
+            if selection().with_untracked(|s| s.paths != counted) {
+                return; // Changed meanwhile: a newer count follows.
+            }
+            match summary {
+                Ok(summary) => selection().update(|s| {
+                    s.summary = Some(summary);
+                    s.stats.extend(stats);
+                }),
+                Err(err) => {
                     toast(
                         NoticeKind::Error,
                         format!("Could not read the selection: {err}"),
                     );
                     selection().set(Selection::default());
                 }
-                Err(_) => {}
             }
         });
     }
 }
 
+/// Takes one path out: the rest stays as it is on screen (nothing is
+/// built again) and is counted anew.
 fn remove(path: PathBuf) {
-    let rest: Vec<PathBuf> =
-        selection().with_untracked(|s| s.paths.iter().filter(|p| **p != path).cloned().collect());
-    selection().set(Selection::default());
-    select(rest);
+    selection().update(|s| {
+        s.paths.retain(|p| *p != path);
+        s.stats.remove(&path);
+        s.summary = None;
+    });
+    if selection().with_untracked(|s| s.paths.is_empty()) {
+        selection().set(Selection::default());
+    } else {
+        recount();
+    }
 }
 
 /// Desktops: the system's open dialog.
@@ -444,16 +479,18 @@ struct Pick {
 }
 
 impl Pick {
-    fn of(path: &PathBuf) -> Self {
-        let meta = std::fs::metadata(path).ok();
+    /// What the selection knows of `path`: its size once read (0 until
+    /// then); nothing here touches the disk.
+    fn of(path: &PathBuf, stats: &std::collections::HashMap<PathBuf, (bool, u64)>) -> Self {
+        let (folder, size) = stats.get(path).copied().unwrap_or((false, 0));
         Self {
             path: path.clone(),
             name: path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            folder: meta.as_ref().is_some_and(|m| m.is_dir()),
-            size: meta.map_or(0, |m| m.len()),
+            folder,
+            size,
         }
     }
 
@@ -466,8 +503,14 @@ impl Pick {
 /// What is selected, each removable: photos as a grid of previews, the
 /// rest as a list with their kind and size.
 fn selected() -> impl IntoElement {
-    let picks =
-        computed(move || selection().with(|s| s.paths.iter().map(Pick::of).collect::<Vec<_>>()));
+    let picks = computed(move || {
+        selection().with(|s| {
+            s.paths
+                .iter()
+                .map(|p| Pick::of(p, &s.stats))
+                .collect::<Vec<_>>()
+        })
+    });
     // Photos as a grid of previews, the rest as a list; both virtualized
     // (NSH lists): only what is near the screen exists, so a selection of
     // thousands costs what one of thirty does.

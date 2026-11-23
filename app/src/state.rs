@@ -23,13 +23,22 @@ pub struct Model {
     pub invitation: Option<InvitationView>,
     pub code: Option<(String, u64)>,
     pub trusted: Vec<TrustedPeer>,
-    pub history: Vec<HistoryEntry>,
     /// Why the engine is not running (the web preview, a startup error).
     pub offline: Option<String>,
 }
 
 pub fn model() -> Signal<Model> {
     global::<Model>()
+}
+
+/// The transfer history, newest first: a signal of its own, so what reads
+/// it does not run again on every change of the model (a transfer's
+/// progress, several times a second).
+#[derive(Clone, Default, PartialEq)]
+pub struct HistoryList(pub Vec<HistoryEntry>);
+
+pub fn history() -> Signal<HistoryList> {
+    global::<HistoryList>()
 }
 
 /// A section of the app (PRD 7.1): the system's tab bar on phones, the
@@ -67,6 +76,11 @@ struct CurrentTab(Tab);
 
 pub fn tab() -> Tab {
     global::<CurrentTab>().get().0
+}
+
+/// The tab shown now, without subscribing.
+pub fn tab_untracked() -> Tab {
+    global::<CurrentTab>().get_untracked().0
 }
 
 /// Shows `tab`. Choosing the tab already shown goes back to its root, as
@@ -174,6 +188,8 @@ pub struct Selection {
     pub paths: Vec<PathBuf>,
     /// `(files, folders, bytes)` once counted.
     pub summary: Option<(u64, u64, u64)>,
+    /// Each path's `(is a folder, size)`, read off the engine thread.
+    pub stats: std::collections::HashMap<PathBuf, (bool, u64)>,
 }
 
 pub fn selection() -> Signal<Selection> {

@@ -234,6 +234,37 @@ fn activity() -> usize {
 
 // ---------------------------------------------------------------- pages
 
+/// The tabs' stacks, each made the first time its tab shows and kept,
+/// invisible, while another shows: coming back to a tab
+/// rebuilds nothing, as native tab bars keep their tabs (NSH's
+/// performance guide: a tap changes a handful of mount items). Android's
+/// back button and gesture act on the shown stack only.
+fn tab_stacks() -> impl IntoElement {
+    let visited = signal(vec![tab()]);
+    effect(move || {
+        let now = tab();
+        if !visited.with_untracked(|v| v.contains(&now)) {
+            visited.update(|v| v.push(now));
+        }
+    });
+    view().flex_1().children(Tab::ALL.map(|t| {
+        // Laid out on top of each other and made invisible rather than
+        // taken out of the layout: showing a tab again changes its
+        // visibility alone, not every frame in it.
+        view()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .style_when(move || tab() != t, |s| s.invisible())
+            .child(when(
+                move || visited.with(|v| v.contains(&t)),
+                move || tab_stack(t),
+            ))
+    }))
+}
+
 /// One tab's native navigation stack.
 fn tab_stack(t: Tab) -> impl IntoElement {
     nav_stack().flex_1().child(each(
@@ -304,14 +335,11 @@ fn desktop_header(title: pages::Title, root: bool) -> impl IntoElement {
 // ---------------------------------------------------------------- phone
 
 fn phone() -> impl IntoElement {
-    view()
-        .flex_1()
-        .child(dynamic(move || tab_stack(tab()).into_element()))
-        .child(if ui::mobile() {
-            native_tab_bar().into_element()
-        } else {
-            drawn_tab_bar().into_element()
-        })
+    view().flex_1().child(tab_stacks()).child(if ui::mobile() {
+        native_tab_bar().into_element()
+    } else {
+        drawn_tab_bar().into_element()
+    })
 }
 
 /// A narrow window on a desktop or the web: the same tabs, drawn.
@@ -399,11 +427,11 @@ fn tab_icon(t: Tab) -> &'static str {
 // ---------------------------------------------------------------- desktop
 
 fn desktop() -> impl IntoElement {
-    view().flex_1().flex_row().child(sidebar()).child(
-        view()
-            .flex_1()
-            .child(dynamic(move || tab_stack(tab()).into_element())),
-    )
+    view()
+        .flex_1()
+        .flex_row()
+        .child(sidebar())
+        .child(view().flex_1().child(tab_stacks()))
 }
 
 fn sidebar() -> impl IntoElement {

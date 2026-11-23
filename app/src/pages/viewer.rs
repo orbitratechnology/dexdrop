@@ -140,7 +140,11 @@ fn can_play_videos() -> bool {
 
 /// The video, playing at once, with the platform's controls.
 fn player(path: &Path, loaded: Signal<Option<Loaded>>, failed: Signal<Option<String>>) -> Video {
+    // Tabs stay mounted while another shows: the video pauses while its tab
+    // is away and plays on when it comes back.
+    let mine = crate::state::tab_untracked();
     video(files::file_url(path))
+        .paused(move || crate::state::tab() != mine)
         .controls(true)
         .size_full()
         .object_fit(ResizeMode::Contain)

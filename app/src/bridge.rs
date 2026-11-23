@@ -288,7 +288,7 @@ fn apply(event: Event) {
             m.code = None;
         }),
         Event::Trusted(trusted) => model().update(|m| m.trusted = trusted),
-        Event::History(history) => model().update(|m| m.history = history),
+        Event::History(entries) => crate::state::history().set(crate::state::HistoryList(entries)),
         Event::Notice { kind, text } => toast(kind, text),
         Event::Diagnostics(report) => {
             crate::state::sheet().set(crate::state::Sheet::Diagnostics(report))

@@ -52,15 +52,20 @@ pub fn page() -> impl IntoElement {
         })
     };
     let active = computed(active);
-    let past = move || {
+    // Which transfers run now: a memo, so the history below is filtered
+    // again when one starts or ends, not on every progress update.
+    let live = computed(move || {
         model().with(|m| {
-            let live: Vec<String> = m
-                .transfers
+            m.transfers
                 .iter()
                 .map(|t| dexdrop_core::hex(&t.id))
-                .collect();
-            m.history
-                .iter()
+                .collect::<Vec<_>>()
+        })
+    });
+    let past = move || {
+        let live = live.get();
+        crate::state::history().with(|h| {
+            h.0.iter()
                 .filter(|h| filter.get().keeps(h.direction) && !live.contains(&h.transfer_id))
                 .cloned()
                 .collect::<Vec<_>>()
@@ -360,7 +365,8 @@ fn outcome_of(o: &Outcome) -> (&'static str, Tone) {
 /// A past transfer in full: what, with whom, when, how fast, which way,
 /// and its files.
 pub fn past_page(id: String) -> impl IntoElement {
-    let entry = model().with_untracked(|m| m.history.iter().find(|h| h.transfer_id == id).cloned());
+    let entry = crate::state::history()
+        .with_untracked(|h| h.0.iter().find(|h| h.transfer_id == id).cloned());
     body(match entry {
         None => ui::empty(Icon::Clock, "This transfer is no longer in the history.").into_element(),
         Some(e) => details(e).into_element(),

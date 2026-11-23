@@ -14,7 +14,7 @@ name = "dexdrop-app"
 path = "src/main.rs"
 
 [dependencies]
-nsh-core = "=0.6.1"
+nsh-core = { version = "=0.6.1", features = ["svg"] }
 nsh-base = "=0.6.1"
 dexdrop-core = { path = "../crates/dexdrop-core" }
 log = "0.4"

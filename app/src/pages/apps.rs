@@ -10,7 +10,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 
 use crate::{
-    files::{AppCard, app_cards, app_icon},
+    files::{AppCard, app_cards},
     pages::{body, send},
     state::pop,
     ui::{self, Icon, Variant, muted, space},
@@ -189,10 +189,7 @@ fn section(
                     virtual_list(
                         move || rows.with(Vec::len),
                         move |at| {
-                            dynamic(move || {
-                                rows.with(|r| r.get(at.index()).cloned())
-                                    .map(|l| app_row(l, chosen))
-                            })
+                            app_row(move || rows.with(|r| r.get(at.index()).cloned()), chosen)
                         },
                     )
                     .keys(move || {
@@ -206,36 +203,49 @@ fn section(
         ))
 }
 
-fn app_row(app: Listed, chosen: Signal<Vec<String>>) -> impl IntoElement {
-    let package = app.card.package.clone();
-    let selected = {
-        let package = package.clone();
-        move || chosen.with(|c| c.contains(&package))
+/// An app to tick. Reads `app` in every binding (no copy taken when the
+/// row is made), so a recycled cell rebinds to its new app rather than
+/// being built again (NSH's lists: rows bind once per recycle).
+fn app_row(
+    app: impl Fn() -> Option<Listed> + Copy + 'static,
+    chosen: Signal<Vec<String>>,
+) -> impl IntoElement {
+    let package = move || app().map(|a| a.card.package).unwrap_or_default();
+    let selected = move || {
+        let p = package();
+        chosen.with(|c| c.contains(&p))
     };
-    let mut detail = vec![];
-    if !app.card.version.is_empty() {
-        detail.push(app.card.version.clone());
-    }
-    detail.push(format::bytes(app.card.size));
-    if app.card.split {
-        detail.push("Split APKs".into());
-    }
-    if app.card.updated > 0 {
-        detail.push(format!(
-            "Updated {}",
-            crate::pages::history::ago(app.card.updated / 1000).to_lowercase()
-        ));
-    }
-    let label = app.card.label.clone();
+    let detail = move || {
+        let Some(app) = app() else {
+            return String::new();
+        };
+        let mut detail = vec![];
+        if !app.card.version.is_empty() {
+            detail.push(app.card.version.clone());
+        }
+        detail.push(format::bytes(app.card.size));
+        if app.card.split {
+            detail.push("Split APKs".into());
+        }
+        if app.card.updated > 0 {
+            detail.push(format!(
+                "Updated {}",
+                crate::pages::history::ago(app.card.updated / 1000).to_lowercase()
+            ));
+        }
+        detail.join(" · ")
+    };
+    let label = move || app().map(|a| a.card.label).unwrap_or_default();
     ui::pressable()
-        .accessibility_label(label.clone())
-        .selected(selected.clone())
+        .accessibility_label(move || Some(SharedString::from(label())))
+        .selected(selected)
         .on_press(move || {
+            let p = package();
             chosen.update(|c| {
-                if let Some(i) = c.iter().position(|p| *p == package) {
+                if let Some(i) = c.iter().position(|x| *x == p) {
                     c.remove(i);
                 } else {
-                    c.push(package.clone());
+                    c.push(p);
                 }
             })
         })
@@ -246,14 +256,33 @@ fn app_row(app: Listed, chosen: Signal<Vec<String>>) -> impl IntoElement {
         .py(px(space::S))
         .min_h(px(ui::hit() + 16.0))
         .active(move |s| s.bg(move || theme().muted))
-        .child(app_icon(app.card.icon.as_deref(), 44.0))
+        .child(
+            view()
+                .size(px(44.0))
+                .rounded(px(44.0 * 0.24))
+                .overflow_hidden()
+                .child(ui::file_badge("app.apk", 44.0, 44.0 * 0.24))
+                .child(
+                    image(move || {
+                        app()
+                            .and_then(|a| a.card.icon)
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    })
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size(px(44.0))
+                    .object_fit(nsh_core::ResizeMode::Contain),
+                ),
+        )
         .child(
             view()
                 .flex_1()
                 .gap(px(2.0))
                 .child(ui::body(label).number_of_lines(1))
                 .child(
-                    muted(detail.join(" · "))
+                    muted(detail)
                         .text_size(px(ui::size::CAPTION))
                         .number_of_lines(1),
                 ),
