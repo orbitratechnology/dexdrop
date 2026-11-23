@@ -13,6 +13,7 @@
  * `agent-device proxy` instead of serve-sim, so one URL carries both the
  * human-facing stream and the agent-facing control API.
  */
+const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 
@@ -25,6 +26,9 @@ const AGENT_PREFIX = '/agent-device';
 const TARGET_HOST = '127.0.0.1';
 const PORT = Number(process.env.NATIVE_SIM_GATE_PORT || 3199);
 const COOKIE = 'native_sim_k';
+// A log the session keeps (the app's build and run output in `nsh` mode),
+// served to authorised callers at /__native-sim/log: its last `bytes`.
+const LOG_FILE = process.env.NATIVE_SIM_LOG_FILE || '';
 
 if (!TOKEN) {
   console.error('NATIVE_SIM_GATE_TOKEN is required — refusing to proxy an unauthenticated simulator');
@@ -95,6 +99,21 @@ const server = http.createServer((req, res) => {
     // request, including that probe, so it authenticates normally.
     res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' });
     res.end(DENIED);
+    return;
+  }
+
+  if (LOG_FILE && pathnameOf(req) === '/__native-sim/log') {
+    const want = Number(new URL(req.url, 'http://localhost').searchParams.get('bytes')) || 65536;
+    fs.stat(LOG_FILE, (err, st) => {
+      if (err) {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end('no log yet');
+        return;
+      }
+      const start = Math.max(0, st.size - Math.min(want, 4 * 1024 * 1024));
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      fs.createReadStream(LOG_FILE, { start }).pipe(res);
+    });
     return;
   }
 

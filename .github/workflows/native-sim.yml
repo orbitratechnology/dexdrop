@@ -22,7 +22,10 @@ on:
         description: Simulator device name
         default: iPhone 17 Pro
       mode:
-        description: build (compile from source), app (install a prebuilt .app), or go (Expo Go)
+        description: >-
+          build (compile from source), app (install a prebuilt .app), go (Expo
+          Go), or nsh (run the NSH app in app/ with `nsh run --target ios`,
+          rebuilt and restarted on every push to follow_branch)
         default: build
       framework:
         description: Expo or plain React Native CLI project
@@ -35,6 +38,12 @@ on:
         default: "false"
       dev_url:
         description: Expo dev-client link or HTTPS Metro tunnel URL for React Native CLI (build mode only)
+        default: ""
+      follow_branch:
+        description: >-
+          mode:nsh only. The branch to follow: every new commit on it is
+          checked out and `nsh run` rebuilds and restarts the app in the
+          simulator. Empty: run the dispatched commit only.
         default: ""
       app_url:
         description: URL of a prebuilt simulator .app archive (mode:app)
@@ -109,11 +118,16 @@ jobs:
       PREVIEW_PORT: "3200"
       AGENT_PORT: "4310"
       BUILD_CONFIGURATION: ${{ (inputs.dev == 'true' || inputs.dev_url != '') && 'Debug' || 'Release' }}
+      # mode:nsh: the output of `nsh run` (builds, app logs), served by the
+      # gate at /__native-sim/log to holders of the access key.
+      NSH_LOG: /tmp/nsh-run.log
+      NSH_VERSION: v0.6.1
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Validate framework
+        if: inputs.mode != 'nsh'
         run: |
           case '${{ inputs.framework }}' in
             expo|react-native) ;;
@@ -139,7 +153,7 @@ jobs:
 
       - name: Install JS dependencies
         timeout-minutes: 20
-        if: inputs.mode != 'app'
+        if: inputs.mode != 'app' && inputs.mode != 'nsh'
         run: |
           set -euo pipefail
           if [ -f bun.lock ] || [ -f bun.lockb ]; then
@@ -319,6 +333,7 @@ jobs:
           # Empty disables the /agent-device route outright, so a session started
           # without --agent exposes no control surface beyond the stream.
           NATIVE_SIM_AGENT_PORT: ${{ inputs.agent_device == 'true' && '4310' || '' }}
+          NATIVE_SIM_LOG_FILE: ${{ inputs.mode == 'nsh' && '/tmp/nsh-run.log' || '' }}
         run: |
           set -euo pipefail
           # serve-sim has no auth of its own, so nothing but this gate stands
@@ -384,6 +399,59 @@ jobs:
             echo "The access key is deliberately not published here — use the full"
             echo "URL the CLI printed. Anyone holding it can drive the simulator."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- mode:nsh — the NSH (Rust) app, run with hot rebuilds ----
+      - name: Install Rust (nsh)
+        if: inputs.mode == 'nsh'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Cache Rust builds (nsh)
+        if: inputs.mode == 'nsh'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-sim-nsh
+          # `nsh run` builds in app/target, beside the workspace's own.
+          workspaces: |
+            . -> target
+            app -> target
+
+      - name: Install NSH (nsh)
+        if: inputs.mode == 'nsh'
+        run: |
+          set -euo pipefail
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build and run the app (nsh)
+        if: inputs.mode == 'nsh'
+        timeout-minutes: 60
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success -f "context=$STATUS_CONTEXT" \
+            -f "description=simulator live; building the app (first build ~10 min)" || true
+          # `nsh run` builds the app's runner with the crate, installs it in the
+          # simulator, streams its logs and rebuilds and restarts it whenever the
+          # crate's Rust code changes (the hold step moves the checkout).
+          cd "${{ inputs.project_dir }}"
+          echo "== $(date -u +%T) nsh run at $(git rev-parse --short HEAD)" > "$NSH_LOG"
+          nohup nsh run --target ios --device "$UDID" < /dev/null >> "$NSH_LOG" 2>&1 &
+          echo $! > /tmp/nsh-run.pid
+          disown
+          for _ in $(seq 1 3600); do
+            grep -q '✓ running' "$NSH_LOG" && break
+            kill -0 "$(cat /tmp/nsh-run.pid)" 2>/dev/null || { tail -80 "$NSH_LOG"; echo "::error::nsh run exited"; exit 1; }
+            sleep 1
+          done
+          tail -20 "$NSH_LOG"
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success -f "context=$STATUS_CONTEXT" \
+            -f "description=app running at $(git rev-parse --short HEAD)" || true
 
       - name: Build app
         timeout-minutes: 60
@@ -696,6 +764,8 @@ jobs:
         env:
           AGENT_ENABLED: ${{ inputs.agent_device }}
           GATE_TOKEN: ${{ inputs.gate_token }}
+          FOLLOW: ${{ inputs.mode == 'nsh' && inputs.follow_branch || '' }}
+          UDID: ${{ steps.sim.outputs.udid }}
           AGENT_DEVICE_DAEMON_IDLE_TIMEOUT_MS: "0"
           AGENT_DEVICE_IOS_RUNNER_IDLE_STOP_MS: "0"
           AGENT_DEVICE_LEASE_TTL_MS: "21600000"
@@ -737,6 +807,29 @@ jobs:
                 nohup agent-device proxy --host 127.0.0.1 --port "$AGENT_PORT" \
                   --daemon-auth-token "$GATE_TOKEN" >> agent-device-proxy.log 2>&1 &
                 disown
+              fi
+            fi
+            # mode:nsh: follow the branch. A new commit moves the checkout and
+            # `nsh run` sees the change, rebuilds and restarts the app.
+            if [ -n "$FOLLOW" ] && git fetch -q origin "$FOLLOW" 2>/dev/null; then
+              NEW=$(git rev-parse FETCH_HEAD)
+              if [ "$NEW" != "$(git rev-parse HEAD)" ]; then
+                git reset -q --hard "$NEW"
+                echo "== $(date -u +%T) following $FOLLOW: now at $(git rev-parse --short HEAD) $(git log -1 --format=%s)" >> "$NSH_LOG"
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+                  -f state=success -f "context=$STATUS_CONTEXT" \
+                  -f "description=rebuilding at $(git rev-parse --short HEAD)" >/dev/null 2>&1 || true
+              fi
+            fi
+            # A crashed `nsh run` (not the app: it restarts that itself) is
+            # started again, at most once a minute.
+            if [ -f /tmp/nsh-run.pid ] && ! kill -0 "$(cat /tmp/nsh-run.pid)" 2>/dev/null; then
+              NOW=$(date +%s)
+              if [ $(( NOW - ${NSH_LAST_RESTART:-0} )) -ge 60 ]; then
+                NSH_LAST_RESTART=$NOW
+                echo "== $(date -u +%T) nsh run exited; starting it again" >> "$NSH_LOG"
+                ( cd "${{ inputs.project_dir }}" && PATH="$HOME/.local/bin:$PATH" \
+                  nohup nsh run --target ios --device "$UDID" < /dev/null >> "$NSH_LOG" 2>&1 & echo $! > /tmp/nsh-run.pid )
               fi
             fi
             sleep 15
