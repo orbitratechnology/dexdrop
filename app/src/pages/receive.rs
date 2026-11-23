@@ -57,7 +57,11 @@ pub fn page() -> impl IntoElement {
             .items_center()
             .child(ui::radar(
                 ui::RECEIVE,
-                240.0,
+                if nsh_core::element::window().height.0 < 760.0 {
+                    180.0
+                } else {
+                    240.0
+                },
                 ui::avatar(me, platform, 84.0),
             ))
             .child(
@@ -120,18 +124,21 @@ fn code_card() -> impl IntoElement {
         ))
         .child(dynamic(move || {
             invitation().map(|inv| {
+                // The link first: on a short phone the QR code may need a
+                // scroll, the button should not.
+                let text = inv.text.clone();
                 view()
                     .items_center()
                     .gap(px(space::M))
-                    .child(ui::qr(inv.qr_width, inv.qr_modules.clone(), 188.0))
                     .child(
                         ui::icon_btn(Icon::Link, "Copy invitation", Variant::Plain).on_press(
                             move || {
-                                set_clipboard(inv.text.clone());
+                                set_clipboard(text.clone());
                                 toast(NoticeKind::Success, "Invitation copied.");
                             },
                         ),
                     )
+                    .child(ui::qr(inv.qr_width, inv.qr_modules.clone(), 188.0))
             })
         }))
 }

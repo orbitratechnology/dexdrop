@@ -166,7 +166,7 @@ outgoing="$work/dexdrop-out.bin"
 head -c 8000000 /dev/urandom >"$outgoing"
 "$cli" --max-rate 1 --state "$work/inbox-state" receive --yes --name "CI Mac Inbox" --dir "$work/inbox" >"$out/cli-inbox.log" 2>&1 &
 inbox=$!
-tap Done || true # the received transfer's progress, back to home
+tap Share || true # re-selecting the tab leaves the finished transfer for home
 ad wait text "CI Mac Inbox" 30000 >/dev/null 2>&1 || { step 07-no-inbox; fail "discovery: the app does not list the receiving CLI"; }
 tap Send || { step 07-no-send-page; fail "could not open Send"; }
 tap "Choose files" || fail "could not open the Open panel"

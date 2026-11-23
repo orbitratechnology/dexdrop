@@ -238,6 +238,14 @@ open_sheet 07-receive-invitation
 invitation=$(zbarimg --raw -q "$out/07-receive-invitation.png" 2>/dev/null | grep -oE 'DEXDROP1:[A-Z0-9]+' | head -1)
 how="read from the QR code"
 if [ -z "$invitation" ]; then
+  # On a short screen the QR code sits below the fold: scroll the page
+  # (it has content to scroll) and look again.
+  ad scroll down >/dev/null 2>&1 || true
+  sleep 1
+  step 07b-receive-invitation-scrolled
+  invitation=$(zbarimg --raw -q "$out/07b-receive-invitation-scrolled.png" 2>/dev/null | grep -oE 'DEXDROP1:[A-Z0-9]+' | head -1)
+fi
+if [ -z "$invitation" ]; then
   tap "Copy invitation" || fail "could not copy the invitation"
   invitation=$(ad clipboard read 2>/dev/null | tr -d '\r' | grep -oE 'DEXDROP1:[^[:space:]"]+' | head -1)
   how="copied with \"Copy invitation\""
