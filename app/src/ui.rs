@@ -126,7 +126,6 @@ pub enum Icon {
     Share,
     UserCheck,
     Lock,
-    Cellular,
 }
 
 impl Icon {
@@ -169,7 +168,6 @@ impl Icon {
             Icon::Share => include_str!("../assets/icons/share.svg"),
             Icon::UserCheck => include_str!("../assets/icons/user-check.svg"),
             Icon::Lock => include_str!("../assets/icons/lock.svg"),
-            Icon::Cellular => include_str!("../assets/icons/cellular.svg"),
         }
     }
 

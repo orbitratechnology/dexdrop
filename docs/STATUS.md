@@ -43,7 +43,7 @@ every action, and the platform's own controls where NSH has them.
   alert), *Reconnecting* while a dropped connection is retried, and a check
   mark when done, with *Share or save* on phones and *Show in folder* on
   desktops.
-- **Icons:** 37 original 24 × 24 line icons (`app/assets/icons/`), embedded
+- **Icons:** 36 original 24 × 24 line icons (`app/assets/icons/`), embedded
   as SVG; file types and settings rows have their own colors; devices get
   an avatar with a platform badge.
 
@@ -76,7 +76,7 @@ every action, and the platform's own controls where NSH has them.
 | FR-058 Concurrent streams | Done (adapted) | One encrypted stream per transfer with up to 64 pipelined file requests; files that fit in one chunk are read, written, synced and committed in single blocking calls, 8 commits in parallel |
 | FR-059 Duplicate detection | Done | Only for a name and size already at the destination; the receiver compares hashes, the sender never sees the receiver's |
 | FR-060 History | Done | Local, capped, clearable |
-| FR-070 – FR-074 Settings | Done | Metered-data switch is stored but not yet enforced |
+| FR-070 – FR-074 Settings | Done | No mobile-data switch shown: local transfers never use mobile data; the stored setting returns with remote transfers |
 | FR-075 Diagnostics | Done | No names, paths or keys |
 | FR-080 – FR-084 Remote / browser transfer | Open (P1/P2) | Browser preview explains the limitation |
 
@@ -113,13 +113,13 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 ## Known gaps worth doing next
 
-1. Extend the checks to sending from the app and pause/resume; run on an iPhone and by hand on Windows and macOS.
+1. Run on an iPhone and by hand on Windows and macOS (CI drives sending, pause and resume from the app on Android and macOS).
 2. Android: run on a phone (discovery with a computer); SAF file access and a
    share target (need an NSH manifest extension or an app that embeds `NshView`);
    transfers while the app is in the background (Android freezes cached apps, so
    long transfers likely need a foreground service, a manifest `<service>` NSH's
    packaging cannot declare yet; untested).
-3. iOS: Files/Photos picker; share sheet entry (FR-035).
+3. iOS: share sheet entry (FR-035), which needs a share extension NSH's packaging cannot add yet; camera QR scanning (FR-024) through VisionKit, testable only on a device. The Photos and Files pickers work (checked in the simulator).
 4. Identity keys: macOS Keychain with signed releases, Android Keystore once NSH sets `ndk-context`.
 5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
 6. Remote mode (Iroh with a project-owned relay) as a separately gated phase.

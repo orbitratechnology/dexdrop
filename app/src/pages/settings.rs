@@ -155,17 +155,9 @@ fn receiving() -> impl IntoElement {
                     move || settings().auto_accept_trusted,
                     |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
                 ))
-                .child(when(
-                    move || !desktop_platform(),
-                    move || {
-                        view().child(ui::separator(58.0)).child(ui::switch_row(
-                            g(Icon::Cellular, ORANGE),
-                            "Use mobile data",
-                            move || settings().allow_metered,
-                            |on| bridge::send(Command::SetAllowMetered(on)),
-                        ))
-                    },
-                ))
+                // No mobile-data switch: transfers stay on the local network
+                // (P0), so they never use mobile data. It returns with remote
+                // transfers.
                 .child(when(desktop_platform, move || {
                     view().child(ui::separator(58.0)).child(ui::nav_row(
                         g(Icon::Folder, ORANGE),
