@@ -29,7 +29,7 @@ use dexdrop_core::{
 };
 use tokio::{
     fs::{File, OpenOptions},
-    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{Semaphore, mpsc, watch},
 };
 
@@ -353,7 +353,6 @@ where
     };
     let _reader = AbortOnDrop(reader);
 
-    let mut buf = Vec::new();
     let mut counted: HashMap<u32, u64> = HashMap::new();
     // Per file: requested by the receiver, resolved (skipped or reported).
     // Each file is resolved at most once; anything else is a violation.
@@ -407,7 +406,6 @@ where
                     index,
                     offset,
                     chunk_size,
-                    &mut buf,
                     &live,
                     &control,
                     &peer_stopped,
@@ -526,7 +524,6 @@ async fn stream_file<W: AsyncWrite + Unpin>(
     index: u32,
     offset: u64,
     chunk_size: u32,
-    buf: &mut Vec<u8>,
     live: &LiveCell,
     control: &watch::Receiver<Control>,
     peer_stopped: &Stop,
@@ -587,7 +584,7 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         return Ok(data.len() as u64);
     }
 
-    let mut file = match File::open(source).await {
+    let file = match File::open(source).await {
         Ok(file) => file,
         Err(_) => {
             wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
@@ -598,22 +595,17 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
         return Ok(0);
     }
-    if buf.len() < chunk_size as usize {
-        buf.resize(chunk_size as usize, 0);
-    }
 
-    // The whole-file hash covers the bytes the receiver already has, too.
-    let mut whole = blake3::Hasher::new();
-    let mut pos = 0u64;
-    while pos < offset {
-        let n = chunk.min(offset - pos) as usize;
-        if file.read_exact(&mut buf[..n]).await.is_err() {
-            wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
-            return Ok(0);
-        }
-        whole.update(&buf[..n]);
-        pos += n as u64;
-    }
+    // Disk, hashing and the network overlap: a reader thread reads and
+    // hashes the next chunks while this task encrypts and sends the last
+    // one (they took turns before, using about one core of four). At most
+    // READ_AHEAD chunks wait, so memory stays bounded.
+    let (chunks, mut ready) = mpsc::channel::<ReadChunk>(READ_AHEAD);
+    let reader = {
+        let file = file.into_std().await;
+        let entry = entry.clone();
+        tokio::task::spawn_blocking(move || read_chunks(file, &entry, offset, chunk, &chunks))
+    };
 
     wire::write_msg(wr, &Message::FileStart { index, offset }).await?;
     {
@@ -622,24 +614,24 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         l.bytes_done += offset;
     }
     let mut counted = offset;
+    let mut pos = offset;
     let mut watch_control = control.clone();
     while pos < size {
         if peer_stopped.is_set() || *control.borrow() != Control::Run {
-            // The main loop sends Pause/Cancel or reads the peer's.
+            // The main loop sends Pause/Cancel or reads the peer's. The
+            // reader stops when it finds no one taking its chunks.
             return Ok(counted);
         }
-        let n = chunk.min(size - pos) as usize;
-        if file.read_exact(&mut buf[..n]).await.is_err() {
+        let Some(ReadChunk::Data { data, hash }) = ready.recv().await else {
             wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
             return Ok(counted);
-        }
-        let data = &buf[..n];
-        whole.update(data);
+        };
+        let n = data.len();
         let header = ChunkHeader {
             index,
             offset: pos,
             len: n as u32,
-            hash: protocol::chunk_hash(data),
+            hash,
         };
         // A write blocks while the receiver does not read: give up when it
         // stops or nothing moves for a minute. When the user pauses or
@@ -648,7 +640,7 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         // receiver reads it as chunk data and fails instead of pausing.
         let mut write = std::pin::pin!(async {
             wire::write_msg(wr, &Message::Chunk(header)).await?;
-            wr.write_all(data).await.map_err(WireError::from)
+            wr.write_all(&data).await.map_err(WireError::from)
         });
         let stall = tokio::time::sleep(WRITE_STALL);
         tokio::pin!(stall);
@@ -676,19 +668,76 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         }
         pacer.pace(n as u64).await;
     }
-    if !unchanged(&file, entry).await {
-        wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
-        return Ok(counted);
-    }
-    wire::send(
-        wr,
-        &Message::FileEnd {
-            index,
-            hash: *whole.finalize().as_bytes(),
-        },
-    )
-    .await?;
+    // The reader's last word: the whole-file hash, once it saw the file
+    // unchanged to its end.
+    let whole = match ready.recv().await {
+        Some(ReadChunk::End(hash)) => hash,
+        _ => {
+            wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
+            return Ok(counted);
+        }
+    };
+    drop(reader);
+    wire::send(wr, &Message::FileEnd { index, hash: whole }).await?;
     Ok(counted)
+}
+
+/// Chunks read ahead of the network, per file being sent.
+const READ_AHEAD: usize = 2;
+
+/// What the reader thread hands the sending task.
+enum ReadChunk {
+    /// The next chunk and its BLAKE3.
+    Data { data: Vec<u8>, hash: [u8; 32] },
+    /// The file's whole BLAKE3 (the prefix the receiver had included),
+    /// after its last chunk, the file unchanged.
+    End([u8; 32]),
+}
+
+/// The reader thread: hashes the prefix the receiver already has, then
+/// reads, hashes and hands over each chunk from `offset`, and finally the
+/// whole-file hash. Stops quietly when the sender stops taking chunks; a
+/// read error or a changed file ends the channel without `End`.
+fn read_chunks(
+    mut file: std::fs::File,
+    entry: &dexdrop_core::manifest::SourceEntry,
+    offset: u64,
+    chunk: u64,
+    out: &mpsc::Sender<ReadChunk>,
+) {
+    use std::io::Read;
+    let size = entry.wire.size;
+    let mut whole = blake3::Hasher::new();
+    let mut pos = 0u64;
+    let mut prefix = vec![0u8; chunk.min(offset.max(1)) as usize];
+    while pos < offset {
+        let n = chunk.min(offset - pos) as usize;
+        if file.read_exact(&mut prefix[..n]).is_err() {
+            return;
+        }
+        whole.update(&prefix[..n]);
+        pos += n as u64;
+    }
+    drop(prefix);
+    while pos < size {
+        let n = chunk.min(size - pos) as usize;
+        let mut data = vec![0u8; n];
+        if file.read_exact(&mut data).is_err() {
+            return;
+        }
+        whole.update(&data);
+        let hash = protocol::chunk_hash(&data);
+        if out.blocking_send(ReadChunk::Data { data, hash }).is_err() {
+            return;
+        }
+        pos += n as u64;
+    }
+    let same = file
+        .metadata()
+        .is_ok_and(|m| m.len() == size && mtime_of(&m) == entry.wire.mtime);
+    if same {
+        let _ = out.blocking_send(ReadChunk::End(*whole.finalize().as_bytes()));
+    }
 }
 
 /// An optional cap on the sending rate (bytes per second).
@@ -1161,11 +1210,168 @@ async fn plan_requests(
 
 /// Where a file's verified bytes go while it is received.
 enum Sink {
-    /// A temporary file on disk (large files, resumable).
-    Disk(File),
+    /// A temporary file on disk (large files, resumable), written by its
+    /// own thread.
+    Disk(DiskWriter),
     /// Memory, for a file that fits in one chunk: written, synced and
     /// committed in one blocking call when it ends.
     Memory(Vec<u8>),
+}
+
+/// Chunks waiting for the disk writer, per file being received.
+const WRITE_AHEAD: usize = 2;
+
+/// What the receiving task asks of a file's writer thread.
+enum WriteCmd {
+    /// Verify `data` against its BLAKE3 and append it.
+    Chunk { data: Vec<u8>, hash: [u8; 32] },
+    /// Flush and sync what was appended; answers how far the file is
+    /// verified and on disk (`None`: the sync failed).
+    Sync(tokio::sync::oneshot::Sender<Option<u64>>),
+    /// Sync and close; answers the whole-file hash and whether a chunk
+    /// failed its hash.
+    Finish(tokio::sync::oneshot::Sender<std::io::Result<([u8; 32], bool)>>),
+}
+
+/// A file being received, written by its own thread: the receiving task
+/// reads the network while the writer verifies, hashes and writes, with at
+/// most [`WRITE_AHEAD`] chunks between them. Buffers come back for reuse.
+struct DiskWriter {
+    commands: mpsc::Sender<WriteCmd>,
+    /// Buffers the writer is done with.
+    spare: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// The first write error, raised at the next chunk.
+    failed: Arc<Mutex<Option<std::io::Error>>>,
+}
+
+impl DiskWriter {
+    /// Starts the writer for `file`, positioned anywhere: it hashes the
+    /// `prefix` bytes already there, then appends after them.
+    fn start(file: std::fs::File, prefix: u64) -> Self {
+        let (commands, mut incoming) = mpsc::channel::<WriteCmd>(WRITE_AHEAD);
+        let spare = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let give_back = spare.clone();
+        let failed = Arc::new(Mutex::new(None::<std::io::Error>));
+        let failure = failed.clone();
+        tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Seek, SeekFrom, Write};
+            let mut file = file;
+            let mut whole = blake3::Hasher::new();
+            let mut corrupt = false;
+            let mut error: Option<std::io::Error> = None;
+            // Verified bytes appended: what a resume can keep, even after a
+            // write fails (the disk filled up).
+            let mut written = prefix;
+            let hashed = (|| -> std::io::Result<()> {
+                file.seek(SeekFrom::Start(0))?;
+                let mut left = (&mut file).take(prefix);
+                let mut buf = vec![0u8; 1024 * 1024];
+                loop {
+                    let n = left.read(&mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    whole.update(&buf[..n]);
+                }
+                file.seek(SeekFrom::Start(prefix))?;
+                Ok(())
+            })();
+            if let Err(err) = hashed {
+                error = Some(err);
+            }
+            while let Some(command) = incoming.blocking_recv() {
+                match command {
+                    WriteCmd::Chunk { data, hash } => {
+                        if error.is_none() && !corrupt {
+                            if protocol::chunk_hash(&data) != hash {
+                                // Keep taking this file's chunks, write
+                                // nothing more: it is requested again.
+                                corrupt = true;
+                            } else if let Err(err) = file.write_all(&data) {
+                                *failure.lock().unwrap_or_else(|e| e.into_inner()) =
+                                    Some(std::io::Error::new(err.kind(), err.to_string()));
+                                error = Some(err);
+                            } else {
+                                whole.update(&data);
+                                written += data.len() as u64;
+                            }
+                        }
+                        let mut pool = give_back.lock().unwrap_or_else(|e| e.into_inner());
+                        if pool.len() < WRITE_AHEAD + 1 {
+                            pool.push(data);
+                        }
+                    }
+                    WriteCmd::Sync(answer) => {
+                        let ok = file.flush().is_ok() && file.sync_data().is_ok();
+                        let _ = answer.send(ok.then_some(written));
+                    }
+                    WriteCmd::Finish(answer) => {
+                        let result = match error.take() {
+                            Some(err) => Err(err),
+                            None => file
+                                .flush()
+                                .and_then(|()| file.sync_all())
+                                .map(|()| (*whole.finalize().as_bytes(), corrupt)),
+                        };
+                        let _ = answer.send(result);
+                        return;
+                    }
+                }
+            }
+        });
+        Self {
+            commands,
+            spare,
+            failed,
+        }
+    }
+
+    /// A buffer for the next chunk: one the writer is done with, or new.
+    fn buffer(&self, capacity: usize) -> Vec<u8> {
+        let mut buf = self
+            .spare
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pop()
+            .unwrap_or_else(|| Vec::with_capacity(capacity));
+        buf.clear();
+        buf
+    }
+
+    /// Hands a chunk to the writer; waits while it is [`WRITE_AHEAD`]
+    /// behind. Fails with the writer's first error.
+    async fn write(&self, data: Vec<u8>, hash: [u8; 32]) -> Result<(), SessionError> {
+        let failed = self.failed.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(err) = failed {
+            return Err(if is_no_space(&err) {
+                SessionError::NoSpace
+            } else {
+                SessionError::Disk(err)
+            });
+        }
+        self.commands
+            .send(WriteCmd::Chunk { data, hash })
+            .await
+            .map_err(|_| SessionError::Disk(std::io::Error::other("the file writer stopped")))
+    }
+
+    /// Syncs what was written: how far the file is verified and on disk.
+    async fn sync(&self) -> Option<u64> {
+        let (answer, done) = tokio::sync::oneshot::channel();
+        self.commands.send(WriteCmd::Sync(answer)).await.ok()?;
+        done.await.ok().flatten()
+    }
+
+    /// Syncs and closes the file: its whole hash and whether a chunk was
+    /// corrupt.
+    async fn finish(&self) -> std::io::Result<([u8; 32], bool)> {
+        let (answer, done) = tokio::sync::oneshot::channel();
+        if self.commands.send(WriteCmd::Finish(answer)).await.is_err() {
+            return Err(std::io::Error::other("the file writer stopped"));
+        }
+        done.await
+            .unwrap_or_else(|_| Err(std::io::Error::other("the file writer stopped")))
+    }
 }
 
 struct Current {
@@ -1443,30 +1649,14 @@ impl Receiver<'_> {
         }
         #[cfg(unix)]
         options.custom_flags(libc_nofollow());
-        let mut file = options
+        let file = options
             .open(&planned.temp)
             .await
             .map_err(SessionError::Disk)?;
-        // Drop anything past the verified prefix, then hash the prefix.
+        // Drop anything past the verified prefix; the writer hashes the
+        // prefix, then appends.
         file.set_len(offset).await.map_err(SessionError::Disk)?;
-        let mut whole = blake3::Hasher::new();
-        if offset > 0 {
-            file.seek(std::io::SeekFrom::Start(0))
-                .await
-                .map_err(SessionError::Disk)?;
-            let mut prefix = (&mut file).take(offset);
-            let mut tmp = vec![0u8; 1024 * 1024];
-            loop {
-                let n = prefix.read(&mut tmp).await.map_err(SessionError::Disk)?;
-                if n == 0 {
-                    break;
-                }
-                whole.update(&tmp[..n]);
-            }
-        }
-        file.seek(std::io::SeekFrom::Start(offset))
-            .await
-            .map_err(SessionError::Disk)?;
+        let writer = DiskWriter::start(file.into_std().await, offset);
 
         self.fin.journal().set_file(
             index,
@@ -1484,10 +1674,10 @@ impl Receiver<'_> {
         }
         self.current = Some(Current {
             index,
-            file: Sink::Disk(file),
+            file: Sink::Disk(writer),
             offset,
             size,
-            whole,
+            whole: blake3::Hasher::new(),
             corrupt: false,
             counted: offset,
         });
@@ -1512,31 +1702,31 @@ impl Receiver<'_> {
             return Err(protocol_err("a chunk out of place"));
         }
         let len = header.len as usize;
-        if self.buf.len() < len {
-            self.buf.resize(chunk_size as usize, 0);
-        }
-        rd.read_exact(&mut self.buf[..len])
-            .await
-            .map_err(WireError::from)?;
-        let data = &self.buf[..len];
-        if cur.corrupt || protocol::chunk_hash(data) != header.hash {
-            // Keep reading this file's chunks, but write nothing more.
-            cur.corrupt = true;
-            return Ok(());
-        }
-        match &mut cur.file {
-            Sink::Disk(file) => {
-                if let Err(err) = file.write_all(data).await {
-                    return Err(if is_no_space(&err) {
-                        SessionError::NoSpace
-                    } else {
-                        SessionError::Disk(err)
-                    });
-                }
+        if let Sink::Disk(writer) = &mut cur.file {
+            // Read off the network here; verify, hash and write on the
+            // writer's thread while the next chunk arrives.
+            let mut data = writer.buffer(chunk_size as usize);
+            data.resize(len, 0);
+            rd.read_exact(&mut data).await.map_err(WireError::from)?;
+            writer.write(data, header.hash).await?;
+        } else {
+            if self.buf.len() < len {
+                self.buf.resize(chunk_size as usize, 0);
             }
-            Sink::Memory(bytes) => bytes.extend_from_slice(data),
+            rd.read_exact(&mut self.buf[..len])
+                .await
+                .map_err(WireError::from)?;
+            let data = &self.buf[..len];
+            if cur.corrupt || protocol::chunk_hash(data) != header.hash {
+                // Keep reading this file's chunks, but keep nothing more.
+                cur.corrupt = true;
+                return Ok(());
+            }
+            if let Sink::Memory(bytes) = &mut cur.file {
+                bytes.extend_from_slice(data);
+            }
+            cur.whole.update(data);
         }
-        cur.whole.update(data);
         cur.offset += len as u64;
         cur.counted += len as u64;
         lock(self.live).bytes_done += len as u64;
@@ -1549,16 +1739,17 @@ impl Receiver<'_> {
     /// Flushes the current file and journals its verified prefix.
     async fn save_progress(&mut self) {
         if let Some(cur) = self.current.as_mut()
-            && let Sink::Disk(file) = &mut cur.file
+            && let Sink::Disk(writer) = &mut cur.file
         {
-            let durable = file.flush().await.is_ok() && file.sync_data().await.is_ok();
-            if durable && !cur.corrupt {
+            // What the writer verified and has on disk now (it may be behind
+            // what was handed to it, or stopped at a full disk).
+            if let Some(done) = writer.sync().await {
                 // Only whole chunks count: resume restarts at a chunk boundary.
                 let chunk = u64::from(self.offer.offer.chunk_size);
-                let verified = if cur.offset == cur.size {
-                    cur.offset
+                let verified = if done == cur.size {
+                    done
                 } else {
-                    cur.offset / chunk * chunk
+                    done / chunk * chunk
                 };
                 self.fin.journal().file_mut(cur.index).verified = verified;
             }
@@ -1574,8 +1765,21 @@ impl Receiver<'_> {
         if cur.index != index {
             return Err(protocol_err("the wrong file ended"));
         }
-        let verified =
-            !cur.corrupt && cur.offset == cur.size && *cur.whole.finalize().as_bytes() == hash;
+        let mut cur = cur;
+        let (whole, corrupt) = match &mut cur.file {
+            Sink::Disk(writer) => match writer.finish().await {
+                Ok((whole, corrupt)) => (whole, corrupt),
+                Err(err) => {
+                    return Err(if is_no_space(&err) {
+                        SessionError::NoSpace
+                    } else {
+                        SessionError::Disk(err)
+                    });
+                }
+            },
+            Sink::Memory(_) => (*cur.whole.finalize().as_bytes(), cur.corrupt),
+        };
+        let verified = !corrupt && cur.offset == cur.size && whole == hash;
         let planned = self.shared.requested().get(&index).cloned();
         let Some(planned) = planned else {
             return Err(protocol_err("a file ended that was not requested"));
@@ -1607,22 +1811,9 @@ impl Receiver<'_> {
         }
         let conflict = self.fin.journal().conflict;
         let (temp, target) = (planned.temp.clone(), planned.planned.clone());
+        // A file on disk was synced by its writer when it finished.
         let small = match cur.file {
-            Sink::Disk(mut file) => {
-                if let Err(err) = async {
-                    file.flush().await?;
-                    file.sync_all().await
-                }
-                .await
-                {
-                    return Err(if is_no_space(&err) {
-                        SessionError::NoSpace
-                    } else {
-                        SessionError::Disk(err)
-                    });
-                }
-                None
-            }
+            Sink::Disk(_) => None,
             Sink::Memory(bytes) => Some(bytes),
         };
         // Write (small files), sync and commit in one blocking call, while
@@ -1798,10 +1989,9 @@ mod tests {
         let stopped = Stop::default();
         let (entry, live, control, stopped) = (&entry, &live, &control, &stopped);
         let sender = async move {
-            let mut buf = Vec::new();
             let mut pacer = Pacer::new(None);
             let sent = stream_file(
-                &mut wr, entry, 0, 0, CHUNK, &mut buf, live, control, stopped, &mut pacer,
+                &mut wr, entry, 0, 0, CHUNK, live, control, stopped, &mut pacer,
             )
             .await
             .unwrap();

@@ -112,6 +112,17 @@ hashing and disk writes (build container, release build):
 | 2,000 files of 16 KiB | 3,100–3,500 files/s, 17 MB peak memory |
 | 20,000 files of 16 KiB | 3,700 files/s, 40 MB peak memory |
 
+Large files are pipelined: on the sender a reader thread reads and hashes
+the next chunks (at most 2 ahead) while the session encrypts and sends;
+on the receiver a writer thread per file verifies, hashes and writes
+while the session reads the next chunk off the network (at most 2
+behind), and journals only what it has verified on disk. Disk, BLAKE3 and
+TLS used to take turns on about one core of four. Measured on a RAM disk
+(storage out of the way): 0.34–0.55 → 0.93–1.19 GB/s; a 5.37 GB file in
+4.5 s with 51 MB peak memory for both engines. On this container's disk
+both run at its ~500 MB/s. The wire protocol is unchanged. Chunk sizes of
+1, 4 and 16 MiB measure the same; 4 MiB keeps resume losses small.
+
 Small files were first limited by thread hand-offs (each async file
 operation hops to a blocking thread) and then by one fsync per file. Files
 that fit in one chunk are now read whole on the sender and written, synced
