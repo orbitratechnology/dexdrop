@@ -99,6 +99,8 @@ pub enum Route {
     Trusted,
     /// Settings: this device's avatar.
     Avatar,
+    /// History: a past transfer, by its hex ID.
+    Past(String),
 }
 
 /// Each tab's pages, root first.

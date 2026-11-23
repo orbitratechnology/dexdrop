@@ -215,6 +215,25 @@ fn progress(id: TransferId) -> impl IntoElement {
         }))
         .child(controls(id, s))
         .child(when(finished, move || after(s)))
+        .child(file_section(s))
+}
+
+/// The transfer's files, photos previewed: outgoing from the start,
+/// incoming once saved. Rebuilt only when the list changes, not on every
+/// progress update.
+fn file_section(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElement {
+    let items = computed(move || s().items);
+    dynamic(move || {
+        let items = items.get();
+        (!items.is_empty()).then(|| {
+            let total = s().files.max(items.len() as u64);
+            view()
+                .self_stretch()
+                .gap(px(space::S))
+                .child(ui::section(if total == 1 { "File" } else { "Files" }))
+                .child(crate::files::list(items, total))
+        })
+    })
 }
 
 /// Who is on the other end, and the number both screens show.

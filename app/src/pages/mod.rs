@@ -34,6 +34,7 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
             std::rc::Rc::new(move || transfer::title(id)),
             transfer::page(id).into_element(),
         ),
+        (_, Route::Past(id)) => (fixed("Details"), history::past_page(id).into_element()),
         (_, Route::Avatar) => (fixed("Avatar"), profile::page().into_element()),
         (_, Route::Trusted) => (
             fixed("Trusted devices"),
