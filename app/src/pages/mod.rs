@@ -1,5 +1,6 @@
 //! The app's pages, one module per area.
 
+pub mod apps;
 pub mod history;
 pub mod home;
 pub mod profile;
@@ -35,6 +36,7 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
             transfer::page(id).into_element(),
         ),
         (_, Route::Past(id)) => (fixed("Details"), history::past_page(id).into_element()),
+        (_, Route::Apps) => (fixed("Apps"), apps::page().into_element()),
         (_, Route::Avatar) => (fixed("Avatar"), profile::page().into_element()),
         (_, Route::Trusted) => (
             fixed("Trusted devices"),

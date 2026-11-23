@@ -111,6 +111,65 @@ enum Kind {
     Photos,
     Videos,
     Files,
+    Apks,
+}
+
+/// Android: APK files from the system's files.
+pub fn choose_apks() {
+    choose_staged(Kind::Apks);
+}
+
+/// Android: copies apps' APKs into staging under their names, then adds
+/// them to the selection; a card says so meanwhile.
+pub fn add_apps(apps: Vec<(crate::files::AppCard, Vec<PathBuf>)>) {
+    if apps.is_empty() {
+        return;
+    }
+    set_loading(Some(match apps.as_slice() {
+        [(one, _)] => format!("Preparing {}…", one.label),
+        many => format!("Preparing {} apps…", many.len()),
+    }));
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let staging = bridge::state_dir("staging")
+            .join(dexdrop_core::hex(&dexdrop_core::random_bytes::<6>()));
+        let cards: Vec<crate::files::AppCard> = apps.iter().map(|(c, _)| c.clone()).collect();
+        let copying = blocking(move || {
+            apps.into_iter()
+                .map(|(card, apks)| {
+                    let info = dexdrop_net::apps::AppInfo {
+                        package: card.package,
+                        label: card.label,
+                        version: card.version,
+                        version_code: 0,
+                        system: card.system,
+                        size: card.size,
+                        apks,
+                        icon: card.icon,
+                        installed: 0,
+                        updated: card.updated,
+                        min_sdk: 0,
+                        target_sdk: 0,
+                    };
+                    dexdrop_net::apps::stage(&info, &staging)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        });
+        detached(async move {
+            let copied = copying.await;
+            set_loading(None);
+            match copied {
+                Ok(Ok(paths)) => {
+                    for (path, card) in paths.iter().zip(cards) {
+                        crate::pages::apps::remember(path.clone(), card);
+                    }
+                    select(paths);
+                }
+                Ok(Err(err)) => toast(NoticeKind::Error, format!("Could not copy the app: {err}")),
+                Err(_) => {}
+            }
+        });
+    }
 }
 
 /// Phones give the bytes of picked files, not paths: they are copied to
@@ -126,6 +185,7 @@ fn choose_staged(kind: Kind) {
             Kind::Photos => "Getting your photos…".into(),
             Kind::Videos => "Getting your videos…".into(),
             Kind::Files => "Getting your files…".into(),
+            Kind::Apks => "Getting your APK files…".into(),
         }));
         let picked = match kind {
             Kind::Photos => {
@@ -143,6 +203,11 @@ fn choose_staged(kind: Kind) {
                 pick_files(request)
             }
             Kind::Files => pick_files(FilePickRequest::new(true, 0)),
+            Kind::Apks => {
+                let mut request = FilePickRequest::new(true, 0);
+                request.filters = vec![FileFilter::new("Android apps", ["apk"])];
+                pick_files(request)
+            }
         };
         detached(async move {
             let files = picked.await;
@@ -155,10 +220,7 @@ fn choose_staged(kind: Kind) {
             } else {
                 format!("Preparing {} files…", files.len())
             }));
-            let staging = bridge::default_download_dir()
-                .parent()
-                .map(|p| p.join("state").join("staging"))
-                .unwrap_or_else(|| std::env::temp_dir().join("dexdrop-staging"));
+            let staging = bridge::state_dir("staging");
             let staged = blocking(move || {
                 let dir = staging.join(dexdrop_core::hex(&dexdrop_core::random_bytes::<6>()));
                 std::fs::create_dir_all(&dir)?;
@@ -265,8 +327,13 @@ fn kinds() -> impl IntoElement {
             .accessibility_label(label)
             .on_press(pick)
             .flex_1()
-            // Three across on a phone, two (or more) on wider windows.
-            .min_w(px(if ui::mobile() { 96.0 } else { 140.0 }))
+            // Three across on an iPhone; two by two on Android, with Apps;
+            // two (or more) on wider windows.
+            .min_w(px(if os() == nsh_core::platform::Os::Ios {
+                96.0
+            } else {
+                140.0
+            }))
             .items_center()
             .gap(px(space::M))
             .py(px(space::XL))
@@ -303,6 +370,11 @@ fn kinds() -> impl IntoElement {
             .child(tile(Icon::File, "Files", (0x3b82f6, 0x6366f1), || {
                 choose_staged(Kind::Files)
             }));
+        if os() == nsh_core::platform::Os::Android {
+            grid = grid.child(tile(Icon::Android, "Apps", (0x22c55e, 0x059669), || {
+                push(Route::Apps)
+            }));
+        }
     }
     grid
 }
@@ -461,24 +533,38 @@ fn selected() -> impl IntoElement {
                     |p: &Pick| p.path.clone(),
                     |p, i| {
                         let pick = p.get_untracked();
-                        let detail = signal(if pick.folder {
+                        let fallback = if pick.folder {
                             "Folder".to_owned()
                         } else {
                             format::bytes(pick.size)
-                        });
-                        let glyph = if pick.folder {
-                            ui::kind_glyph(Icon::Folder, 40.0)
-                        } else {
-                            crate::files::thumb(&pick.name, None, 40.0, 10.0)
                         };
+                        let (size, folder) = (pick.size, pick.folder);
                         let name = pick.name.clone();
                         let path = pick.path.clone();
+                        // An APK shows the app it installs, once read.
+                        let at = signal(pick.path.clone());
+                        let label = signal(pick.name.clone());
+                        let fallback = signal(fallback);
+                        let card = move || crate::files::app_card(&at.get());
+                        let glyph = dynamic(move || {
+                            if folder {
+                                ui::kind_glyph(Icon::Folder, 44.0)
+                            } else if let Some(app) = card() {
+                                crate::files::app_icon(app.icon.as_deref(), 44.0)
+                            } else {
+                                crate::files::thumb(&label.get(), None, 44.0, 10.0)
+                            }
+                        });
                         view()
-                            .child(when(move || i.get() > 0, || ui::separator(68.0)))
+                            .child(when(move || i.get() > 0, || ui::separator(72.0)))
                             .child(ui::row(
                                 glyph,
-                                name.clone(),
-                                move || detail.get(),
+                                move || card().map(|a| a.label).unwrap_or_else(|| label.get()),
+                                move || {
+                                    card()
+                                        .map(|a| crate::files::app_detail(&a, size))
+                                        .unwrap_or_else(|| fallback.get())
+                                },
                                 ui::round_btn(
                                     Icon::X,
                                     format!("Remove {name}"),

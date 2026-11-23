@@ -42,13 +42,18 @@ pub fn preview_of(item: &FileItem) -> Option<PathBuf> {
 pub fn thumb(name: &str, preview: Option<&Path>, side: f32, radius: f32) -> View {
     let kind = ui::file_badge(name, side, radius);
     match preview {
+        // The kind shows through until the photo is drawn, and stays if it
+        // cannot be (a damaged file).
         Some(path) => view()
             .size(px(side))
             .rounded(px(radius))
             .overflow_hidden()
-            .bg(move || theme().muted)
+            .child(kind)
             .child(
                 image(path.to_string_lossy().into_owned())
+                    .absolute()
+                    .top_0()
+                    .left_0()
                     .size(px(side))
                     .object_fit(ResizeMode::Cover),
             ),
@@ -58,7 +63,12 @@ pub fn thumb(name: &str, preview: Option<&Path>, side: f32, radius: f32) -> View
 
 /// Opens a file: in its app on computers, through the share sheet on phones.
 pub fn open(path: PathBuf) {
-    if desktop_platform() {
+    // An APK on Android: the system's installer, which asks first.
+    let apk = path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with(".apk");
+    if desktop_platform() || (apk && os() == nsh_core::platform::Os::Android) {
         let opened = open_path(path);
         spawn(async move {
             if let Err(err) = opened.await {
@@ -88,6 +98,12 @@ pub fn row(item: FileItem, previewed: bool) -> impl IntoElement {
     } else {
         format!("{} · {folder}", format::bytes(item.size))
     };
+    let name = item.name().to_owned();
+    // An APK on this device shows the app it installs, once read.
+    let card = {
+        let local = local.clone();
+        move || local.as_deref().and_then(app_card)
+    };
     let content = view()
         .flex_row()
         .items_center()
@@ -95,18 +111,29 @@ pub fn row(item: FileItem, previewed: bool) -> impl IntoElement {
         .px(px(space::L))
         .py(px(space::S))
         .min_h(px(ui::hit().max(56.0)))
-        .child(thumb(item.name(), preview.as_deref(), 44.0, 10.0))
-        .child(
+        .child(dynamic({
+            let card = card.clone();
+            let name = name.clone();
+            move || match card() {
+                Some(app) => app_icon(app.icon.as_deref(), 44.0),
+                None => thumb(&name, preview.as_deref(), 44.0, 10.0),
+            }
+        }))
+        .child(dynamic(move || {
+            let (title, detail) = match card() {
+                Some(app) => (app.label.clone(), app_detail(&app, item.size)),
+                None => (name.clone(), detail.clone()),
+            };
             view()
                 .flex_1()
                 .gap(px(2.0))
-                .child(ui::body(item.name().to_owned()).number_of_lines(1))
+                .child(ui::body(title).number_of_lines(1))
                 .child(
                     muted(detail)
                         .text_size(px(ui::size::CAPTION))
                         .number_of_lines(1),
-                ),
-        );
+                )
+        }));
     match local {
         Some(path) => ui::pressable()
             .accessibility_label(format!("Open {}", item.name()))
@@ -162,4 +189,111 @@ pub fn photo_strip(items: &[FileItem], max: usize) -> Option<View> {
                     .child(thumb(&p.to_string_lossy(), Some(&p), 96.0, 14.0))
             })),
     )
+}
+
+// ---------------------------------------------------------------- apps
+
+/// An app as the lists show it: what an APK installs, or an installed app.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AppCard {
+    pub label: String,
+    pub package: String,
+    pub version: String,
+    pub size: u64,
+    pub icon: Option<PathBuf>,
+    /// Installed from a bundle, as several APKs.
+    pub split: bool,
+    pub system: bool,
+    /// Unix milliseconds; 0 for a file.
+    pub updated: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<dexdrop_net::apps::AppInfo> for AppCard {
+    fn from(a: dexdrop_net::apps::AppInfo) -> Self {
+        Self {
+            split: a.split(),
+            label: a.label,
+            package: a.package,
+            version: a.version,
+            size: a.size,
+            icon: a.icon,
+            system: a.system,
+            updated: a.updated,
+        }
+    }
+}
+
+/// What is known about APK files on this device (Android): their app's
+/// name, version and icon, by path. Filled when apps are picked to send
+/// and, for other APKs, read in the background on first sight.
+#[derive(Clone, Default, PartialEq)]
+pub struct AppCards(pub std::collections::HashMap<PathBuf, Option<AppCard>>);
+
+pub fn app_cards() -> Signal<AppCards> {
+    global::<AppCards>()
+}
+
+/// The app an APK file at `path` installs, once read; asks for it the
+/// first time (Android only).
+pub fn app_card(path: &Path) -> Option<AppCard> {
+    if let Some(known) = app_cards().with(|c| c.0.get(path).cloned()) {
+        return known;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if dexdrop_net::apps::AVAILABLE
+        && path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .ends_with(".apk")
+    {
+        app_cards().update(|c| {
+            c.0.insert(path.to_owned(), None);
+        });
+        let file = path.to_owned();
+        let icons = crate::bridge::state_dir("app-icons");
+        let reading = blocking({
+            let file = file.clone();
+            move || dexdrop_net::apps::archive(&file, &icons)
+        });
+        Owner::detached().run(|| {
+            spawn(async move {
+                if let Ok(Some(info)) = reading.await {
+                    app_cards().update(|c| {
+                        c.0.insert(file, Some(info.into()));
+                    });
+                }
+            });
+        });
+    }
+    None
+}
+
+/// "App · 11.2 · 58 MB": what an app row says under its name.
+pub fn app_detail(app: &AppCard, size: u64) -> String {
+    let mut parts = vec!["App".to_owned()];
+    if !app.version.is_empty() {
+        parts.push(app.version.clone());
+    }
+    parts.push(format::bytes(if size > 0 { size } else { app.size }));
+    if app.split {
+        parts.push("Split APKs".into());
+    }
+    parts.join(" · ")
+}
+
+/// An app's icon, rounded as launchers draw them, or its APK badge.
+pub fn app_icon(icon: Option<&Path>, side: f32) -> View {
+    match icon {
+        Some(path) => view()
+            .size(px(side))
+            .rounded(px(side * 0.24))
+            .overflow_hidden()
+            .child(
+                image(path.to_string_lossy().into_owned())
+                    .size(px(side))
+                    .object_fit(ResizeMode::Contain),
+            ),
+        None => ui::file_badge("app.apk", side, side * 0.24),
+    }
 }

@@ -146,6 +146,7 @@ pub enum Icon {
     Package,
     Pdf,
     Markdown,
+    Search,
 }
 
 impl Icon {
@@ -205,6 +206,7 @@ impl Icon {
             Icon::Package => include_str!("../assets/icons/package.svg"),
             Icon::Pdf => include_str!("../assets/icons/pdf.svg"),
             Icon::Markdown => include_str!("../assets/icons/markdown.svg"),
+            Icon::Search => include_str!("../assets/icons/search.svg"),
         }
     }
 
@@ -338,7 +340,8 @@ pub fn file_kind(name: &str) -> (Icon, u32, Option<String>) {
 /// square of its color, with its format ("PDF", "XLSX") on a tag.
 pub fn file_badge(name: &str, side: f32, radius: f32) -> View {
     let (i, c, tag) = file_kind(name);
-    let tagged = side >= 32.0;
+    // Small badges (40 pt rows with a corner badge) go without the tag.
+    let tagged = side >= 42.0;
     let badge = view()
         .size(px(side))
         .rounded(px(radius))

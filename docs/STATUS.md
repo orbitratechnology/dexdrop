@@ -55,6 +55,18 @@ every action, and the platform's own controls where NSH has them.
   outcome, the other device, when, how long, average speed, route,
   encryption, issues, the folder it went to and every file (up to 100,
   previews for the first 24), each opening on a tap.
+- **Apps (Android):** a fourth Send tile lists the installed apps with
+  their icon, name, version, size and last update (system apps behind a
+  switch) and APK files from the phone's files; chosen apps are copied as
+  `"Name 1.2.apk"` (apps installed as split APKs go as a folder of APKs).
+  APKs anywhere in the app show the app they install, and opening a
+  received APK hands it to the system's installer. Seeing other apps needs
+  a `<queries>` entry and installing needs `REQUEST_INSTALL_PACKAGES`,
+  which NSH 0.6.1's `nsh.json` cannot declare: CI adds both to the packaged
+  APK with apktool and signs it again (`scripts/patch-android-manifest.sh`).
+- **Icons:** devices carry their system's mark (Apple, Windows, Android,
+  Linux, the browser's globe); files an icon per kind with their format on
+  a colored tag (PDF, XLSX, CSV, HTML, SVG, GIF, APK, DMG, EXE, DEB, …).
 - **Avatars:** each device chooses an emoji on one of eight colors in
   Settings; others see it (mDNS TXT `a`, and the handshake's hello, whose
   new last field older builds ignore and read as none), on requests,

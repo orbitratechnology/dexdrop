@@ -322,6 +322,38 @@ wait "$inbox" 2>/dev/null
 [ "$got_sum" = "$src_sum" ] || fail "the file the CLI received differs from the one picked"
 note "- Resumed from the app: the CLI received \`$out_file\` byte-identical (SHA-256)"
 
+# 4. Apps: the list of installed apps (needs the manifest's <queries>, which
+#    scripts/patch-android-manifest.sh adds), then one app into the
+#    selection as its APK.
+tap_only Share || true
+tap_only Done || tap_only "Navigate up" || true
+if tap_only Send && tap_only Apps && ad wait text "Your apps" 60000 >/dev/null 2>&1; then
+  step 11-apps
+  note "- Apps page lists the installed apps"
+  tap_only "Show system apps" || ad click 'label="Show system apps"' >/dev/null 2>&1 || true
+  sleep 2
+  step 11b-apps-system
+  seen=""
+  for app in Chrome Settings Camera Contacts Phone Messages Files Clock; do
+    if ad wait text "$app" 3000 >/dev/null 2>&1; then seen=$app; break; fi
+  done
+  if [ -n "$seen" ]; then
+    note "- Other apps are visible (\"$seen\")"
+    if tap "$seen" && tap_only "Add 1 app" && ad wait text "App ·" 60000 >/dev/null 2>&1; then
+      step 12-app-selected
+      note "- \"$seen\" added to the selection as its APK, with its icon, version and size"
+    else
+      step 12-app-not-selected
+      warn "could not add \"$seen\" to the selection"
+    fi
+  else
+    warn "no other app is visible on the Apps page (package visibility?)"
+  fi
+else
+  step 11-no-apps
+  warn "the Apps page did not list apps"
+fi
+
 collect_logs
 ad close >/dev/null 2>&1 || true
 note ""

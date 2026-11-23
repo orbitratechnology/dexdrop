@@ -99,6 +99,8 @@ pub enum Route {
     Trusted,
     /// Settings: this device's avatar.
     Avatar,
+    /// Send: apps installed on this phone (Android).
+    Apps,
     /// History: a past transfer, by its hex ID.
     Past(String),
 }

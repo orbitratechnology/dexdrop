@@ -256,7 +256,11 @@ fn row_content(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
     };
     let outgoing = h.with_untracked(|e| e.direction == Direction::Outgoing);
     // The first photo itself, when it is still on this device.
-    let preview = h.with_untracked(|e| e.items.iter().find_map(crate::files::preview_of));
+    let preview = h.with_untracked(|e| {
+        e.items
+            .iter()
+            .find_map(|i| crate::files::preview_of(i).map(|p| (i.name().to_owned(), p)))
+    });
     view()
         .flex_row()
         .items_center()
@@ -266,7 +270,7 @@ fn row_content(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
         .child(
             view()
                 .child(match &preview {
-                    Some(p) => crate::files::thumb("", Some(p), 40.0, 10.0),
+                    Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, 10.0),
                     None => ui::file_badge(&h.with_untracked(|e| e.label.clone()), 40.0, 10.0),
                 })
                 .child(

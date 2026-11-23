@@ -49,3 +49,12 @@ Android workaround can go entirely:
 Keeping `NsdManager` (with only the VM/Context lookup replaced) stays an
 option if the multicast lock's battery cost matters more than one discovery
 code path.
+
+## Also patched in the APK meanwhile
+
+Listing other apps (Send › Apps) needs `<queries>` for launcher activities
+and opening received APKs needs `REQUEST_INSTALL_PACKAGES`.
+`scripts/patch-android-manifest.sh` adds both to the APK `nsh package`
+makes (apktool, then zipalign and apksigner with the same debug key), in
+CI after packaging. With `android.queries` and `android.permissions` in a
+released CLI, they move to `nsh.json` and the script goes.

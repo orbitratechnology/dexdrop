@@ -5,9 +5,12 @@
 //! on the UI toolkit, so it is tested headless and shared by the NSH app and
 //! the `dexdrop` command-line tool.
 
+pub mod apps;
 pub mod discovery;
 pub mod engine;
 mod incoming;
+#[cfg(target_os = "android")]
+mod jvm;
 mod outgoing;
 pub mod pairing;
 pub mod remote;
