@@ -30,9 +30,17 @@ every action, and the platform's own controls where NSH has them.
 - **Share (home):** two large *Send* and *Receive* buttons, nearby devices as
   avatars (tap one to send to it), what is moving now, and recent
   transfers.
+- **Theme:** one indigo accent on cool neutrals (`app/theme.json`), with a
+  near-black dark mode; every page paints the theme's background, so light
+  and dark look the same everywhere. iOS keeps the system's large,
+  transparent header; Android's header follows the theme and never covers
+  the page.
 - **Send:** Photos, Videos or Files on phones (Files or Folder on
-  desktops, plus drag and drop), the selection with its size, then *Choose
-  device*: a radar with the nearby devices, or *Use a code*.
+  desktops, plus drag and drop onto a drop zone), picked photos as a grid
+  of previews and other files with their kind and size, then *Choose
+  device*: a radar with the nearby devices, or *Use a code*. While the
+  system hands over picked files, a card says so ("Getting your photos…",
+  "Preparing 12 files…").
 - **Receive:** this device on a radar, ready for nearby devices, with its
   code and QR code for devices that cannot see it.
 - **Incoming request:** a bottom sheet with the sender, what it sends, the
@@ -42,7 +50,15 @@ every action, and the platform's own controls where NSH has them.
   *Resume* (*Retry* after a failure), *Cancel* (confirmed with the system's
   alert), *Reconnecting* while a dropped connection is retried, and a check
   mark when done, with *Share or save* on phones and *Show in folder* on
-  desktops.
+  desktops; its files are listed with previews.
+- **History details:** each past transfer opens a screen with its photos,
+  outcome, the other device, when, how long, average speed, route,
+  encryption, issues, the folder it went to and every file (up to 100,
+  previews for the first 24), each opening on a tap.
+- **Avatars:** each device chooses an emoji on one of eight colors in
+  Settings; others see it (mDNS TXT `a`, and the handshake's hello, whose
+  new last field older builds ignore and read as none), on requests,
+  transfers, trusted devices and history.
 - **Icons:** 36 original 24 × 24 line icons (`app/assets/icons/`), embedded
   as SVG; file types and settings rows have their own colors; devices get
   an avatar with a platform badge.
