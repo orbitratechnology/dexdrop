@@ -210,6 +210,9 @@ jobs:
   package-apple:
     name: Package macOS and iOS simulator
     runs-on: macos-15
+    permissions:
+      # The simulator build goes to the native-sim-build release.
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -233,6 +236,21 @@ jobs:
         with:
           name: dexdrop-ios-simulator
           path: dist/ios-simulator
+      # The simulator build that native-sim sessions install (the native-sim
+      # workflow on main, mode=app, app_release_asset=DexDrop.app.tar.gz):
+      # `DexDrop.app` in a .tar.gz on the native-sim-build release, replaced
+      # on every push.
+      - name: Publish the simulator build for native-sim
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          app=$(find dist/ios-simulator -maxdepth 2 -name '*.app' -type d | head -1)
+          tar -C "$(dirname "$app")" -czf DexDrop.app.tar.gz "$(basename "$app")"
+          gh release view native-sim-build >/dev/null 2>&1 ||
+            gh release create native-sim-build --title "native-sim builds" \
+              --notes "DexDrop simulator builds for native-sim sessions, published by CI from the development branch. Safe to delete."
+          gh release upload native-sim-build DexDrop.app.tar.gz --clobber
       - name: Desktop app check (macOS)
         run: python3 scripts/desktop-check.py --require-discovery --app dist/macos/DexDrop.app --cli target/release/dexdrop --out dist/desktop-check
       - uses: actions/upload-artifact@v4
