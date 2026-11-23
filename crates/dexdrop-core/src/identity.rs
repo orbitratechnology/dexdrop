@@ -23,6 +23,22 @@ use crate::{
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PeerId(pub [u8; 32]);
 
+/// The DER header of an Ed25519 SubjectPublicKeyInfo; the raw 32-byte key
+/// follows it.
+const ED25519_SPKI_PREFIX: [u8; 12] = [
+    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+];
+
+/// The raw Ed25519 public key of a device certificate: its address on the
+/// internet (an Iroh endpoint ID). `None` for another key type.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn ed25519_key_of_cert(cert_der: &[u8]) -> Option<[u8; 32]> {
+    let (_, cert) = x509_parser::parse_x509_certificate(cert_der).ok()?;
+    let spki = cert.tbs_certificate.subject_pki.raw;
+    let key = spki.strip_prefix(&ED25519_SPKI_PREFIX[..])?;
+    key.try_into().ok()
+}
+
 impl PeerId {
     /// The peer ID of the certificate `cert_der`.
     #[cfg(not(target_arch = "wasm32"))]
@@ -30,6 +46,15 @@ impl PeerId {
         let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
             .map_err(|e| IdentityError::Certificate(e.to_string()))?;
         Ok(Self::from_spki(cert.tbs_certificate.subject_pki.raw))
+    }
+
+    /// The peer ID of a raw Ed25519 public key: what an internet connection
+    /// (Iroh) authenticates, checked against the expected peer before TLS.
+    pub fn from_ed25519_key(key: &[u8; 32]) -> Self {
+        let mut spki = Vec::with_capacity(44);
+        spki.extend_from_slice(&ED25519_SPKI_PREFIX);
+        spki.extend_from_slice(key);
+        Self::from_spki(&spki)
     }
 
     /// The peer ID of a DER SubjectPublicKeyInfo.
@@ -256,6 +281,33 @@ impl Identity {
     }
 
     /// This device's peer ID.
+    /// The Ed25519 private key's 32-byte seed, which the internet transport
+    /// (Iroh) uses as the same device key. PKCS#8 v1 and v2 (RFC 8410) both
+    /// hold it after a 16-byte header.
+    pub fn ed25519_seed(&self) -> Option<[u8; 32]> {
+        // SEQUENCE (any short length), version 0 or 1, the Ed25519 algorithm
+        // identifier, then an OCTET STRING holding the 32-byte seed.
+        const AFTER_VERSION: [u8; 11] = [
+            0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+        ];
+        let k = &self.key_pkcs8;
+        let well_formed = k.len() >= 48
+            && k[0] == 0x30
+            && k[1] < 0x80
+            && k[2..4] == [0x02, 0x01]
+            && k[4] <= 1
+            && k[5..16] == AFTER_VERSION;
+        if !well_formed {
+            return None;
+        }
+        k[16..48].try_into().ok()
+    }
+
+    /// This device's raw Ed25519 public key (its Iroh endpoint ID).
+    pub fn ed25519_key(&self) -> Option<[u8; 32]> {
+        ed25519_key_of_cert(&self.cert_der)
+    }
+
     pub fn peer_id(&self) -> PeerId {
         self.peer_id
     }
@@ -369,6 +421,14 @@ mod tests {
         }
         let _ = keystore::delete(&new.peer_id().to_string());
         eprintln!("key storage here: {}", moved.key_storage().describe());
+    }
+
+    #[test]
+    fn the_raw_key_names_the_same_peer() {
+        let id = Identity::generate().unwrap();
+        let key = id.ed25519_key().expect("an Ed25519 certificate");
+        assert_eq!(PeerId::from_ed25519_key(&key), id.peer_id());
+        assert!(id.ed25519_seed().is_some());
     }
 
     #[test]

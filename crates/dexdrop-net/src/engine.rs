@@ -56,6 +56,8 @@ pub struct EngineConfig {
     /// permission prompt follows an explanation. Apps set it where the OS
     /// asks (iOS, macOS); default off.
     pub explain_local_network_first: bool,
+    /// Transfers over the internet (Iroh, Phase 6); `None`: local only.
+    pub remote: Option<crate::remote::RemoteConfig>,
     /// The address to listen on.
     pub listen: IpAddr,
     /// Overrides the settings' port.
@@ -83,6 +85,7 @@ impl EngineConfig {
             default_device_name: String::new(),
             discovery: true,
             explain_local_network_first: false,
+            remote: None,
             listen: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             port: None,
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -214,6 +217,20 @@ pub async fn spawn(
     };
     let port = listener.local_addr()?.port();
 
+    // The internet endpoint: a failure (no network, a blocked port) leaves
+    // local transfers working.
+    let remote = match &config.remote {
+        Some(_) if !settings.internet => None,
+        Some(remote_config) => match crate::remote::bind(&identity, remote_config).await {
+            Ok(endpoint) => Some(endpoint),
+            Err(err) => {
+                tracing::warn!("internet transfers unavailable: {err}");
+                None
+            }
+        },
+        None => None,
+    };
+
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (event_tx, event_rx) = mpsc::unbounded_channel();
     let (internal_tx, internal_rx) = mpsc::unbounded_channel();
@@ -231,6 +248,32 @@ pub async fn spawn(
         invitations: Mutex::new(InvitationBook::default()),
         peers: Mutex::new(HashMap::new()),
         internal: internal_tx.clone(),
+        remote: remote.clone(),
+        known: Mutex::new(dexdrop_core::store::KnownPeers::load(&state.known())),
+    });
+
+    // Incoming internet connections: the same handler as local ones, a
+    // bounded number at once.
+    let remote_task = remote.map(|endpoint| {
+        let ctx = ctx.clone();
+        tokio::spawn(async move {
+            let slots = Arc::new(tokio::sync::Semaphore::new(MAX_INBOUND));
+            while let Some(incoming) = endpoint.accept().await {
+                let Ok(slot) = slots.clone().try_acquire_owned() else {
+                    continue; // Dropped: too many connections.
+                };
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    if let Ok(Ok(conn)) =
+                        tokio::time::timeout(Duration::from_secs(20), incoming.into_future()).await
+                        && let Ok(link) = crate::remote::accept(conn.clone()).await
+                    {
+                        incoming::handle(ctx, link, incoming::Via::Internet(conn)).await;
+                    }
+                    drop(slot);
+                });
+            }
+        })
     });
 
     let accept_ctx = ctx.clone();
@@ -257,7 +300,8 @@ pub async fn spawn(
                     }
                     let (ctx, per_ip) = (accept_ctx.clone(), per_ip.clone());
                     tokio::spawn(async move {
-                        incoming::handle(ctx, tcp).await;
+                        incoming::handle(ctx, crate::tls::tcp_link(tcp), incoming::Via::Nearby)
+                            .await;
                         let mut counts = lock(&per_ip);
                         if let Some(count) = counts.get_mut(&ip) {
                             *count -= 1;
@@ -290,6 +334,7 @@ pub async fn spawn(
         addrs: Vec::new(),
         port,
         listener_task,
+        remote_task,
         internal: None,
     };
     actor.boot(internal_tx);
@@ -355,6 +400,10 @@ pub(crate) struct Ctx {
     pub invitations: Mutex<InvitationBook>,
     pub peers: Mutex<HashMap<PeerId, Discovered>>,
     pub internal: mpsc::UnboundedSender<Internal>,
+    /// The internet endpoint, when transfers over the internet are on.
+    pub remote: Option<iroh::Endpoint>,
+    /// Devices this one exchanged files with: reachable over the internet.
+    pub known: Mutex<dexdrop_core::store::KnownPeers>,
 }
 
 impl Ctx {
@@ -386,6 +435,9 @@ pub(crate) struct OfferArrived {
     pub via_invitation: bool,
     pub offer: crate::session::ReceivedOffer,
     pub decide: oneshot::Sender<Decision>,
+    pub route: Route,
+    /// The sender's raw Ed25519 key, remembered once the transfer completes.
+    pub key: Option<[u8; 32]>,
 }
 
 /// Messages from the engine's tasks to the actor.
@@ -420,6 +472,13 @@ pub(crate) enum Internal {
         name: String,
         platform: String,
         sas: String,
+        route: Route,
+        key: Option<[u8; 32]>,
+    },
+    /// How a transfer's connection goes now.
+    Route {
+        id: TransferId,
+        route: Route,
     },
     OutgoingEnded {
         id: TransferId,
@@ -436,6 +495,8 @@ struct Transfer {
     outgoing: Option<OutgoingPlan>,
     running: bool,
     rate: RateMeter,
+    /// The other device's raw Ed25519 key, once connected.
+    peer_key: Option<[u8; 32]>,
 }
 
 struct OutgoingPlan {
@@ -518,6 +579,7 @@ struct Actor {
     addrs: Vec<IpAddr>,
     port: u16,
     listener_task: tokio::task::JoinHandle<()>,
+    remote_task: Option<tokio::task::JoinHandle<()>>,
     internal: Option<mpsc::UnboundedSender<Internal>>,
 }
 
@@ -655,6 +717,7 @@ impl Actor {
                 outgoing,
                 running: false,
                 rate: RateMeter::default(),
+                peer_key: None,
             },
         );
     }
@@ -679,6 +742,10 @@ impl Actor {
             }
         }
         self.shutdown();
+        // Iroh says goodbye to peers and relays before the runtime stops.
+        if let Some(endpoint) = self.ctx.remote.clone() {
+            let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.close()).await;
+        }
     }
 
     fn shutdown(&mut self) {
@@ -688,6 +755,9 @@ impl Actor {
             }
         }
         self.listener_task.abort();
+        if let Some(task) = &self.remote_task {
+            task.abort();
+        }
         self.discovery = None;
         self.emit(Event::Stopped);
     }
@@ -791,10 +861,15 @@ impl Actor {
                 if self.trust.forget(&peer_id) {
                     let _ = self.trust.save(&self.ctx.state.trusted());
                     self.emit(Event::Trusted(self.trust.peers.clone()));
-                    self.emit_peers();
                 }
+                let forgot = lock(&self.ctx.known).forget(&peer_id);
+                if forgot {
+                    let _ = lock(&self.ctx.known).save(&self.ctx.state.known());
+                }
+                self.emit_peers();
             }
             Command::ClearHistory => self.clear_history(),
+            Command::SetInternet(on) => self.update_settings(|s| s.internet = on),
             Command::LocalNetworkExplained => {
                 self.update_settings(|s| s.local_network_explained = true);
                 if self.config.discovery && self.discovery.is_none() {
@@ -1058,7 +1133,7 @@ impl Actor {
             .take(4)
             .map(|ip| SocketAddr::new(*ip, self.port))
             .collect();
-        if addrs.is_empty() {
+        if addrs.is_empty() && self.ctx.remote.is_none() {
             self.notice(
                 NoticeKind::Error,
                 "This device is not connected to a network.",
@@ -1066,10 +1141,17 @@ impl Actor {
             return;
         }
         let name = self.ctx.device_name();
+        let remote = self.ctx.remote.as_ref().and_then(|endpoint| {
+            Some(dexdrop_core::invitation::RemoteHint {
+                key: self.ctx.identity.ed25519_key()?,
+                relay: crate::remote::home_relay(endpoint),
+            })
+        });
         let inv = lock(&self.ctx.invitations).create(
             self.ctx.identity.peer_id(),
             &name,
             addrs,
+            remote,
             DEFAULT_TTL_SECS,
         );
         let text = inv.encode();
@@ -1155,12 +1237,28 @@ impl Actor {
                 name,
                 platform,
                 sas,
+                route,
+                key,
             } => {
                 if let Some(t) = self.transfers.get_mut(&id) {
                     t.snap.peer_id = Some(peer_id);
-                    t.snap.peer_name = name;
-                    t.snap.peer_platform = platform;
+                    t.snap.peer_name = name.clone();
+                    t.snap.peer_platform = platform.clone();
                     t.snap.sas = Some(sas);
+                    t.snap.route = Some(route);
+                    t.peer_key = key;
+                    let _ = self.events.send(Event::Transfer(t.snap.clone()));
+                }
+                // A device this one reached: reachable over the internet later.
+                if let Some(key) = key {
+                    self.remember(peer_id, name, platform, key);
+                }
+            }
+            Internal::Route { id, route } => {
+                if let Some(t) = self.transfers.get_mut(&id)
+                    && t.snap.route != Some(route)
+                {
+                    t.snap.route = Some(route);
                     let _ = self.events.send(Event::Transfer(t.snap.clone()));
                 }
             }
@@ -1234,6 +1332,8 @@ impl Actor {
             via_invitation,
             offer,
             decide,
+            route,
+            key,
         } = arrived;
         let id = offer.offer.transfer_id;
 
@@ -1261,8 +1361,12 @@ impl Actor {
             snap.peer_name = peer_name;
             snap.peer_platform = peer_platform;
             snap.sas = Some(sas);
+            snap.route = Some(route);
             fill_from_offer(&mut snap, &offer);
             self.insert(snap, None);
+            if let Some(t) = self.transfers.get_mut(&id) {
+                t.peer_key = key;
+            }
             self.start_incoming(id, journal, decide);
             return;
         }
@@ -1318,6 +1422,7 @@ impl Actor {
                     .as_deref()
                     .unwrap_or(&self.config.default_download_dir),
             ),
+            route,
         };
         let mut snap = blank_snapshot(id, Direction::Incoming);
         snap.peer_id = Some(peer_id);
@@ -1325,9 +1430,13 @@ impl Actor {
         snap.peer_platform = peer_platform;
         snap.sas = Some(sas);
         snap.saved_to = Some(request.destination.clone());
+        snap.route = Some(route);
         fill_from_offer(&mut snap, &offer);
         snap.state = TransferState::Requested;
         self.insert(snap, None);
+        if let Some(t) = self.transfers.get_mut(&id) {
+            t.peer_key = key;
+        }
 
         let auto = settings.auto_accept_trusted
             && trusted.is_some_and(|p| p.auto_accept)
@@ -1353,6 +1462,7 @@ impl Actor {
         result: Result<SessionEnd, String>,
         journal: ReceiveJournal,
     ) {
+        let mut remember_after = Vec::new();
         let Some(t) = self.transfers.get_mut(&id) else {
             return;
         };
@@ -1369,6 +1479,14 @@ impl Actor {
             Ok(SessionEnd::Completed) => {
                 let _ = records.remove(&id);
                 t.snap.bytes_done = t.snap.total_bytes;
+                if let (Some(peer), Some(key)) = (t.snap.peer_id, t.peer_key) {
+                    remember_after.push((
+                        peer,
+                        t.snap.peer_name.clone(),
+                        t.snap.peer_platform.clone(),
+                        key,
+                    ));
+                }
                 // What was saved, in manifest order, for sharing/exporting.
                 t.snap.saved_files = journal
                     .files
@@ -1411,6 +1529,9 @@ impl Actor {
                     format!("Received {} from {}.", snap.label, snap.peer_name),
                 );
             }
+        }
+        for (peer, name, platform, key) in remember_after {
+            self.remember(peer, name, platform, key);
         }
     }
 
@@ -1490,7 +1611,34 @@ impl Actor {
             addrs: self.addrs.clone(),
             visible: settings.visible,
             discovery: self.discovery_status.clone(),
+            internet: self.ctx.remote.is_some(),
         }));
+    }
+
+    fn last_rate(&self, peer: &PeerId) -> Option<f64> {
+        self.history
+            .entries
+            .iter()
+            .find(|e| e.peer_id == Some(*peer) && e.average_rate.is_some())
+            .and_then(|e| e.average_rate)
+    }
+
+    /// Remembers a device this one exchanged files with, with its key.
+    fn remember(&mut self, peer_id: PeerId, name: String, platform: String, key: [u8; 32]) {
+        let peer = dexdrop_core::store::KnownPeer {
+            peer_id,
+            name,
+            platform,
+            key,
+            relay: None,
+            last_seen: unix_now(),
+        };
+        let mut known = lock(&self.ctx.known);
+        if known.remember(peer) {
+            let _ = known.save(&self.ctx.state.known());
+        }
+        drop(known);
+        self.emit_peers();
     }
 
     fn emit_peers(&self) {
@@ -1503,14 +1651,28 @@ impl Actor {
                 fingerprint: d.peer_id.fingerprint(),
                 trusted: self.trust.get(&d.peer_id).is_some(),
                 code_open: d.code_open,
-                last_rate: self
-                    .history
-                    .entries
-                    .iter()
-                    .find(|e| e.peer_id == Some(d.peer_id) && e.average_rate.is_some())
-                    .and_then(|e| e.average_rate),
+                last_rate: self.last_rate(&d.peer_id),
+                nearby: true,
             })
             .collect();
+        // Known devices not on this network: over the internet.
+        if self.ctx.remote.is_some() {
+            for k in &lock(&self.ctx.known).peers {
+                if peers.iter().any(|p| p.peer_id == k.peer_id) {
+                    continue;
+                }
+                peers.push(PeerInfo {
+                    peer_id: k.peer_id,
+                    name: k.name.clone(),
+                    platform: k.platform.clone(),
+                    fingerprint: k.peer_id.fingerprint(),
+                    trusted: self.trust.get(&k.peer_id).is_some(),
+                    code_open: false,
+                    last_rate: self.last_rate(&k.peer_id),
+                    nearby: false,
+                });
+            }
+        }
         peers.sort_by(|a, b| {
             b.trusted
                 .cmp(&a.trusted)
@@ -1632,6 +1794,7 @@ fn blank_snapshot(id: TransferId, direction: Direction) -> TransferSnapshot {
         started: unix_now(),
         average_rate: None,
         saved_files: Vec::new(),
+        route: None,
     }
 }
 

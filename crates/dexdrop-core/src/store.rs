@@ -38,6 +38,10 @@ impl StateDir {
         self.root.join("trusted-devices.json")
     }
 
+    pub fn known(&self) -> PathBuf {
+        self.root.join("known-devices.json")
+    }
+
     pub fn history(&self) -> PathBuf {
         self.root.join("history.json")
     }
@@ -78,6 +82,9 @@ pub struct Settings {
     /// platforms that ask permission for it (iOS, macOS), discovery waits
     /// for this, so the system's prompt follows the explanation.
     pub local_network_explained: bool,
+    /// Send and receive over the internet too (Phase 6): devices this one
+    /// exchanged files with, and invitations, from any network.
+    pub internet: bool,
 }
 
 impl Default for Settings {
@@ -91,6 +98,7 @@ impl Default for Settings {
             allow_metered: false,
             port: 0,
             local_network_explained: false,
+            internet: true,
         }
     }
 }
@@ -102,6 +110,66 @@ impl Settings {
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
         fsutil::write_json(path, self)
+    }
+}
+
+/// A device this one exchanged files with, with its public key, so it can
+/// be reached over the internet later (Phase 6). Sending to it still asks
+/// the other side, unless it trusts this device.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownPeer {
+    pub peer_id: PeerId,
+    pub name: String,
+    pub platform: String,
+    /// Its raw Ed25519 public key: its internet address.
+    pub key: [u8; 32],
+    /// Its home relay when last seen, as a hint.
+    #[serde(default)]
+    pub relay: Option<String>,
+    /// Unix seconds.
+    pub last_seen: u64,
+}
+
+/// The known devices, most recent first.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownPeers {
+    pub peers: Vec<KnownPeer>,
+}
+
+impl KnownPeers {
+    /// At most this many are kept.
+    pub const CAP: usize = 32;
+
+    pub fn load(path: &Path) -> Self {
+        let mut known: Self = fsutil::read_json(path).ok().flatten().unwrap_or_default();
+        known.peers.truncate(Self::CAP);
+        known
+    }
+
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        fsutil::write_json(path, self)
+    }
+
+    pub fn get(&self, id: &PeerId) -> Option<&KnownPeer> {
+        self.peers.iter().find(|p| p.peer_id == *id)
+    }
+
+    /// Adds or refreshes a device, first in the list; the key must name the
+    /// same peer ID (it is checked, so a stored key always matches).
+    pub fn remember(&mut self, peer: KnownPeer) -> bool {
+        if PeerId::from_ed25519_key(&peer.key) != peer.peer_id {
+            return false;
+        }
+        self.peers.retain(|p| p.peer_id != peer.peer_id);
+        self.peers.insert(0, peer);
+        self.peers.truncate(Self::CAP);
+        true
+    }
+
+    pub fn forget(&mut self, id: &PeerId) -> bool {
+        let before = self.peers.len();
+        self.peers.retain(|p| p.peer_id != *id);
+        self.peers.len() != before
     }
 }
 

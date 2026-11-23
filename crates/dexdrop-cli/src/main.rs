@@ -27,6 +27,13 @@ struct Cli {
     /// leave bandwidth to others (and for tests).
     #[arg(long, global = true, value_name = "MB/s")]
     max_rate: Option<f64>,
+    /// Only the local network: no transfers over the internet.
+    #[arg(long, global = true)]
+    local_only: bool,
+    /// The relay for transfers over the internet (your own `iroh-relay`);
+    /// n0's public relays by default.
+    #[arg(long, global = true, env = "DEXDROP_RELAY_URL", value_name = "URL")]
+    relay: Option<String>,
     #[command(subcommand)]
     command: Cmd,
 }
@@ -118,6 +125,17 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let cli = Cli::parse();
+    let _ = REMOTE.set(
+        (!cli.local_only).then(|| dexdrop_net::remote::RemoteConfig {
+            relay: match &cli.relay {
+                Some(url) if !url.trim().is_empty() => {
+                    dexdrop_net::remote::Relay::Own(url.trim().to_owned())
+                }
+                _ => dexdrop_net::remote::Relay::Public,
+            },
+            ..Default::default()
+        }),
+    );
     let _ = MAX_RATE.set(
         cli.max_rate
             .filter(|mb| *mb > 0.0)
@@ -146,12 +164,16 @@ async fn main() -> Result<()> {
 
 /// `--max-rate`, in bytes per second.
 static MAX_RATE: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+/// `--local-only` / `--relay`: how to reach devices over the internet.
+static REMOTE: std::sync::OnceLock<Option<dexdrop_net::remote::RemoteConfig>> =
+    std::sync::OnceLock::new();
 
 fn config(state: PathBuf, downloads: PathBuf) -> EngineConfig {
     let mut config = EngineConfig::new(state, downloads, platform());
     let rate = MAX_RATE.get().copied().flatten();
     config.max_send_rate = rate;
     config.max_receive_rate = rate;
+    config.remote = REMOTE.get().cloned().flatten();
     config
 }
 
@@ -487,6 +509,7 @@ async fn bench(mb: u64, chunk_kib: u32, files: u64, file_kib: u64) -> Result<()>
     let make = |name: &str| {
         let mut c = config(dir.join(name).join("state"), dir.join(name).join("dl"));
         c.discovery = false;
+        c.remote = None; // loopback throughput only
         c.listen = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
         c.chunk_size = chunk_kib * 1024;
         c

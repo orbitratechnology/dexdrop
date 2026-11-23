@@ -405,7 +405,7 @@ async fn invitations_are_single_use() {
     // An invitation pointing at loopback (the engine would list LAN addresses).
     let invitation = {
         let mut book = dexdrop_core::invitation::InvitationBook::default();
-        book.create(b.status.peer_id, "Bob", vec![b.addr()], 60)
+        book.create(b.status.peer_id, "Bob", vec![b.addr()], None, 60)
             .encode()
     };
     // Bob never issued this token: the invitation is refused.
@@ -466,7 +466,7 @@ async fn a_used_code_is_reported_and_closed() {
         let ctx = ctx.clone();
         async move {
             let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-            let (mut stream, session) = tls::connect(&ctx, tcp).await.unwrap();
+            let (mut stream, session) = tls::connect(&ctx, tls::tcp_link(tcp)).await.unwrap();
             let (exchange, msg) = pairing::start(&guess);
             let hello = Hello::new("Mallory", "linux", Some(Pairing::Pake(msg)));
             wire::send(&mut stream, &Message::Hello(hello))
@@ -525,7 +525,7 @@ async fn a_used_code_is_reported_and_closed() {
 
     // A code sent in the clear, as before, is refused outright.
     let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
-    let (mut stream, _) = tls::connect(&ctx, tcp).await.unwrap();
+    let (mut stream, _) = tls::connect(&ctx, tls::tcp_link(tcp)).await.unwrap();
     let hello = Hello::new("Mallory", "linux", Some(Pairing::Code(code)));
     wire::send(&mut stream, &Message::Hello(hello))
         .await
@@ -553,7 +553,7 @@ async fn code_guesses_are_limited_even_when_the_guesser_hangs_up() {
     // answering: each still used up an attempt.
     for _ in 0..dexdrop_core::invitation::MAX_CODE_FAILURES {
         let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
-        let (mut stream, _) = tls::connect(&ctx, tcp).await.unwrap();
+        let (mut stream, _) = tls::connect(&ctx, tls::tcp_link(tcp)).await.unwrap();
         let (_, msg) = pairing::start("00000000");
         wire::send(
             &mut stream,
@@ -567,7 +567,7 @@ async fn code_guesses_are_limited_even_when_the_guesser_hangs_up() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     // Now even the right code is refused: the code closed.
     let tcp = tokio::net::TcpStream::connect(b.addr()).await.unwrap();
-    let (mut stream, _) = tls::connect(&ctx, tcp).await.unwrap();
+    let (mut stream, _) = tls::connect(&ctx, tls::tcp_link(tcp)).await.unwrap();
     let (_, msg) = pairing::start(&code);
     wire::send(
         &mut stream,
@@ -949,7 +949,7 @@ async fn impostor() -> (
         while let Ok((tcp, _)) = listener.accept().await {
             let (ctx, seen) = (ctx.clone(), seen.clone());
             tokio::spawn(async move {
-                let Ok((mut stream, _)) = tls::accept(&ctx, tcp).await else {
+                let Ok((mut stream, _)) = tls::accept(&ctx, tls::tcp_link(tcp)).await else {
                     return;
                 };
                 let _ = wire::read_msg(&mut stream).await; // the sender's hello

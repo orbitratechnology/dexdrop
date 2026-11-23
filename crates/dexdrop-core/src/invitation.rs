@@ -43,6 +43,16 @@ pub struct Invitation {
     pub token: [u8; 16],
     /// Unix seconds.
     pub expires: u64,
+    /// How to reach the device over the internet, when it can be.
+    pub remote: Option<RemoteHint>,
+}
+
+/// The internet address of an invited device: its raw Ed25519 public key
+/// (checked against `peer_id`) and its home relay.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteHint {
+    pub key: [u8; 32],
+    pub relay: Option<String>,
 }
 
 /// Why an invitation or code was not accepted.
@@ -87,7 +97,15 @@ impl Invitation {
             .map_err(|_| InviteError::Malformed)?;
         let invitation: Invitation =
             postcard::from_bytes(&bytes).map_err(|_| InviteError::Malformed)?;
-        if invitation.addrs.is_empty() || invitation.addrs.len() > 16 {
+        if invitation.addrs.len() > 16
+            || (invitation.addrs.is_empty() && invitation.remote.is_none())
+        {
+            return Err(InviteError::Malformed);
+        }
+        if let Some(remote) = &invitation.remote
+            && (PeerId::from_ed25519_key(&remote.key) != invitation.peer_id
+                || remote.relay.as_ref().is_some_and(|r| r.len() > 200))
+        {
             return Err(InviteError::Malformed);
         }
         if invitation.expires <= now {
@@ -158,6 +176,7 @@ impl InvitationBook {
         peer_id: PeerId,
         name: &str,
         addrs: Vec<SocketAddr>,
+        remote: Option<RemoteHint>,
         ttl: u64,
     ) -> Invitation {
         self.prune(unix_now());
@@ -167,6 +186,7 @@ impl InvitationBook {
             addrs,
             token: random_bytes::<16>(),
             expires: unix_now() + ttl,
+            remote,
         };
         self.open.push(Open {
             token: invitation.token,
@@ -336,7 +356,29 @@ mod tests {
             addrs: vec!["192.168.1.20:47820".parse().unwrap()],
             token: [5; 16],
             expires,
+            remote: None,
         }
+    }
+
+    #[test]
+    fn a_remote_hint_must_name_the_invited_device() {
+        let id = crate::Identity::generate().unwrap();
+        let key = id.ed25519_key().unwrap();
+        let mut inv = sample(u64::MAX / 2);
+        inv.peer_id = id.peer_id();
+        inv.addrs.clear();
+        inv.remote = Some(RemoteHint {
+            key,
+            relay: Some("https://relay.example/".into()),
+        });
+        let back = Invitation::decode(&inv.encode(), 0).unwrap();
+        assert_eq!(back.remote, inv.remote);
+        // Another device's key is refused.
+        inv.remote.as_mut().unwrap().key = [9; 32];
+        assert_eq!(
+            Invitation::decode(&inv.encode(), 0),
+            Err(InviteError::Malformed)
+        );
     }
 
     #[test]
@@ -366,6 +408,7 @@ mod tests {
             PeerId([1; 32]),
             "x",
             vec!["10.0.0.1:1".parse().unwrap()],
+            None,
             60,
         );
         let now = unix_now();
@@ -387,6 +430,7 @@ mod tests {
             PeerId([1; 32]),
             "x",
             vec!["10.0.0.1:1".parse().unwrap()],
+            None,
             60,
         );
         assert_eq!(

@@ -37,6 +37,7 @@ pub fn page() -> impl IntoElement {
                     active,
                 ))
                 .child(nearby())
+                .child(far_devices())
                 .child(recent()),
         ))
         .child(when(move || dropping.get(), drop_hint))
@@ -143,8 +144,16 @@ fn active_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
 // ---------------------------------------------------------------- nearby
 
 fn nearby() -> impl IntoElement {
-    let peers = move || model().with(|m| m.peers.clone());
-    let empty = move || model().with(|m| m.peers.is_empty());
+    let peers = move || {
+        model().with(|m| {
+            m.peers
+                .iter()
+                .filter(|p| p.nearby)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    };
+    let empty = move || model().with(|m| !m.peers.iter().any(|p| p.nearby));
     view()
         .gap(px(space::M))
         .child(
@@ -172,6 +181,37 @@ fn nearby() -> impl IntoElement {
         }))
 }
 
+/// Devices this one exchanged files with, not on this network: reached over
+/// the internet.
+fn far_devices() -> impl IntoElement {
+    let far = move || {
+        model().with(|m| {
+            m.peers
+                .iter()
+                .filter(|p| !p.nearby)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    };
+    when(
+        move || model().with(|m| m.peers.iter().any(|p| !p.nearby)),
+        move || {
+            view()
+                .gap(px(space::M))
+                .child(ui::section("Your devices"))
+                .child(
+                    scroll().horizontal().child(
+                        view()
+                            .flex_row()
+                            .gap(px(space::L))
+                            .py(px(space::XS))
+                            .child(each(far, |p: &PeerInfo| p.peer_id, |p, _| bubble(p))),
+                    ),
+                )
+        },
+    )
+}
+
 /// A nearby device: tap to send to it.
 fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
     let name = move || peer.with(|p| p.name.clone());
@@ -194,7 +234,9 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
         .items_center()
         .gap(px(space::S))
         .active(|s| s.scale(0.94))
-        .child(ui::avatar(name, platform, 60.0))
+        .child(ui::far_avatar(name, platform, 60.0, move || {
+            !peer.with(|p| p.nearby)
+        }))
         .child(
             text(name)
                 .text_size(px(ui::size::CAPTION + 1.0))

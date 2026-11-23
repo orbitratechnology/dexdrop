@@ -24,6 +24,8 @@ use dexdrop_core::api::*;
 /// Reconnection attempts before waiting for the user.
 const MAX_RETRIES: u32 = 8;
 const CONNECT: Duration = Duration::from_secs(4);
+/// Dialing over the internet: address lookup, a relay, hole punching.
+const CONNECT_REMOTE: Duration = Duration::from_secs(20);
 const HANDSHAKE: Duration = Duration::from_secs(10);
 
 pub(crate) struct Job {
@@ -55,7 +57,18 @@ struct Connected {
     stream: ClientStream,
     session: PeerSession,
     hello: Hello,
-    addr: SocketAddr,
+    /// The local address that answered; `None` over the internet.
+    addr: Option<SocketAddr>,
+    /// The internet connection, to follow its route.
+    internet: Option<iroh::endpoint::Connection>,
+}
+
+impl Connected {
+    fn route(&self) -> dexdrop_core::api::Route {
+        self.internet
+            .as_ref()
+            .map_or(dexdrop_core::api::Route::Nearby, crate::remote::route)
+    }
 }
 
 /// How a sender proves it was invited.
@@ -75,6 +88,9 @@ struct Route {
     pairing: Option<Proof>,
     /// For codes: try every nearby device that shows one.
     code: Option<String>,
+    /// The device's internet address (raw Ed25519 key) and relay hint, from
+    /// an invitation; for a known device it is looked up when dialing.
+    remote: Option<([u8; 32], Option<String>)>,
 }
 
 fn route_of(target: &Target) -> Result<Route, String> {
@@ -84,6 +100,7 @@ fn route_of(target: &Target) -> Result<Route, String> {
             known: Vec::new(),
             pairing: None,
             code: None,
+            remote: None,
         },
         Target::Invitation(text) => {
             let inv = Invitation::decode(text, unix_now()).map_err(|e| e.to_string())?;
@@ -92,6 +109,7 @@ fn route_of(target: &Target) -> Result<Route, String> {
                 known: inv.addrs,
                 pairing: Some(Proof::Token(inv.token)),
                 code: None,
+                remote: inv.remote.map(|r| (r.key, r.relay)),
             }
         }
         Target::Code(code) => Route {
@@ -99,12 +117,14 @@ fn route_of(target: &Target) -> Result<Route, String> {
             known: Vec::new(),
             pairing: None,
             code: Some(normalize_code(code).ok_or("Codes have 8 letters and digits.")?),
+            remote: None,
         },
         Target::Address { addr, peer_id } => Route {
             pinned: *peer_id,
             known: vec![*addr],
             pairing: None,
             code: None,
+            remote: None,
         },
     })
 }
@@ -167,8 +187,15 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
         route.pinned = Some(c.session.peer_id);
         route.pairing = None;
         route.code = None;
-        if !route.known.contains(&c.addr) {
-            route.known.insert(0, c.addr);
+        if let Some(addr) = c.addr
+            && !route.known.contains(&addr)
+        {
+            route.known.insert(0, addr);
+        }
+        if route.remote.is_none()
+            && let Some(key) = c.session.key
+        {
+            route.remote = Some((key, None));
         }
         let _ = ctx.internal.send(Internal::OutgoingPeer {
             id: job.id,
@@ -176,7 +203,12 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
             name: dexdrop_core::protocol::clean_name(&c.hello.device_name),
             platform: c.hello.platform.clone(),
             sas: c.session.sas.clone(),
+            route: c.route(),
+            key: c.session.key,
         });
+        if let Some(conn) = c.internet.clone() {
+            crate::remote::follow_route(ctx.clone(), job.id, conn);
+        }
         let record = OutgoingRecord {
             version: 1,
             transfer_id: job.id,
@@ -391,12 +423,7 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
             addrs.push(*addr);
         }
     }
-    if addrs.is_empty() {
-        return Err(ConnectError::Unreachable(
-            "The device is not visible nearby.".into(),
-        ));
-    }
-    let mut last = ConnectError::Unreachable("The device could not be reached.".into());
+    let mut last = ConnectError::Unreachable("The device is not visible nearby.".into());
     for addr in addrs {
         match connect_one(ctx, addr, route.pinned, route.pairing.clone()).await {
             Ok(c) => return Ok(c),
@@ -407,7 +434,58 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
             Err(err) => last = err,
         }
     }
+    // Not reachable on this network: over the internet, when this device can
+    // and the other's internet address is known (an invitation, or a device
+    // it exchanged files with before).
+    let remote = route.remote.clone().or_else(|| {
+        let id = route.pinned?;
+        lock(&ctx.known).get(&id).map(|k| (k.key, k.relay.clone()))
+    });
+    if let (Some(endpoint), Some((key, relay))) = (ctx.remote.as_ref(), remote) {
+        match connect_remote(ctx, endpoint, &key, relay.as_deref(), route).await {
+            Ok(c) => return Ok(c),
+            Err(err @ (ConnectError::Rejected(_) | ConnectError::WrongPeer)) => return Err(err),
+            Err(ConnectError::Unreachable(_)) if matches!(last, ConnectError::WrongPeer) => {}
+            Err(err) => last = err,
+        }
+    }
     Err(last)
+}
+
+/// Dials the device over the internet (Iroh) and runs the same TLS
+/// handshake inside the connection's stream.
+async fn connect_remote(
+    ctx: &Ctx,
+    endpoint: &iroh::Endpoint,
+    key: &[u8; 32],
+    relay: Option<&str>,
+    route: &Route,
+) -> Result<Connected, ConnectError> {
+    let unreachable = |what: &str| {
+        ConnectError::Unreachable(format!(
+            "The device could not be reached over the internet ({what})."
+        ))
+    };
+    // The key must be the device meant: the TLS identity is checked again
+    // inside, but a wrong key is refused before dialing anything.
+    if route
+        .pinned
+        .is_some_and(|expected| PeerId::from_ed25519_key(key) != expected)
+    {
+        return Err(ConnectError::WrongPeer);
+    }
+    // Without a relay hint, this device's own home relay: the other device
+    // often uses the same, and address lookup finds it otherwise.
+    let home = crate::remote::home_relay(endpoint);
+    let relay = relay.or(home.as_deref());
+    let addr = crate::remote::addr_of(key, relay, &[]).ok_or_else(|| unreachable("bad address"))?;
+    let (link, conn) = tokio::time::timeout(CONNECT_REMOTE, crate::remote::open(endpoint, addr))
+        .await
+        .map_err(|_| unreachable("timed out"))?
+        .map_err(|e| unreachable(&e))?;
+    let mut c = handshake(ctx, link, route.pinned, route.pairing.clone()).await?;
+    c.internet = Some(conn);
+    Ok(c)
 }
 
 async fn connect_one(
@@ -423,7 +501,22 @@ async fn connect_one(
         .await
         .map_err(|_| unreachable("timed out"))?
         .map_err(|e| unreachable(&e.kind().to_string()))?;
-    let (mut stream, session) = tokio::time::timeout(HANDSHAKE, tls::connect(&ctx.tls, tcp))
+    let mut c = handshake(ctx, tls::tcp_link(tcp), pinned, proof).await?;
+    c.addr = Some(addr);
+    Ok(c)
+}
+
+/// TLS, the peer check, Hello and any pairing proof, over any link.
+async fn handshake(
+    ctx: &Ctx,
+    link: tls::BoxLink,
+    pinned: Option<PeerId>,
+    proof: Option<Proof>,
+) -> Result<Connected, ConnectError> {
+    let unreachable = |what: &str| {
+        ConnectError::Unreachable(format!("The device could not be reached ({what})."))
+    };
+    let (mut stream, session) = tokio::time::timeout(HANDSHAKE, tls::connect(&ctx.tls, link))
         .await
         .map_err(|_| unreachable("handshake timed out"))?
         .map_err(|_| unreachable("secure handshake failed"))?;
@@ -472,7 +565,8 @@ async fn connect_one(
                 stream,
                 session,
                 hello,
-                addr,
+                addr: None,
+                internet: None,
             })
         }
         Ok(Message::Reject(reason)) => Err(ConnectError::Rejected(reason)),

@@ -70,6 +70,9 @@ pub enum Command {
     /// The user read why the local network is used (FR-004): discovery
     /// starts, and with it the system's permission prompt where there is one.
     LocalNetworkExplained,
+    /// Turns transfers over the internet on or off (applies when the engine
+    /// starts again; the app restarts it).
+    SetInternet(bool),
     ExportDiagnostics,
     Shutdown,
 }
@@ -94,6 +97,21 @@ pub struct Status {
     pub addrs: Vec<IpAddr>,
     pub visible: bool,
     pub discovery: DiscoveryStatus,
+    /// Transfers over the internet are running (the setting is on and the
+    /// endpoint started).
+    pub internet: bool,
+}
+
+/// How a connection reaches the other device. A relay is always shown
+/// (PRD 9.5); local transfers never use one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Route {
+    /// The local network.
+    Nearby,
+    /// The internet, on a direct path.
+    Direct,
+    /// The internet, through a relay server that forwards encrypted data.
+    Relayed,
 }
 
 /// A device the user can send to.
@@ -108,6 +126,9 @@ pub struct PeerInfo {
     /// The average speed of the last measured transfer with this device
     /// (bytes per second); only measured data, never estimated (FR-016).
     pub last_rate: Option<f64>,
+    /// On the local network now. `false`: a known device, reached over the
+    /// internet.
+    pub nearby: bool,
 }
 
 /// Where a transfer stands.
@@ -211,6 +232,8 @@ pub struct TransferSnapshot {
     /// Incoming, completed: the files saved (up to 100), to share or
     /// export them from app-private storage on phones (FR-042).
     pub saved_files: Vec<std::path::PathBuf>,
+    /// How the data goes, once connected.
+    pub route: Option<Route>,
 }
 
 /// An empty snapshot (a transfer the engine no longer reports): cancelled,
@@ -241,6 +264,7 @@ impl Default for TransferSnapshot {
             started: 0,
             average_rate: None,
             saved_files: Vec::new(),
+            route: None,
         }
     }
 }
@@ -306,6 +330,8 @@ pub struct IncomingRequest {
     pub via_invitation: bool,
     pub destination: PathBuf,
     pub free_space: Option<u64>,
+    /// How the sender's connection arrived (over the internet: shown).
+    pub route: Route,
 }
 
 impl IncomingRequest {

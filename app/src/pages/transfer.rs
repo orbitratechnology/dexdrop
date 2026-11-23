@@ -241,7 +241,19 @@ fn peer_card(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElem
                         "From".to_owned()
                     }
                 }))
-                .child(ui::strong(name).number_of_lines(1)),
+                .child(ui::strong(name).number_of_lines(1))
+                // How the data goes; a relay is always said (PRD 9.5).
+                .child(dynamic(move || {
+                    s().route.map(|route| {
+                        let (words, i) = ui::route_label(route);
+                        view()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(space::XS))
+                            .child(ui::icon(i, 13.0, move || theme().muted_foreground))
+                            .child(muted(words).text_size(px(ui::size::CAPTION)))
+                    })
+                })),
         )
         .child(when(
             move || s().sas.is_some() && !s().state.is_finished(),
@@ -524,6 +536,10 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                 .child(when(
                     move || r.via_invitation,
                     || ui::pill("Used your code", || Tone::Accent),
+                ))
+                .child(when(
+                    move || r.route != dexdrop_core::api::Route::Nearby,
+                    move || ui::pill(ui::route_label(r.route).0, || Tone::Accent),
                 ))
                 .child(when(
                     move || !enough,

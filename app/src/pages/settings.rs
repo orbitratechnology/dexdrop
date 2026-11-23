@@ -37,6 +37,7 @@ pub fn page() -> impl IntoElement {
             .gap(px(space::XL))
             .child(device())
             .child(receiving())
+            .child(internet())
             .child(trust())
             .child(privacy())
             .child(
@@ -209,6 +210,33 @@ fn default_dir() -> Option<std::path::PathBuf> {
     None
 }
 
+/// Transfers over the internet (Phase 6): on by default; a relay is said
+/// when one carries a transfer.
+fn internet() -> impl IntoElement {
+    view()
+        .gap(px(space::S))
+        .child(ui::section("Internet"))
+        .child(ui::group().child(ui::switch_row(
+            g(Icon::Globe, BLUE),
+            "Send over the internet",
+            move || settings().internet,
+            |on| {
+                #[cfg(not(target_arch = "wasm32"))]
+                bridge::set_internet(on);
+                #[cfg(target_arch = "wasm32")]
+                let _ = on;
+            },
+        )))
+        .child(
+            muted(
+                "Devices you exchanged files with, and links you share, work from any network. \
+                 Without a direct path, encrypted data passes through a relay that cannot read it.",
+            )
+            .px(px(space::L))
+            .text_size(px(ui::size::CAPTION)),
+        )
+}
+
 fn trust() -> impl IntoElement {
     let count = move || {
         let n = model().with(|m| m.trusted.len());
@@ -265,7 +293,7 @@ fn privacy() -> impl IntoElement {
                 .child(ui::icon(Icon::Lock, 14.0, move || theme().muted_foreground))
                 .child(
                     muted(
-                        "Files go straight between your devices, encrypted; nothing is uploaded. \
+                        "Files go between your devices encrypted end to end; no server stores them. \
                          Your device name, trusted devices and history stay on this device.",
                     )
                     .flex_1()

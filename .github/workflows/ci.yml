@@ -32,8 +32,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
         if: runner.os == 'Linux'
-      - run: cargo clippy -p dexdrop-core -p dexdrop-net -p dexdrop-cli --all-targets -- -D warnings
-      - run: cargo test -p dexdrop-core -p dexdrop-net -p dexdrop-cli
+      - run: cargo clippy -p dexdrop-core -p dexdrop-net -p dexdrop-cli --all-targets --features dexdrop-net/test-relay -- -D warnings
+      - run: cargo test -p dexdrop-core -p dexdrop-net -p dexdrop-cli --features dexdrop-net/test-relay
         env:
           # Windows' Credential Manager works on CI: the key must go there.
           DEXDROP_EXPECT_SYSTEM_KEYSTORE: ${{ runner.os == 'Windows' && '1' || '' }}

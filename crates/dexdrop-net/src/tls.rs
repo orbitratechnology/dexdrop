@@ -19,7 +19,10 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime},
     server::danger::{ClientCertVerified, ClientCertVerifier},
 };
-use tokio::net::TcpStream;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 /// The SNI name used for every connection (identity comes from the cert).
@@ -78,12 +81,29 @@ pub struct PeerSession {
     /// Keying material unique to this TLS session, to bind proofs (code
     /// pairing) to it.
     pub binding: [u8; 32],
+    /// The peer's raw Ed25519 public key: its address on the internet.
+    pub key: Option<[u8; 32]>,
+}
+
+/// A byte stream TLS runs over: a TCP connection on the local network, or a
+/// QUIC stream of an internet connection (Iroh). Everything above TLS (the
+/// handshake, code proofs, sessions) is the same over both.
+pub trait Link: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
+impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> Link for T {}
+
+/// A boxed [`Link`].
+pub type BoxLink = Box<dyn Link>;
+
+/// A TCP connection as a [`BoxLink`], with Nagle's algorithm off.
+pub fn tcp_link(tcp: TcpStream) -> BoxLink {
+    tcp.set_nodelay(true).ok();
+    Box::new(tcp)
 }
 
 /// The client half of a TLS stream.
-pub type ClientStream = tokio_rustls::client::TlsStream<TcpStream>;
+pub type ClientStream = tokio_rustls::client::TlsStream<BoxLink>;
 /// The server half of a TLS stream.
-pub type ServerStream = tokio_rustls::server::TlsStream<TcpStream>;
+pub type ServerStream = tokio_rustls::server::TlsStream<BoxLink>;
 
 const SAS_LABEL: &[u8] = b"EXPORTER-dexdrop-sas";
 
@@ -93,6 +113,7 @@ fn session_of<D>(conn: &rustls::ConnectionCommon<D>) -> Result<PeerSession, std:
         .and_then(|c| c.first())
         .ok_or_else(|| std::io::Error::other("the peer presented no certificate"))?;
     let peer_id = PeerId::from_cert_der(cert).map_err(std::io::Error::other)?;
+    let key = dexdrop_core::identity::ed25519_key_of_cert(cert);
     let mut material = [0u8; 32];
     conn.export_keying_material(&mut material, SAS_LABEL, None)
         .map_err(std::io::Error::other)?;
@@ -103,17 +124,17 @@ fn session_of<D>(conn: &rustls::ConnectionCommon<D>) -> Result<PeerSession, std:
         peer_id,
         sas: sas_digits(&material),
         binding,
+        key,
     })
 }
 
 /// Connects over TLS and returns the stream and who answered.
 pub async fn connect(
     ctx: &TlsContext,
-    tcp: TcpStream,
+    link: BoxLink,
 ) -> std::io::Result<(ClientStream, PeerSession)> {
-    tcp.set_nodelay(true).ok();
     let name = ServerName::try_from(SERVER_NAME).expect("valid server name");
-    let stream = ctx.connector.connect(name, tcp).await?;
+    let stream = ctx.connector.connect(name, link).await?;
     let session = session_of(stream.get_ref().1)?;
     Ok((stream, session))
 }
@@ -121,10 +142,9 @@ pub async fn connect(
 /// Accepts a TLS connection and returns the stream and who connected.
 pub async fn accept(
     ctx: &TlsContext,
-    tcp: TcpStream,
+    link: BoxLink,
 ) -> std::io::Result<(ServerStream, PeerSession)> {
-    tcp.set_nodelay(true).ok();
-    let stream = ctx.acceptor.accept(tcp).await?;
+    let stream = ctx.acceptor.accept(link).await?;
     let session = session_of(stream.get_ref().1)?;
     Ok((stream, session))
 }
@@ -230,10 +250,10 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
-            accept(&ctx_b, tcp).await.unwrap().1
+            accept(&ctx_b, tcp_link(tcp)).await.unwrap().1
         });
         let tcp = TcpStream::connect(addr).await.unwrap();
-        let (_stream, client_view) = connect(&ctx_a, tcp).await.unwrap();
+        let (_stream, client_view) = connect(&ctx_a, tcp_link(tcp)).await.unwrap();
         let server_view = server.await.unwrap();
         assert_eq!(client_view.peer_id, b.peer_id());
         assert_eq!(server_view.peer_id, a.peer_id());

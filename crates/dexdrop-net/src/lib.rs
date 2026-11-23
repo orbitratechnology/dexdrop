@@ -10,6 +10,7 @@ pub mod engine;
 mod incoming;
 mod outgoing;
 pub mod pairing;
+pub mod remote;
 pub mod session;
 pub mod tls;
 pub mod wire;

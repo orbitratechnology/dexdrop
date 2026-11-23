@@ -5,12 +5,17 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Engine tests against a local Iroh relay (self-signed certificate).
+test-relay = ["iroh/test-utils"]
+
 [dependencies]
 blake3 = "1.8.7"
 dexdrop-core = { version = "0.1.0", path = "../dexdrop-core" }
 futures-util = "0.3.34"
 getrandom = "0.4.3"
 if-addrs = "0.15.0"
+iroh = "1.5.0"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 serde = "1.0.229"
 serde_json = "1.0.154"

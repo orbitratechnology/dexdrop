@@ -3,13 +3,14 @@
 
 use std::{sync::Arc, time::Duration};
 
+use dexdrop_core::api::Route;
 use dexdrop_core::protocol::{Pairing, clean_name};
 use dexdrop_core::{
     protocol::{Hello, Message, RejectReason},
     unix_now,
 };
 use futures_util::FutureExt;
-use tokio::{io::AsyncReadExt, net::TcpStream, sync::oneshot};
+use tokio::{io::AsyncReadExt, sync::oneshot};
 
 use crate::{
     engine::{Ctx, Decision, Internal, OfferArrived, lock},
@@ -22,17 +23,39 @@ use crate::{
 const HANDSHAKE: Duration = Duration::from_secs(10);
 const DECISION: Duration = Duration::from_secs(10 * 60);
 
-pub(crate) async fn handle(ctx: Arc<Ctx>, tcp: TcpStream) {
-    if let Err(err) = run(ctx, tcp).await {
+/// How a connection arrived.
+pub(crate) enum Via {
+    /// The local network (TCP).
+    Nearby,
+    /// The internet (Iroh); the connection, to check the sender's key and
+    /// follow the route.
+    Internet(iroh::endpoint::Connection),
+}
+
+pub(crate) async fn handle(ctx: Arc<Ctx>, link: tls::BoxLink, via: Via) {
+    if let Err(err) = run(ctx, link, via).await {
         tracing::debug!("incoming connection ended: {err}");
     }
 }
 
-async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
-    let (mut stream, peer) = tokio::time::timeout(HANDSHAKE, tls::accept(&ctx.tls, tcp))
+async fn run(ctx: Arc<Ctx>, link: tls::BoxLink, via: Via) -> Result<(), SessionError> {
+    let (mut stream, peer) = tokio::time::timeout(HANDSHAKE, tls::accept(&ctx.tls, link))
         .await
         .map_err(|_| WireError::Timeout)?
         .map_err(WireError::from)?;
+    // Over the internet, the device that dialed (its Iroh key) must be the
+    // one in the TLS certificate.
+    if let Via::Internet(conn) = &via
+        && dexdrop_core::PeerId::from_ed25519_key(conn.remote_id().as_bytes()) != peer.peer_id
+    {
+        return Err(SessionError::Protocol(
+            "the internet key and the certificate name different devices".into(),
+        ));
+    }
+    let route = match &via {
+        Via::Nearby => Route::Nearby,
+        Via::Internet(conn) => crate::remote::route(conn),
+    };
 
     let hello = match wire::read_msg_within(&mut stream, HANDSHAKE).await? {
         Message::Hello(hello) => hello,
@@ -148,6 +171,8 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
         via_invitation,
         offer: offer.clone(),
         decide,
+        route,
+        key: peer.key,
     };
     if ctx
         .internal
@@ -155,6 +180,9 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
         .is_err()
     {
         return Ok(());
+    }
+    if let Via::Internet(conn) = &via {
+        crate::remote::follow_route(ctx.clone(), id, conn.clone());
     }
 
     // The sender sends nothing until it gets an answer: anything readable

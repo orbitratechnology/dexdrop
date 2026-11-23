@@ -118,6 +118,7 @@ pub enum Icon {
     Shield,
     Eye,
     Wifi,
+    Globe,
     Pencil,
     Trash,
     Info,
@@ -160,6 +161,7 @@ impl Icon {
             Icon::Shield => include_str!("../assets/icons/shield.svg"),
             Icon::Eye => include_str!("../assets/icons/eye.svg"),
             Icon::Wifi => include_str!("../assets/icons/wifi.svg"),
+            Icon::Globe => include_str!("../assets/icons/globe.svg"),
             Icon::Pencil => include_str!("../assets/icons/pencil.svg"),
             Icon::Trash => include_str!("../assets/icons/trash.svg"),
             Icon::Info => include_str!("../assets/icons/info.svg"),
@@ -660,6 +662,43 @@ pub fn avatar(
                     })
                 })),
         )
+}
+
+/// How a transfer's data goes, in words and an icon (PRD 9.5: a relay is
+/// always shown).
+pub fn route_label(route: dexdrop_core::api::Route) -> (&'static str, Icon) {
+    use dexdrop_core::api::Route;
+    match route {
+        Route::Nearby => ("On this network", Icon::Wifi),
+        Route::Direct => ("Over the internet", Icon::Globe),
+        Route::Relayed => ("Over the internet, through a relay", Icon::Globe),
+    }
+}
+
+/// An avatar with a globe: a device reached over the internet.
+pub fn far_avatar(
+    name: impl Fn() -> String + Copy + 'static,
+    platform: impl Fn() -> String + Copy + 'static,
+    diameter: f32,
+    far: impl Fn() -> bool + 'static,
+) -> View {
+    let badge = (diameter * 0.38).max(16.0);
+    view()
+        .size(px(diameter))
+        .child(avatar(name, platform, diameter))
+        .child(when(far, move || {
+            view()
+                .absolute()
+                .left(px(-2.0))
+                .bottom(px(-2.0))
+                .size(px(badge))
+                .rounded(px(badge / 2.0))
+                .items_center()
+                .justify_center()
+                .bg(rgb(SEND.0))
+                .shadow_sm()
+                .child(icon(Icon::Globe, badge * 0.62, white()))
+        }))
 }
 
 /// A theme color as the current appearance shows it (for drawing).

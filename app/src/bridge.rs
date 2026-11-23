@@ -57,6 +57,17 @@ mod native {
         // iOS and macOS ask before an app uses the local network: say why
         // first (FR-004).
         config.explain_local_network_first = matches!(platform, "ios" | "macos");
+        // Transfers over the internet (Phase 6), when Settings allow them:
+        // n0's public relays unless DEXDROP_RELAY_URL names the project's own.
+        config.remote = Some(dexdrop_net::remote::RemoteConfig {
+            relay: match std::env::var("DEXDROP_RELAY_URL") {
+                Ok(url) if !url.trim().is_empty() => {
+                    dexdrop_net::remote::Relay::Own(url.trim().to_owned())
+                }
+                _ => dexdrop_net::remote::Relay::Public,
+            },
+            ..Default::default()
+        });
         if let Some(port) = std::env::var("DEXDROP_PORT")
             .ok()
             .and_then(|p| p.parse().ok())
@@ -116,6 +127,38 @@ pub fn start() {
 pub fn reset_identity() {
     let (state, _) = native::dirs(os().name());
     let path = dexdrop_core::store::StateDir::new(state).identity();
+    restart(move || {
+        let rotated = dexdrop_core::identity::Identity::rotate(
+            &path,
+            dexdrop_core::keystore::KeyStorage::platform_default(),
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string());
+        match rotated {
+            Ok(()) => Some((
+                NoticeKind::Success,
+                "This device has a new identity. Other devices see it as a new device.".to_owned(),
+            )),
+            Err(err) => Some((
+                NoticeKind::Error,
+                format!("The identity could not be reset: {err}"),
+            )),
+        }
+    });
+}
+
+/// Turns transfers over the internet on or off: the engine saves the
+/// setting, then starts again with or without its internet endpoint.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_internet(on: bool) {
+    send(Command::SetInternet(on));
+    restart(|| None);
+}
+
+/// Stops the engine, runs `between` off the UI thread (with the engine
+/// stopped), shows the notice it returns, and starts the engine again.
+#[cfg(not(target_arch = "wasm32"))]
+fn restart(between: impl FnOnce() -> Option<(NoticeKind, String)> + Send + 'static) {
     // The old engine's last events ("stopped") no longer count.
     global::<Generation>().update(|g| g.0 += 1);
     // Dropping the engine stops it and waits for its thread.
@@ -126,29 +169,12 @@ pub fn reset_identity() {
         m.invitation = None;
         m.code = None;
     });
-    // Not owned by the confirmation sheet, which closes now: the restarted
+    // Not owned by the page that asked, which may close now: the restarted
     // engine's event loop must outlive it.
     Owner::detached().run(move || {
         spawn(async move {
-            let rotated = off_thread(move || {
-                dexdrop_core::identity::Identity::rotate(
-                    &path,
-                    dexdrop_core::keystore::KeyStorage::platform_default(),
-                )
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-            })
-            .await;
-            match rotated {
-                Some(Ok(())) => toast(
-                    NoticeKind::Success,
-                    "This device has a new identity. Other devices see it as a new device.",
-                ),
-                Some(Err(err)) => toast(
-                    NoticeKind::Error,
-                    format!("The identity could not be reset: {err}"),
-                ),
-                None => {}
+            if let Some(Some((kind, text))) = off_thread(between).await {
+                toast(kind, text);
             }
             start();
         })

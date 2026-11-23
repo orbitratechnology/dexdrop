@@ -46,7 +46,7 @@ async fn tcp_tls(a: &TlsContext, b: &TlsContext, bytes: u64) -> Result<Sample> {
     let b = b.clone();
     let receiver = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await?;
-        let (mut stream, _) = tls::accept(&b, tcp).await?;
+        let (mut stream, _) = tls::accept(&b, tls::tcp_link(tcp)).await?;
         let mut buf = vec![0u8; BLOCK];
         let mut got = 0u64;
         while got < bytes {
@@ -60,7 +60,7 @@ async fn tcp_tls(a: &TlsContext, b: &TlsContext, bytes: u64) -> Result<Sample> {
     });
     let (cpu0, t0) = (cpu_time(), Instant::now());
     let tcp = tokio::net::TcpStream::connect(addr).await?;
-    let (mut stream, _) = tls::connect(a, tcp).await?;
+    let (mut stream, _) = tls::connect(a, tls::tcp_link(tcp)).await?;
     let block = vec![7u8; BLOCK];
     let mut sent = 0u64;
     while sent < bytes {
