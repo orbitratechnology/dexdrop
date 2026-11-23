@@ -23,6 +23,10 @@ struct Cli {
     /// Where DexDrop keeps its identity and state.
     #[arg(long, global = true, env = "DEXDROP_STATE")]
     state: Option<PathBuf>,
+    /// Caps sending and receiving at this many megabytes per second, to
+    /// leave bandwidth to others (and for tests).
+    #[arg(long, global = true, value_name = "MB/s")]
+    max_rate: Option<f64>,
     #[command(subcommand)]
     command: Cmd,
 }
@@ -114,6 +118,11 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
     let cli = Cli::parse();
+    let _ = MAX_RATE.set(
+        cli.max_rate
+            .filter(|mb| *mb > 0.0)
+            .map(|mb| (mb * 1_000_000.0) as u64),
+    );
     let state = cli.state.unwrap_or_else(default_state);
     match cli.command {
         Cmd::Receive {
@@ -135,8 +144,15 @@ async fn main() -> Result<()> {
     }
 }
 
+/// `--max-rate`, in bytes per second.
+static MAX_RATE: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+
 fn config(state: PathBuf, downloads: PathBuf) -> EngineConfig {
-    EngineConfig::new(state, downloads, platform())
+    let mut config = EngineConfig::new(state, downloads, platform());
+    let rate = MAX_RATE.get().copied().flatten();
+    config.max_send_rate = rate;
+    config.max_receive_rate = rate;
+    config
 }
 
 fn progress_line(t: &dexdrop_net::TransferSnapshot) -> String {

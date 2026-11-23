@@ -58,6 +58,8 @@ pub struct EngineConfig {
     pub chunk_size: u32,
     /// Caps the sending rate, in bytes per second (`None`: no cap).
     pub max_send_rate: Option<u64>,
+    /// Caps the receiving rate, in bytes per second (`None`: no cap).
+    pub max_receive_rate: Option<u64>,
     /// Where a new identity's private key is kept (and where an existing
     /// one moves to): the platform's choice unless set.
     pub key_storage: dexdrop_core::keystore::KeyStorage,
@@ -79,6 +81,7 @@ impl EngineConfig {
             port: None,
             chunk_size: DEFAULT_CHUNK_SIZE,
             max_send_rate: None,
+            max_receive_rate: None,
             key_storage: dexdrop_core::keystore::KeyStorage::platform_default(),
         }
     }
@@ -217,6 +220,7 @@ pub async fn spawn(
         platform: config.platform.clone(),
         chunk_size: config.chunk_size,
         max_send_rate: config.max_send_rate,
+        max_receive_rate: config.max_receive_rate,
         settings: Mutex::new(settings.clone()),
         invitations: Mutex::new(InvitationBook::default()),
         peers: Mutex::new(HashMap::new()),
@@ -307,6 +311,7 @@ pub(crate) struct Ctx {
     pub platform: String,
     pub chunk_size: u32,
     pub max_send_rate: Option<u64>,
+    pub max_receive_rate: Option<u64>,
     pub settings: Mutex<Settings>,
     pub invitations: Mutex<InvitationBook>,
     pub peers: Mutex<HashMap<PeerId, Discovered>>,

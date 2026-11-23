@@ -815,6 +815,9 @@ pub struct ReceivePlan {
     pub offer: ReceivedOffer,
     pub journal: ReceiveJournal,
     pub records: RecordDir,
+    /// Caps the receiving rate, in bytes per second (`None`: no cap). The
+    /// sender slows down with it, through TCP's flow control.
+    pub max_rate: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -933,6 +936,7 @@ where
         offer,
         journal,
         records,
+        max_rate,
     } = plan;
     let (rd, mut wr) = tokio::io::split(stream);
     let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<Message>();
@@ -992,6 +996,7 @@ where
         current: None,
         buf: Vec::new(),
         last_save: Instant::now(),
+        pacer: Pacer::new(max_rate),
     };
     let mut result = receiver.read_loop(rd, &mut control).await;
     drop(receiver);
@@ -1249,6 +1254,7 @@ struct Receiver<'a> {
     current: Option<Current>,
     buf: Vec<u8>,
     last_save: Instant,
+    pacer: Pacer,
 }
 
 fn is_no_space(err: &std::io::Error) -> bool {
@@ -1310,7 +1316,12 @@ impl Receiver<'_> {
             let handled = match msg {
                 Message::FileStart { index, offset } => self.start_file(index, offset).await,
                 // A link that drops mid-chunk fails here, not in read_msg.
-                Message::Chunk(header) => self.chunk(&mut rd, header).await,
+                Message::Chunk(header) => {
+                    let len = u64::from(header.len);
+                    let handled = self.chunk(&mut rd, header).await;
+                    self.pacer.pace(len).await;
+                    handled
+                }
                 Message::FileEnd { index, hash } => self.end_file(index, hash).await,
                 Message::FileError { index, failure } => self.file_error(index, failure).await,
                 Message::FileHash { index, hash } => self.file_hash(index, hash),

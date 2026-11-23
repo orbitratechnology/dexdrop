@@ -1189,3 +1189,32 @@ async fn identical_files_already_there_are_not_sent_again() {
         untouched
     );
 }
+
+/// A receiver's rate cap slows the whole transfer (the sender waits on TCP's
+/// flow control), and the file still arrives intact.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_receive_rate_cap_slows_the_transfer() {
+    let a = Node::start("Alice").await;
+    let mut b = Node::start_with("Bob", |c| c.max_receive_rate = Some(2_000_000)).await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("capped.bin"), 4_000_000, 9);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![src.path().join("capped.bin")],
+    });
+    let request = b.wait_request().await;
+    let started = std::time::Instant::now();
+    b.send(accept(request.id));
+    b.wait_state("receiver completed", |s| *s == TransferState::Completed)
+        .await;
+    let took = started.elapsed();
+    // 4 MB at 2 MB/s: about 2 s (the first chunks fill buffers at once).
+    assert!(
+        took >= std::time::Duration::from_millis(1200),
+        "took {took:?}"
+    );
+    assert_eq!(
+        std::fs::read(b.downloads().join("capped.bin")).unwrap(),
+        std::fs::read(src.path().join("capped.bin")).unwrap()
+    );
+}

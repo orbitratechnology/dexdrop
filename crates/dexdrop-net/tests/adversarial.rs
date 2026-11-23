@@ -131,6 +131,7 @@ fn plan(dir: &std::path::Path, received: session::ReceivedOffer) -> ReceivePlan 
         offer: received,
         journal,
         records: RecordDir::new(dir.join("journal")),
+        max_rate: None,
     }
 }
 

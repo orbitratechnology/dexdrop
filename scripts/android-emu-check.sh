@@ -245,6 +245,62 @@ send_with "$invitation" invitation "$dev/note.bin" ||
   fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
 note "- 200 KB sent with the invitation link, accepted, $(received_intact "$dev/note.bin")"
 
+# 3. Sending from the app, with Pause and Resume (only a sender can pause):
+#    a file picked in Android's file picker goes to a CLI receiver that
+#    accepts on its own and reads at 1 MB/s, so there is time to pause.
+out_file=dexdrop-out.bin
+sh_ "head -c 8000000 /dev/urandom > /sdcard/Download/$out_file" || fail "could not create /sdcard/Download/$out_file"
+sh_ "content call --method scan_volume --uri content://media --arg external_primary" >/dev/null 2>&1 || true
+dexdrop --max-rate 1 --state "$dev/inbox-state" receive --yes --name "CI Emulator Inbox" --dir "$dev/inbox" >"$out/cli-inbox.log" 2>&1 &
+inbox=$!
+front
+tap_only Nearby || true
+ad wait text "CI Emulator Inbox" 30000 >/dev/null 2>&1 || { step 08-no-inbox; fail "discovery: the app does not list the receiving CLI"; }
+tap "Choose files" || fail "could not open the file picker"
+picked=no
+for _ in 1 2 3 4 5 6; do
+  if tap_only "$out_file"; then
+    picked=yes
+    break
+  fi
+  # Not in the picker's first view: open Downloads from its roots.
+  tap_only "Show roots" || true
+  tap_only "Downloads" || true
+  sleep 2
+done
+[ "$picked" = yes ] || { step 08-picker; fail "could not pick $out_file in the file picker"; }
+tap_only "Select" || true # in the picker's selection mode
+ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || ad wait text "$out_file" 20000 >/dev/null 2>&1 ||
+  { step 08-not-selected; fail "the picked file is not selected in the app"; }
+step 08-selected
+note "- Picked \`$out_file\` (8 MB) in Android's file picker"
+tap_only Send || tap Send || { step 08-no-send; fail "could not tap Send for the CLI receiver"; }
+ad wait 'label="Pause"' 30000 >/dev/null 2>&1 || { step 09-not-sending; fail "the transfer did not start (no Pause button)"; }
+tap_only Pause || fail "could not tap Pause"
+ad wait text "Paused" 15000 >/dev/null 2>&1 || { step 09-not-paused; fail "the transfer did not pause"; }
+step 09-paused
+size_at() { sh_ "cat $dev/inbox/.$out_file.*dexdrop-part $dev/inbox/$out_file 2>/dev/null | wc -c" | tr -d '\r '; }
+before=$(size_at)
+sleep 4
+after=$(size_at)
+[ "$before" = "$after" ] || fail "the receiver kept getting data while paused ($before -> $after bytes)"
+note "- Paused from the app: the receiver held at $after of 8000000 bytes"
+tap_only Resume || fail "could not tap Resume"
+src_sum=$(sh_ "sha256sum /sdcard/Download/$out_file" | awk '{ print $1 }')
+got_sum=
+for _ in $(seq 1 60); do
+  got_sum=$(sh_ "sha256sum $dev/inbox/$out_file 2>/dev/null" | awk '{ print $1 }')
+  [ -n "$got_sum" ] && break
+  sleep 1
+done
+step 10-resumed
+sh_ "pkill -f '$dev/dexdrop'" >/dev/null 2>&1 || true
+kill "$inbox" 2>/dev/null
+wait "$inbox" 2>/dev/null
+[ -n "$got_sum" ] || fail "the file did not arrive after Resume (cli-inbox.log)"
+[ "$got_sum" = "$src_sum" ] || fail "the file the CLI received differs from the one picked"
+note "- Resumed from the app: the CLI received \`$out_file\` byte-identical (SHA-256)"
+
 collect_logs
 ad close >/dev/null 2>&1 || true
 note ""

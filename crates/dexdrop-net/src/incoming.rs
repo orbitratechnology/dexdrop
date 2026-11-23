@@ -202,6 +202,7 @@ async fn run(ctx: Arc<Ctx>, tcp: TcpStream) -> Result<(), SessionError> {
                     offer,
                     journal: *journal,
                     records: ctx.state.incoming(),
+                    max_rate: ctx.max_receive_rate,
                 };
                 let (result, journal) = session::run_receiver(stream, plan, live, control).await;
                 Ok::<_, SessionError>((result, journal))
