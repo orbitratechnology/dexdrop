@@ -182,15 +182,26 @@ fn section(
         .child(when(
             move || !list().is_empty(),
             move || {
-                ui::group().child(each(
-                    list,
-                    |l: &Listed| l.card.package.clone(),
-                    move |l, i| {
-                        view()
-                            .child(when(move || i.get() > 0, || ui::separator(72.0)))
-                            .child(app_row(l.get_untracked(), chosen))
-                    },
-                ))
+                let rows = computed(list);
+                // Virtualized (NSH lists): phones have hundreds of apps; only
+                // the rows near the screen exist.
+                ui::group().child(
+                    virtual_list(
+                        move || rows.with(Vec::len),
+                        move |at| {
+                            dynamic(move || {
+                                rows.with(|r| r.get(at.index()).cloned())
+                                    .map(|l| app_row(l, chosen))
+                            })
+                        },
+                    )
+                    .keys(move || {
+                        rows.with(|r| r.iter().map(|l| l.card.package.clone()).collect::<Vec<_>>())
+                    })
+                    .separator(|| ui::separator(72.0))
+                    .estimated_item_size(px(68.0))
+                    .viewport(ListViewport::Parent),
+                )
             },
         ))
 }

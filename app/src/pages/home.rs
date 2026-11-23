@@ -306,7 +306,7 @@ fn recent() -> impl IntoElement {
                     |h, i| {
                         view()
                             .child(when(move || i.get() > 0, || ui::separator(68.0)))
-                            .child(history::row(h))
+                            .child(history::row(move || Some(h.get())))
                     },
                 )))
         },

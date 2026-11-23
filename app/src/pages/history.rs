@@ -51,6 +51,7 @@ pub fn page() -> impl IntoElement {
                 .collect::<Vec<_>>()
         })
     };
+    let active = computed(active);
     let past = move || {
         model().with(|m| {
             let live: Vec<String> = m
@@ -61,35 +62,46 @@ pub fn page() -> impl IntoElement {
             m.history
                 .iter()
                 .filter(|h| filter.get().keeps(h.direction) && !live.contains(&h.transfer_id))
-                .take(60)
                 .cloned()
                 .collect::<Vec<_>>()
         })
     };
-    let nothing = move || active().is_empty() && past().is_empty();
+    let past = computed(past);
+    let nothing = move || active.with(Vec::is_empty) && past.with(Vec::is_empty);
     body(
         view()
             .gap(px(space::XL))
             .child(filter_bar(filter))
             .child(when(
-                move || !active().is_empty(),
+                move || !active.with(Vec::is_empty),
                 move || {
                     view()
                         .gap(px(space::M))
                         .child(ui::section("This session"))
-                        .child(ui::group().child(each(
-                            active,
-                            |t: &TransferSnapshot| t.id,
-                            |t, i| {
-                                view()
-                                    .child(when(move || i.get() > 0, || ui::separator(68.0)))
-                                    .child(session_row(t))
-                            },
-                        )))
+                        .child(
+                            ui::group().child(
+                                // Virtualized (NSH lists): only the rows near the
+                                // screen exist, in the page's scroll view.
+                                virtual_list(
+                                    move || active.with(Vec::len),
+                                    move |at| {
+                                        session_row(move || {
+                                            active.with(|a| a.get(at.index()).cloned())
+                                        })
+                                    },
+                                )
+                                .keys(move || {
+                                    active.with(|a| a.iter().map(|t| t.id).collect::<Vec<_>>())
+                                })
+                                .separator(|| ui::separator(68.0))
+                                .estimated_item_size(px(68.0))
+                                .viewport(ListViewport::Parent),
+                            ),
+                        )
                 },
             ))
             .child(when(
-                move || !past().is_empty(),
+                move || !past.with(Vec::is_empty),
                 move || {
                     view()
                         .gap(px(space::M))
@@ -104,15 +116,24 @@ pub fn page() -> impl IntoElement {
                                     bridge::send(Command::ClearFinished);
                                 })),
                         )
-                        .child(ui::group().child(each(
-                            past,
-                            |h: &HistoryEntry| h.transfer_id.clone(),
-                            |h, i| {
-                                view()
-                                    .child(when(move || i.get() > 0, || ui::separator(68.0)))
-                                    .child(row(h))
-                            },
-                        )))
+                        .child(
+                            ui::group().child(
+                                virtual_list(
+                                    move || past.with(Vec::len),
+                                    move |at| {
+                                        row(move || past.with(|p| p.get(at.index()).cloned()))
+                                    },
+                                )
+                                .keys(move || {
+                                    past.with(|p| {
+                                        p.iter().map(|h| h.transfer_id.clone()).collect::<Vec<_>>()
+                                    })
+                                })
+                                .separator(|| ui::separator(68.0))
+                                .estimated_item_size(px(68.0))
+                                .viewport(ListViewport::Parent),
+                            ),
+                        )
                 },
             ))
             .child(when(nothing, || {
@@ -187,11 +208,16 @@ fn filter_bar(filter: Signal<Filter>) -> impl IntoElement {
 }
 
 /// A transfer of this session: its progress, a tap from its details.
-fn session_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
-    let s = move || t.get();
+fn session_row(t: impl Fn() -> Option<TransferSnapshot> + Copy + 'static) -> impl IntoElement {
+    // A recycled cell shows another row: everything reads the row anew.
+    let s = move || t().unwrap_or_default();
     ui::pressable()
-        .accessibility_label(t.with_untracked(|t| t.label.clone()))
-        .on_press(move || push(Route::Transfer(Some(t.with_untracked(|t| t.id)))))
+        .accessibility_label(move || Some(SharedString::from(s().label)))
+        .on_press(move || {
+            if let Some(t) = t() {
+                push(Route::Transfer(Some(t.id)));
+            }
+        })
         .flex_row()
         .items_center()
         .gap(px(space::M))
@@ -235,77 +261,88 @@ fn session_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
         }))
 }
 
-/// A past transfer: a tap shows its details.
-pub fn row(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
-    let id = h.with_untracked(|e| e.transfer_id.clone());
+/// A past transfer: a tap shows its details. Reads `entry` in every
+/// binding, so a recycled list cell shows its new row.
+pub fn row(entry: impl Fn() -> Option<HistoryEntry> + Copy + 'static) -> impl IntoElement {
+    let field =
+        move |f: fn(&HistoryEntry) -> String| move || entry().map(|e| f(&e)).unwrap_or_default();
     ui::pressable()
-        .accessibility_label(h.with_untracked(|e| e.label.clone()))
-        .on_press(move || push(Route::Past(id.clone())))
+        .accessibility_label(move || entry().map(|e| SharedString::from(e.label)))
+        .on_press(move || {
+            if let Some(e) = entry() {
+                push(Route::Past(e.transfer_id));
+            }
+        })
         .active(move |s| s.bg(move || theme().muted))
         .hover(move |s| s.bg(move || theme().muted.opacity(0.6)))
-        .child(row_content(h))
-}
-
-fn row_content(h: ReadSignal<HistoryEntry>) -> impl IntoElement {
-    let e = move || h.get();
-    let (mark, tone) = match h.with_untracked(|e| e.outcome.clone()) {
-        Outcome::Completed => (Icon::Check, Tone::Success),
-        Outcome::Partial { .. } => (Icon::Alert, Tone::Warning),
-        Outcome::Declined | Outcome::Cancelled => (Icon::X, Tone::Neutral),
-        Outcome::Failed(_) => (Icon::Alert, Tone::Danger),
-    };
-    let outgoing = h.with_untracked(|e| e.direction == Direction::Outgoing);
-    // The first photo itself, when it is still on this device.
-    let preview = h.with_untracked(|e| {
-        e.items
-            .iter()
-            .find_map(|i| crate::files::preview_of(i).map(|p| (i.name().to_owned(), p)))
-    });
-    view()
-        .flex_row()
-        .items_center()
-        .gap(px(space::M))
-        .px(px(space::L))
-        .py(px(space::M))
         .child(
             view()
-                .child(match &preview {
-                    Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, 10.0),
-                    None => ui::file_badge(&h.with_untracked(|e| e.label.clone()), 40.0, 10.0),
-                })
+                .flex_row()
+                .items_center()
+                .gap(px(space::M))
+                .px(px(space::L))
+                .py(px(space::M))
+                .child(dynamic(move || entry().map(row_picture)))
                 .child(
                     view()
-                        .absolute()
-                        .right(px(-4.0))
-                        .bottom(px(-4.0))
-                        .size(px(20.0))
-                        .rounded(px(10.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(rgb(if outgoing { ui::SEND.0 } else { ui::RECEIVE.0 }))
-                        .border_2()
-                        .border_color(ui::surface)
-                        .child(ui::icon(
-                            if outgoing { Icon::Send } else { Icon::Receive },
-                            11.0,
-                            white(),
-                        )),
-                ),
+                        .flex_1()
+                        .gap(px(2.0))
+                        .child(ui::body(field(|e| e.label.clone())).number_of_lines(1))
+                        .child(
+                            muted(field(|e| {
+                                format!("{} · {}", home::summary(e), ago(e.finished))
+                            }))
+                            .number_of_lines(1),
+                        ),
+                )
+                .child(dynamic(move || {
+                    entry().map(|e| {
+                        let (mark, tone) = match e.outcome {
+                            Outcome::Completed => (Icon::Check, Tone::Success),
+                            Outcome::Partial { .. } => (Icon::Alert, Tone::Warning),
+                            Outcome::Declined | Outcome::Cancelled => (Icon::X, Tone::Neutral),
+                            Outcome::Failed(_) => (Icon::Alert, Tone::Danger),
+                        };
+                        ui::icon(mark, 18.0, move || ui::tone_color(tone))
+                    })
+                }))
+                .child(ui::icon(Icon::ChevronRight, 16.0, move || {
+                    theme().muted_foreground
+                })),
         )
+}
+
+/// A past transfer's picture: its first photo when still on this device,
+/// else its kind, with which way it went in the corner.
+fn row_picture(e: HistoryEntry) -> View {
+    let outgoing = e.direction == Direction::Outgoing;
+    let preview = e
+        .items
+        .iter()
+        .find_map(|i| crate::files::preview_of(i).map(|p| (i.name().to_owned(), p)));
+    view()
+        .child(match &preview {
+            Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, 10.0),
+            None => ui::file_badge(&e.label, 40.0, 10.0),
+        })
         .child(
             view()
-                .flex_1()
-                .gap(px(2.0))
-                .child(ui::body(move || e().label).number_of_lines(1))
-                .child(
-                    muted(move || format!("{} · {}", home::summary(&e()), ago(e().finished)))
-                        .number_of_lines(1),
-                ),
+                .absolute()
+                .right(px(-4.0))
+                .bottom(px(-4.0))
+                .size(px(20.0))
+                .rounded(px(10.0))
+                .items_center()
+                .justify_center()
+                .bg(rgb(if outgoing { ui::SEND.0 } else { ui::RECEIVE.0 }))
+                .border_2()
+                .border_color(ui::surface)
+                .child(ui::icon(
+                    if outgoing { Icon::Send } else { Icon::Receive },
+                    11.0,
+                    white(),
+                )),
         )
-        .child(ui::icon(mark, 18.0, move || ui::tone_color(tone)))
-        .child(ui::icon(Icon::ChevronRight, 16.0, move || {
-            theme().muted_foreground
-        }))
 }
 
 // ---------------------------------------------------------------- details

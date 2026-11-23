@@ -368,15 +368,24 @@ pub fn trusted_page() -> impl IntoElement {
         .otherwise(|| {
             view()
                 .gap(px(space::S))
-                .child(ui::group().child(each(
-                    move || model().with(|m| m.trusted.clone()),
-                    |p: &TrustedPeer| p.peer_id,
-                    |p, i| {
-                        view()
-                            .child(when(move || i.get() > 0, || ui::separator(16.0)))
-                            .child(trusted_row(p))
-                    },
-                )))
+                .child(ui::group().child({
+                    let trusted = computed(move || model().with(|m| m.trusted.clone()));
+                    // Virtualized (NSH lists), in the page's scroll view.
+                    virtual_list(
+                        move || trusted.with(Vec::len),
+                        move |at| {
+                            dynamic(move || {
+                                trusted
+                                    .with(|t| t.get(at.index()).cloned())
+                                    .map(|p| trusted_row(signal(p).read_only()))
+                            })
+                        },
+                    )
+                    .keys(move || trusted.with(|t| t.iter().map(|p| p.peer_id).collect::<Vec<_>>()))
+                    .separator(|| ui::separator(16.0))
+                    .estimated_item_size(px(120.0))
+                    .viewport(ListViewport::Parent)
+                }))
                 .child(
                     muted(
                         "“Accept without asking” works while “Auto-accept trusted devices” is on.",

@@ -190,12 +190,23 @@ pub fn row(item: FileItem, previewed: bool) -> impl IntoElement {
 /// line for those not listed.
 pub fn list(items: Vec<FileItem>, total: u64) -> impl IntoElement {
     let listed = items.len() as u64;
+    let items = signal(items);
     ui::group()
-        .children(items.into_iter().enumerate().map(|(i, item)| {
-            view()
-                .child(when(move || i > 0, || ui::separator(72.0)))
-                .child(row(item, i < PREVIEWED))
-        }))
+        // Virtualized (NSH lists): only the rows near the screen exist; a
+        // recycled cell builds the row it shows now.
+        .child(
+            virtual_list(listed as usize, move |at| {
+                dynamic(move || {
+                    let i = at.index();
+                    items
+                        .with(|v| v.get(i).cloned())
+                        .map(|item| row(item, i < PREVIEWED))
+                })
+            })
+            .separator(|| ui::separator(72.0))
+            .estimated_item_size(px(60.0))
+            .viewport(ListViewport::Parent),
+        )
         .child(when(
             move || total > listed,
             move || {

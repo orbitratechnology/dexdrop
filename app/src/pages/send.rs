@@ -468,35 +468,26 @@ impl Pick {
 fn selected() -> impl IntoElement {
     let picks =
         computed(move || selection().with(|s| s.paths.iter().map(Pick::of).collect::<Vec<_>>()));
-    let photos = move || {
-        picks
-            .get()
-            .into_iter()
-            .filter(Pick::photo)
-            .take(crate::files::PREVIEWED)
-            .collect::<Vec<_>>()
-    };
-    let others = move || {
-        let mut shown = 0;
-        picks
-            .get()
-            .into_iter()
-            .filter(|p| {
-                let photo = p.photo() && shown < crate::files::PREVIEWED;
-                if p.photo() {
-                    shown += 1;
-                }
-                !photo
-            })
-            .collect::<Vec<_>>()
-    };
+    // Photos as a grid of previews, the rest as a list; both virtualized
+    // (NSH lists): only what is near the screen exists, so a selection of
+    // thousands costs what one of thirty does.
+    let photos = computed(move || {
+        picks.with(|p| p.iter().filter(|p| p.photo()).cloned().collect::<Vec<_>>())
+    });
+    let others = computed(move || {
+        picks.with(|p| p.iter().filter(|p| !p.photo()).cloned().collect::<Vec<_>>())
+    });
     let counting = move || selection().with(|s| s.summary.is_none());
-    // Four across on a phone, fixed tiles on wider windows.
-    let side = if ui::mobile() {
-        ((window().width.0.min(ui::content_width()) - 2.0 * space::L - 3.0 * space::S) / 4.0)
-            .floor()
+    // Four across on a phone, six on wider windows.
+    let columns: u32 = if ui::mobile() { 4 } else { 6 };
+    let inner = if ui::mobile() {
+        window().width.0.min(ui::content_width()) - 2.0 * space::L
     } else {
-        104.0
+        ui::content_width() - 2.0 * space::XL
+    };
+    let side = ((inner - (columns - 1) as f32 * space::S) / columns as f32).floor();
+    let paths = |list: Memo<Vec<Pick>>| {
+        move || list.with(|l| l.iter().map(|p| p.path.clone()).collect::<Vec<_>>())
     };
     view()
         .gap(px(space::M))
@@ -516,69 +507,86 @@ fn selected() -> impl IntoElement {
                 ),
         )
         .child(when(
-            move || !photos().is_empty(),
+            move || !photos.with(Vec::is_empty),
             move || {
-                view().flex_row().flex_wrap().gap(px(space::S)).child(each(
-                    photos,
-                    |p: &Pick| p.path.clone(),
-                    move |p, _| photo_tile(p.get_untracked(), side),
-                ))
+                virtual_list(
+                    move || photos.with(Vec::len),
+                    move |at| {
+                        dynamic(move || {
+                            photos
+                                .with(|p| p.get(at.index()).cloned())
+                                .map(|p| photo_tile(p, side))
+                        })
+                    },
+                )
+                .keys(paths(photos))
+                .columns(columns)
+                .row_gap(px(space::S))
+                .column_gap(px(space::S))
+                .estimated_item_size(px(side))
+                .viewport(ListViewport::Parent)
             },
         ))
         .child(when(
-            move || !others().is_empty(),
+            move || !others.with(Vec::is_empty),
             move || {
-                ui::group().child(each(
-                    others,
-                    |p: &Pick| p.path.clone(),
-                    |p, i| {
-                        let pick = p.get_untracked();
-                        let fallback = if pick.folder {
-                            "Folder".to_owned()
-                        } else {
-                            format::bytes(pick.size)
-                        };
-                        let (size, folder) = (pick.size, pick.folder);
-                        let name = pick.name.clone();
-                        let path = pick.path.clone();
-                        // An APK shows the app it installs, once read.
-                        let at = signal(pick.path.clone());
-                        let label = signal(pick.name.clone());
-                        let fallback = signal(fallback);
-                        let card = move || crate::files::app_card(&at.get());
-                        let glyph = dynamic(move || {
-                            if folder {
-                                ui::kind_glyph(Icon::Folder, 44.0)
-                            } else if let Some(app) = card() {
-                                crate::files::app_icon(app.icon.as_deref(), 44.0)
-                            } else if crate::files::is_video(&label.get()) {
-                                play_thumb(at.get(), label.get())
-                            } else {
-                                crate::files::thumb(&label.get(), None, 44.0, 10.0)
-                            }
-                        });
-                        view()
-                            .child(when(move || i.get() > 0, || ui::separator(72.0)))
-                            .child(ui::row(
-                                glyph,
-                                move || card().map(|a| a.label).unwrap_or_else(|| label.get()),
-                                move || {
-                                    card()
-                                        .map(|a| crate::files::app_detail(&a, size))
-                                        .unwrap_or_else(|| fallback.get())
-                                },
-                                ui::round_btn(
-                                    Icon::X,
-                                    format!("Remove {name}"),
-                                    Variant::Secondary,
-                                    28.0,
-                                )
-                                .on_press(move || remove(path.clone())),
-                            ))
-                    },
-                ))
+                ui::group().child(
+                    virtual_list(
+                        move || others.with(Vec::len),
+                        move |at| {
+                            dynamic(move || {
+                                others.with(|o| o.get(at.index()).cloned()).map(pick_row)
+                            })
+                        },
+                    )
+                    .keys(paths(others))
+                    .separator(|| ui::separator(72.0))
+                    .estimated_item_size(px(64.0))
+                    .viewport(ListViewport::Parent),
+                )
             },
         ))
+}
+
+/// A picked file or folder that is not a photo: its kind (or the app an
+/// APK installs, or a play button for a video), name, size, and a button
+/// to remove it.
+fn pick_row(pick: Pick) -> View {
+    let fallback = if pick.folder {
+        "Folder".to_owned()
+    } else {
+        format::bytes(pick.size)
+    };
+    let (size, folder) = (pick.size, pick.folder);
+    let name = pick.name.clone();
+    let path = pick.path.clone();
+    // An APK shows the app it installs, once read.
+    let at = signal(pick.path.clone());
+    let label = signal(pick.name.clone());
+    let fallback = signal(fallback);
+    let card = move || crate::files::app_card(&at.get());
+    let glyph = dynamic(move || {
+        if folder {
+            ui::kind_glyph(Icon::Folder, 44.0)
+        } else if let Some(app) = card() {
+            crate::files::app_icon(app.icon.as_deref(), 44.0)
+        } else if crate::files::is_video(&label.get()) {
+            play_thumb(at.get(), label.get())
+        } else {
+            crate::files::thumb(&label.get(), None, 44.0, 10.0)
+        }
+    });
+    ui::row(
+        glyph,
+        move || card().map(|a| a.label).unwrap_or_else(|| label.get()),
+        move || {
+            card()
+                .map(|a| crate::files::app_detail(&a, size))
+                .unwrap_or_else(|| fallback.get())
+        },
+        ui::round_btn(Icon::X, format!("Remove {name}"), Variant::Secondary, 28.0)
+            .on_press(move || remove(path.clone())),
+    )
 }
 
 /// A picked video: its kind with a play button, which plays it.

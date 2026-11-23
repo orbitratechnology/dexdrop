@@ -150,78 +150,65 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The icon's SVG, built into the app.
-    fn svg(self) -> &'static str {
+    /// The icon: an SVG of the app's assets (`assets/icons/`), shipped with
+    /// the app and checked at build time (NSH's images and assets).
+    fn asset(self) -> ImageAsset {
         match self {
-            Icon::Send => include_str!("../assets/icons/send.svg"),
-            Icon::Receive => include_str!("../assets/icons/receive.svg"),
-            Icon::Paperplane => include_str!("../assets/icons/paperplane.svg"),
-            Icon::Clock => include_str!("../assets/icons/clock.svg"),
-            Icon::Gear => include_str!("../assets/icons/gear.svg"),
-            Icon::Photo => include_str!("../assets/icons/photo.svg"),
-            Icon::Video => include_str!("../assets/icons/video.svg"),
-            Icon::File => include_str!("../assets/icons/file.svg"),
-            Icon::Folder => include_str!("../assets/icons/folder.svg"),
-            Icon::Music => include_str!("../assets/icons/music.svg"),
-            Icon::Archive => include_str!("../assets/icons/archive.svg"),
-            Icon::Monitor => include_str!("../assets/icons/monitor.svg"),
-            Icon::Pause => include_str!("../assets/icons/pause.svg"),
-            Icon::Play => include_str!("../assets/icons/play.svg"),
-            Icon::X => include_str!("../assets/icons/x.svg"),
-            Icon::Check => include_str!("../assets/icons/check.svg"),
-            Icon::ChevronRight => include_str!("../assets/icons/chevron-right.svg"),
-            Icon::Plus => include_str!("../assets/icons/plus.svg"),
-            Icon::Refresh => include_str!("../assets/icons/refresh.svg"),
-            Icon::Qr => include_str!("../assets/icons/qr.svg"),
-            Icon::Keypad => include_str!("../assets/icons/keypad.svg"),
-            Icon::Link => include_str!("../assets/icons/link.svg"),
-            Icon::Copy => include_str!("../assets/icons/copy.svg"),
-            Icon::Shield => include_str!("../assets/icons/shield.svg"),
-            Icon::Eye => include_str!("../assets/icons/eye.svg"),
-            Icon::Wifi => include_str!("../assets/icons/wifi.svg"),
-            Icon::Globe => include_str!("../assets/icons/globe.svg"),
-            Icon::Pencil => include_str!("../assets/icons/pencil.svg"),
-            Icon::Trash => include_str!("../assets/icons/trash.svg"),
-            Icon::Info => include_str!("../assets/icons/info.svg"),
-            Icon::Alert => include_str!("../assets/icons/alert.svg"),
-            Icon::Devices => include_str!("../assets/icons/devices.svg"),
-            Icon::Share => include_str!("../assets/icons/share.svg"),
-            Icon::UserCheck => include_str!("../assets/icons/user-check.svg"),
-            Icon::Lock => include_str!("../assets/icons/lock.svg"),
-            Icon::Apple => include_str!("../assets/icons/os-apple.svg"),
-            Icon::Windows => include_str!("../assets/icons/os-windows.svg"),
-            Icon::Android => include_str!("../assets/icons/os-android.svg"),
-            Icon::Linux => include_str!("../assets/icons/os-linux.svg"),
-            Icon::Doc => include_str!("../assets/icons/doc.svg"),
-            Icon::Sheet => include_str!("../assets/icons/sheet.svg"),
-            Icon::Slides => include_str!("../assets/icons/slides.svg"),
-            Icon::Code => include_str!("../assets/icons/code.svg"),
-            Icon::Font => include_str!("../assets/icons/font.svg"),
-            Icon::Book => include_str!("../assets/icons/book.svg"),
-            Icon::Disk => include_str!("../assets/icons/disk.svg"),
-            Icon::Vector => include_str!("../assets/icons/vector.svg"),
-            Icon::Database => include_str!("../assets/icons/database.svg"),
-            Icon::Calendar => include_str!("../assets/icons/calendar.svg"),
-            Icon::Person => include_str!("../assets/icons/person.svg"),
-            Icon::Package => include_str!("../assets/icons/package.svg"),
-            Icon::Pdf => include_str!("../assets/icons/pdf.svg"),
-            Icon::Markdown => include_str!("../assets/icons/markdown.svg"),
-            Icon::Search => include_str!("../assets/icons/search.svg"),
+            Icon::Send => asset!("icons/send.svg"),
+            Icon::Receive => asset!("icons/receive.svg"),
+            Icon::Paperplane => asset!("icons/paperplane.svg"),
+            Icon::Clock => asset!("icons/clock.svg"),
+            Icon::Gear => asset!("icons/gear.svg"),
+            Icon::Photo => asset!("icons/photo.svg"),
+            Icon::Video => asset!("icons/video.svg"),
+            Icon::File => asset!("icons/file.svg"),
+            Icon::Folder => asset!("icons/folder.svg"),
+            Icon::Music => asset!("icons/music.svg"),
+            Icon::Archive => asset!("icons/archive.svg"),
+            Icon::Monitor => asset!("icons/monitor.svg"),
+            Icon::Pause => asset!("icons/pause.svg"),
+            Icon::Play => asset!("icons/play.svg"),
+            Icon::X => asset!("icons/x.svg"),
+            Icon::Check => asset!("icons/check.svg"),
+            Icon::ChevronRight => asset!("icons/chevron-right.svg"),
+            Icon::Plus => asset!("icons/plus.svg"),
+            Icon::Refresh => asset!("icons/refresh.svg"),
+            Icon::Qr => asset!("icons/qr.svg"),
+            Icon::Keypad => asset!("icons/keypad.svg"),
+            Icon::Link => asset!("icons/link.svg"),
+            Icon::Copy => asset!("icons/copy.svg"),
+            Icon::Shield => asset!("icons/shield.svg"),
+            Icon::Eye => asset!("icons/eye.svg"),
+            Icon::Wifi => asset!("icons/wifi.svg"),
+            Icon::Globe => asset!("icons/globe.svg"),
+            Icon::Pencil => asset!("icons/pencil.svg"),
+            Icon::Trash => asset!("icons/trash.svg"),
+            Icon::Info => asset!("icons/info.svg"),
+            Icon::Alert => asset!("icons/alert.svg"),
+            Icon::Devices => asset!("icons/devices.svg"),
+            Icon::Share => asset!("icons/share.svg"),
+            Icon::UserCheck => asset!("icons/user-check.svg"),
+            Icon::Lock => asset!("icons/lock.svg"),
+            Icon::Apple => asset!("icons/os-apple.svg"),
+            Icon::Windows => asset!("icons/os-windows.svg"),
+            Icon::Android => asset!("icons/os-android.svg"),
+            Icon::Linux => asset!("icons/os-linux.svg"),
+            Icon::Doc => asset!("icons/doc.svg"),
+            Icon::Sheet => asset!("icons/sheet.svg"),
+            Icon::Slides => asset!("icons/slides.svg"),
+            Icon::Code => asset!("icons/code.svg"),
+            Icon::Font => asset!("icons/font.svg"),
+            Icon::Book => asset!("icons/book.svg"),
+            Icon::Disk => asset!("icons/disk.svg"),
+            Icon::Vector => asset!("icons/vector.svg"),
+            Icon::Database => asset!("icons/database.svg"),
+            Icon::Calendar => asset!("icons/calendar.svg"),
+            Icon::Person => asset!("icons/person.svg"),
+            Icon::Package => asset!("icons/package.svg"),
+            Icon::Pdf => asset!("icons/pdf.svg"),
+            Icon::Markdown => asset!("icons/markdown.svg"),
+            Icon::Search => asset!("icons/search.svg"),
         }
-    }
-
-    /// The icon as a `data:` URI: the same on every platform and runner,
-    /// with no asset files to ship.
-    fn uri(self) -> String {
-        let mut uri = String::from("data:image/svg+xml,");
-        for b in self.svg().trim().bytes() {
-            if b.is_ascii_alphanumeric() || b" -._~/:=,;()'".contains(&b) {
-                uri.push(b as char);
-            } else {
-                uri.push_str(&format!("%{b:02X}"));
-            }
-        }
-        uri
     }
 }
 
@@ -231,7 +218,7 @@ pub fn icon(
     size: f32,
     color: impl IntoReactive<AdaptiveColor>,
 ) -> nsh_core::element::Image {
-    image(icon.uri()).size(px(size)).tint_color(color)
+    image(icon.asset()).size(px(size)).tint_color(color)
 }
 
 /// An icon on a tinted rounded square, as the system's settings show them.

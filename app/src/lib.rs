@@ -20,7 +20,23 @@ use nsh_core::prelude::*;
 /// The app's UI set (`nsh.json` `"rust"`).
 #[native_module("dexdrop/native")]
 fn native(registry: &mut Registry) {
+    // The app's icons (assets/), shipped with it.
+    registry.assets(assets!());
     registry.register::<App>();
+}
+
+/// For `cargo run` on a computer: the app's assets laid out as packages
+/// ship them (`@dexdrop-app/icons/…`), copied from the sources, for the
+/// runner's asset folder. `nsh run` and `nsh package` do this themselves.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+pub fn dev_assets() -> Option<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join("dexdrop-dev-assets");
+    for file in assets!() {
+        let to = dir.join(file.path());
+        std::fs::create_dir_all(to.parent()?).ok()?;
+        std::fs::copy(file.source, &to).ok()?;
+    }
+    Some(dir)
 }
 
 /// The app's root.

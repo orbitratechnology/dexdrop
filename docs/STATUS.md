@@ -64,6 +64,19 @@ every action, and the platform's own controls where NSH has them.
   a `<queries>` entry and installing needs `REQUEST_INSTALL_PACKAGES`,
   which NSH 0.6.1's `nsh.json` cannot declare: CI adds both to the packaged
   APK with apktool and signs it again (`scripts/patch-android-manifest.sh`).
+- **Lists and images, as NSH recommends:** every list that can grow
+  (History, this session's transfers, a transfer's files, the Send
+  selection's photo grid and files, Apps, trusted devices) is a
+  `virtual_list` in the page's scroll view (`ListViewport::Parent`),
+  keyed by id, with separators and estimated row sizes, so only rows near
+  the screen exist; rows read their data through the row's position, as
+  recycled cells must. Bounded content (settings groups, the avatar
+  picker, nearby devices) stays plain. Icons are SVG assets
+  (`asset!("icons/…")`, shipped with `registry.assets(assets!())`,
+  checked at build time) tinted to the theme; photos decode at the size
+  they are shown, with the file's icon underneath until (or unless) they
+  draw. `cargo run` lays the assets out for the desktop runner
+  (`dev_assets`).
 - **Player:** videos play, and photos show, inside the app (NSH's
   `video`, with the platform's own controls: AVPlayer, MediaPlayer,
   GStreamer through GTK, Media Foundation), from the Send selection, a

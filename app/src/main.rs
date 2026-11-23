@@ -20,6 +20,8 @@ fn main() -> impl std::process::Termination {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             app_id: "dev.dexdrop.app".to_owned(),
             size: (1040, 720),
+            asset_base: dexdrop_app::dev_assets()
+                .map(nsh_core::image::loader::AssetBase::Directory),
             ..Default::default()
         },
     )
