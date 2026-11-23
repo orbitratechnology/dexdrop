@@ -212,12 +212,12 @@ Audited 2026-11-23 against the PRD's technology stack.
 | Manifest | before transfer | paginated, bounded, digest-pinned | Done |
 | Chunked streaming, bounded memory | yes | 4 MiB chunks streamed from disk; frames ≤ 256 KiB; 17–40 MB peak for 2,000–20,000 files | Done |
 | Backpressure | yes | ≤ 64 requests outstanding (semaphore), TCP/QUIC flow control, ≤ 8 commits in flight | Done |
-| Concurrent / multiplexed | multiple streams in one QUIC connection | one stream per transfer with pipelined requests; several transfers run at once on separate connections | Partial: no per-file streams (they help on lossy links, not on loopback) |
+| Concurrent / multiplexed | multiple streams in one QUIC connection | one connection per transfer with pipelined requests; disk, BLAKE3 and TLS run on separate threads (≈2×: 0.93–1.19 GB/s, 5.37 GB at 51 MB peak); several transfers run at once on separate connections | Partial: no parallel connections per file yet (see \"Large files\" in ARCHITECTURE.md: to be measured on real Wi-Fi first) |
 | Adaptive concurrency | yes | fixed limits | Open |
 | Zero-copy / reduced-copy | where supported | reads into reused buffers; no `sendfile` (TLS is in user space) | Partial |
 | Resume | chunk-level | verified, chunk-aligned prefix per file, journaled every 2 s; the sender sends only what is missing | Done (files are received in order, so a prefix is the chunk set) |
 | Integrity | BLAKE3 | per chunk and per file; a failed file is requested again once | Done |
-| Phones' files | Files / SAF | NSH's pickers hand over each file's bytes: at most 512 MB per file and 100 per pick; larger files are named and refused instead of being sent empty | Partial: needs stream access to picked files in NSH |
+| Phones' files | Files / SAF | Videos, files and APKs through `pick_paths` (the document picker): copied to app storage without memory and with no size limit, moved into `staging`, which the engine cleans (large copies as soon as their transfer ends, others after a week). Photos through the photo library's picker (bytes, ≤ 512 MB each, larger ones named and refused) | Done for 5 GB+, except iPhone videos kept only in the Photos library (the document picker does not reach it; NSH has no video-library picker with paths yet) |
 | iOS background | not guaranteed | foreground transfers, journaled, resumed on return | Done as the PRD expects |
 | Android background | — | needs a foreground service NSH's packaging cannot declare | Open |
 | Browser | WebRTC, optional | web preview of the UI only, no engine | Not planned for v1 |

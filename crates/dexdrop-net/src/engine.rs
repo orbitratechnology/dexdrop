@@ -704,6 +704,68 @@ impl Actor {
                 };
             }
         }
+        self.purge_staging();
+    }
+
+    /// Phones copy picked files into `staging` before sending them. Copies
+    /// no unfinished transfer needs go after a week (small ones stay that
+    /// long so history can still preview them; large ones go as soon as
+    /// their transfer ends, [`Self::release_staged`]).
+    fn purge_staging(&self) {
+        let staging = self.ctx.state.staging();
+        let Ok(dirs) = std::fs::read_dir(&staging) else {
+            return;
+        };
+        let needed: Vec<std::path::PathBuf> = self
+            .transfers
+            .values()
+            .filter_map(|t| t.outgoing.as_ref()?.manifest.clone())
+            .flat_map(|m| {
+                m.entries
+                    .iter()
+                    .filter_map(|e| e.source.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let week = Duration::from_secs(7 * 24 * 3600);
+        for dir in dirs.flatten() {
+            let path = dir.path();
+            let old = dir
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > week);
+            if old && !needed.iter().any(|n| n.starts_with(&path)) {
+                let _ = if path.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+            }
+        }
+    }
+
+    /// A finished outgoing transfer's large staged copies go at once: a
+    /// 5 GB video copied off a phone's gallery should not stay twice.
+    fn release_staged(&self, id: &TransferId) {
+        const LARGE: u64 = 50 * 1024 * 1024;
+        let staging = self.ctx.state.staging();
+        let Some(manifest) = self
+            .transfers
+            .get(id)
+            .and_then(|t| t.outgoing.as_ref()?.manifest.clone())
+        else {
+            return;
+        };
+        for entry in &manifest.entries {
+            if let Some(source) = &entry.source
+                && entry.wire.size >= LARGE
+                && source.starts_with(&staging)
+            {
+                let _ = std::fs::remove_file(source);
+            }
+        }
     }
 
     fn insert(&mut self, snap: TransferSnapshot, outgoing: Option<OutgoingPlan>) {
@@ -1303,6 +1365,15 @@ impl Actor {
                             NoticeKind::Success,
                             format!("Sent {} to {}.", snap.label, snap.peer_name),
                         );
+                    }
+                    // Over for good (a failed one can still be retried).
+                    if matches!(
+                        snap.state,
+                        TransferState::Completed
+                            | TransferState::Cancelled { .. }
+                            | TransferState::Declined(_)
+                    ) {
+                        self.release_staged(&id);
                     }
                 }
             }

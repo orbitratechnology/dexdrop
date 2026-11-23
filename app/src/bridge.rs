@@ -214,14 +214,11 @@ pub fn default_download_dir() -> std::path::PathBuf {
     native::dirs(os().name()).1
 }
 
-/// A folder of the app's own state (`staging`, `app-icons`), beside where
-/// received files go.
+/// A folder of the app's own state (`staging`, `app-icons`), in the
+/// engine's state folder: the engine cleans `staging` up.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn state_dir(name: &str) -> std::path::PathBuf {
-    default_download_dir()
-        .parent()
-        .map(|p| p.join("state").join(name))
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("dexdrop-{name}")))
+    native::dirs(os().name()).0.join(name)
 }
 
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]

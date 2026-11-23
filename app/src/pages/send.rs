@@ -212,16 +212,88 @@ pub fn add_apps(apps: Vec<(crate::files::AppCard, Vec<PathBuf>)>) {
 fn choose_staged(kind: Kind) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        use nsh_core::{
-            file_dialog::FileFilter,
-            picker::{FilePickRequest, PickFormat, PickRequest},
-        };
+        use nsh_core::file_dialog::FileFilter;
         set_loading(Some(match kind {
             Kind::Photos => "Getting your photos…".into(),
             Kind::Videos => "Getting your videos…".into(),
             Kind::Files => "Getting your files…".into(),
             Kind::Apks => "Getting your APK files…".into(),
         }));
+        // Videos, files and APKs: the system's document picker through
+        // `pick_paths`, which copies each file to app storage without
+        // holding it in memory and with no size limit, so a 5 GB video
+        // can be sent. Photos keep the photo library's picker.
+        if kind != Kind::Photos {
+            let filter = match kind {
+                Kind::Videos => Some(FileFilter::new(
+                    "Videos",
+                    ["mp4", "mov", "m4v", "mkv", "webm", "avi", "3gp"],
+                )),
+                Kind::Apks => Some(FileFilter::new("Android apps", ["apk"])),
+                _ => None,
+            };
+            let mut dialog = OpenDialog::files().multiple(true).button_label("Choose");
+            if let Some(filter) = filter {
+                dialog = dialog.filter(filter);
+            }
+            let picked = pick_paths(dialog);
+            detached(async move {
+                match picked.await {
+                    Ok(Some(paths)) => {
+                        let staging = bridge::state_dir("staging");
+                        let moved = blocking(move || adopt(paths, &staging)).await;
+                        set_loading(None);
+                        if let Ok(paths) = moved {
+                            select(paths);
+                        }
+                    }
+                    Ok(None) => set_loading(None),
+                    // No path picker here: the byte picker, with its limit.
+                    Err(_) => choose_bytes(kind),
+                }
+            });
+            return;
+        }
+        choose_bytes(kind);
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = kind;
+}
+
+/// Moves picked copies into DexDrop's staging folder (the engine cleans it
+/// up), where a rename is free; a copy that cannot move stays where the
+/// picker put it.
+#[cfg(not(target_arch = "wasm32"))]
+fn adopt(paths: Vec<PathBuf>, staging: &std::path::Path) -> Vec<PathBuf> {
+    let dir = staging.join(dexdrop_core::hex(&dexdrop_core::random_bytes::<6>()));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return paths;
+    }
+    paths
+        .into_iter()
+        .map(|path| {
+            let Some(name) = path.file_name() else {
+                return path;
+            };
+            let to = dexdrop_core::naming::first_free(&dir, &name.to_string_lossy());
+            if std::fs::rename(&path, &to).is_ok() {
+                to
+            } else {
+                path
+            }
+        })
+        .collect()
+}
+
+/// The pickers that hand over bytes (photos; others where paths cannot
+/// be picked), copied into staging.
+fn choose_bytes(kind: Kind) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use nsh_core::{
+            file_dialog::FileFilter,
+            picker::{FilePickRequest, PickFormat, PickRequest},
+        };
         let picked = match kind {
             Kind::Photos => {
                 let mut request = PickRequest::new(true, 0);

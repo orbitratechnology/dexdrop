@@ -129,6 +129,21 @@ that fit in one chunk are now read whole on the sender and written, synced
 and committed in one blocking call on the receiver, with up to 8 commits in
 flight while the next files arrive: 1,400 → 3,700 files/s.
 
+## Large files (5 GB+)
+
+What the usual advice for large transfers over TCP + TLS asks, and where
+DexDrop stands:
+
+| Advice | DexDrop | Why |
+|---|---|---|
+| Fixed chunks of 4–16 MB | 4 MiB (1–16 MiB negotiable) | 1, 4 and 16 MiB measure the same; 4 MiB keeps what a drop loses small |
+| Never hold whole files in memory | Chunks are streamed from and to disk; at most 2 chunks wait per side; 51 MB peak for a 5.37 GB file (both engines). Phones pick through `pick_paths`, which copies to storage instead of memory | |
+| Overlap disk, hashing and the network | Reader and writer threads beside the TLS session | Measured 2× |
+| Chunk-level resume and hashing | BLAKE3 per chunk and per file; the verified prefix is journaled every 2 s; the sender sends only what is missing | BLAKE3 is fast enough (several GB/s per core with SIMD) and, unlike XXH3, cryptographic |
+| Zero-copy (mmap, `sendfile`, `TransmitFile`) | Not used | TLS encrypts in the process, so the kernel cannot send file pages directly (kernel TLS exists on Linux only); Rust has no garbage collector, so reading into reused buffers costs no pauses; `mmap` turns a file truncated while sending into a crash (`SIGBUS`) |
+| `SO_SNDBUF` / `SO_RCVBUF` of 4–8 MB | Left to the system | Setting them turns Linux's and Android's automatic tuning off and is capped by `rmem_max` (often 208 KB): slower, not faster. macOS and Windows tune up to 4–16 MB on their own, and a LAN's bandwidth × delay is ~250 KB at 1 Gbit/s and 2 ms |
+| 4–8 parallel TLS connections | One connection per transfer | One TCP flow fills a LAN when its window is not starved; parallel flows help on lossy or long links and when one core cannot encrypt fast enough. Planned behind a measurement on real Wi-Fi 6/6E/7: chunks striped over N connections need a chunk bitmap for resume and writes at offsets (protocol v2), a large change to take only for a measured gain |
+
 ## Identity and authentication
 
 Each install generates an Ed25519 key and a self-signed certificate. Peer ID =
