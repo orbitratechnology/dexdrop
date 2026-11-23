@@ -59,7 +59,17 @@ fn parse_event(line: &str) -> Option<BridgeEvent> {
     match fields.next()? {
         "F" => {
             let service = fields.next()?.to_owned();
-            let ip: std::net::IpAddr = fields.next()?.parse().ok()?;
+            // IPv6 link-local addresses arrive without their scope, which
+            // makes them unusable: skip them.
+            let ips: Vec<std::net::IpAddr> = fields
+                .next()?
+                .split(',')
+                .filter_map(|a| a.parse().ok())
+                .filter(|ip: &std::net::IpAddr| match ip {
+                    std::net::IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) != 0xfe80,
+                    std::net::IpAddr::V4(_) => true,
+                })
+                .collect();
             let port: u16 = fields.next()?.parse().ok()?;
             let txt: HashMap<&str, &str> = fields
                 .next()
@@ -68,7 +78,11 @@ fn parse_event(line: &str) -> Option<BridgeEvent> {
                 .filter_map(|entry| entry.split_once('='))
                 .collect();
             let txt = parse_txt(|key| txt.get(key).map(|v| (*v).to_owned()))?;
-            let found = discovered(txt, vec![SocketAddr::new(ip, port)])?;
+            let addrs = ips
+                .into_iter()
+                .map(|ip| SocketAddr::new(ip, port))
+                .collect();
+            let found = discovered(txt, addrs)?;
             Some(BridgeEvent::Found { service, found })
         }
         "L" => Some(BridgeEvent::Lost {
@@ -443,6 +457,27 @@ mod tests {
         assert_eq!(found.platform, "android");
         assert!(found.code_open);
         assert_eq!(found.addrs, vec!["192.168.1.20:4242".parse().unwrap()]);
+    }
+
+    #[test]
+    fn every_usable_address_is_kept_ipv4_first() {
+        let (_, txt) = ad("Pixel 8", false);
+        let line = format!(
+            "F{SEP}s{SEP}fe80::1,fec0::5054:ff:fe12:3456,10.0.2.16,bogus{SEP}4242{SEP}{txt}"
+        );
+        let Some(BridgeEvent::Found { found, .. }) = parse_event(&line) else {
+            panic!("not read");
+        };
+        assert_eq!(
+            found.addrs,
+            vec![
+                "10.0.2.16:4242".parse().unwrap(),
+                "[fec0::5054:ff:fe12:3456]:4242".parse().unwrap()
+            ]
+        );
+        // Only a link-local address: nothing to connect to.
+        let line = format!("F{SEP}s{SEP}fe80::1{SEP}4242{SEP}{txt}");
+        assert_eq!(parse_event(&line), None);
     }
 
     #[test]

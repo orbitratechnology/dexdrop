@@ -22,7 +22,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Events, one per {@link #poll}, fields separated by U+0001:
  * <ul>
- *   <li>{@code F name host port txt}: a service resolved; {@code txt} is
+ *   <li>{@code F name addresses port txt}: a service resolved; {@code addresses}
+ *       are comma-separated, {@code txt} is
  *       {@code key=value} entries separated by U+0002;
  *   <li>{@code L name}: a service went away;
  *   <li>{@code E message}: discovery failed.
@@ -184,16 +185,48 @@ public final class NsdBridge {
                             txt.append(new String(e.getValue(), StandardCharsets.UTF_8));
                         }
                     }
-                    String address = host.getHostAddress();
-                    Log.i(TAG, "resolved " + resolved.getServiceName() + " at " + address);
-                    int scope = address.indexOf('%');
-                    events.add("F" + SEP + resolved.getServiceName() + SEP
-                            + (scope >= 0 ? address.substring(0, scope) : address) + SEP
+                    String addresses = addresses(resolved, host);
+                    Log.i(TAG, "resolved " + resolved.getServiceName() + " at " + addresses);
+                    events.add("F" + SEP + resolved.getServiceName() + SEP + addresses + SEP
                             + resolved.getPort() + SEP + txt);
                 }
                 done();
             }
         });
+    }
+
+    /**
+     * Every address of a resolved service, comma-separated, without IPv6
+     * scope suffixes: Android 14 reports them all ({@code getHostAddresses}),
+     * earlier versions one ({@code getHost}).
+     */
+    private static String addresses(NsdServiceInfo resolved, InetAddress host) {
+        StringBuilder out = new StringBuilder();
+        try {
+            Object all = NsdServiceInfo.class.getMethod("getHostAddresses").invoke(resolved);
+            if (all instanceof java.util.List) {
+                for (Object a : (java.util.List<?>) all) {
+                    if (a instanceof InetAddress) {
+                        append(out, (InetAddress) a);
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Before Android 14.
+        }
+        if (out.length() == 0) {
+            append(out, host);
+        }
+        return out.toString();
+    }
+
+    private static void append(StringBuilder out, InetAddress address) {
+        String text = address.getHostAddress();
+        int scope = text.indexOf('%');
+        if (out.length() > 0) {
+            out.append(',');
+        }
+        out.append(scope >= 0 ? text.substring(0, scope) : text);
     }
 
     private synchronized void done() {

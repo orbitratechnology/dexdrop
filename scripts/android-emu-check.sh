@@ -9,8 +9,9 @@
 #
 # The emulator's network is behind its own NAT, so the CLI runs inside it
 # (pushed with adb, run from a shell: it uses the mdns-sd responder, the
-# app the system's service). Screenshots, accessibility snapshots, logcat
-# and a summary go to the output dir.
+# app the system's service). Needs adb, agent-device and zbarimg (zbar-tools).
+# Screenshots, accessibility snapshots, logcat and a summary go to the
+# output dir.
 set -uo pipefail
 
 apk=${1:?apk}
@@ -94,7 +95,7 @@ sleep 3
 if adb -s "$serial" logcat -d -s DexDropNsd:I | grep -q 'browsing for'; then
   note "- The app browses with the system's NsdManager (logcat: DexDropNsd)"
 else
-  warn "the app did not log NsdManager browsing (see logcat.txt)"
+  fail "the app did not log NsdManager browsing (see logcat.txt)"
 fi
 
 # Discovery: does the app list a receiver run by the CLI?
@@ -105,7 +106,9 @@ if ad wait text "CI Emulator CLI" 30000 >/dev/null 2>&1; then
   note "- Discovery: the app sees the CLI (\"CI Emulator CLI\")"
 else
   step 03-nearby-no-cli
-  warn "discovery: the app does not list the CLI"
+  sh_ "pkill -f '$dev/dexdrop'" >/dev/null 2>&1 || true
+  kill "$receiver" 2>/dev/null
+  fail "discovery: the app does not list the CLI (\"CI Emulator CLI\")"
 fi
 sh_ "pkill -f '$dev/dexdrop'" >/dev/null 2>&1 || true
 kill "$receiver" 2>/dev/null
@@ -215,16 +218,23 @@ if [ -n "$name" ] && grep -q "$name" "$out/cli-peers.log"; then
     fail "sending with the pairing code did not reach the app (cli-send-code.log)"
   note "- 3 MB sent with the pairing code, accepted, $(received_intact "$dev/payload.bin")"
 else
-  warn "discovery: the CLI does not see ${name:-the app}; skipped sending with the code (cli-peers.log)"
-  tap Done >/dev/null 2>&1 || true
+  fail "discovery: the CLI does not see ${name:-the app} (cli-peers.log)"
 fi
 
 # 2. The invitation link from the same sheet: carries the app's addresses,
 #    so it works without discovery.
+# Read from the sheet's QR code, as another device's camera would; the
+# clipboard as a fallback (agent-device cannot read it on every image).
 open_sheet 07-receive-invitation
-tap "Copy invitation" || fail "could not copy the invitation"
-invitation=$(ad clipboard read 2>/dev/null | tr -d '\r' | grep -oE 'DEXDROP1:[^[:space:]"]+' | head -1)
-[ -n "$invitation" ] || fail "the clipboard holds no invitation"
+invitation=$(zbarimg --raw -q "$out/07-receive-invitation.png" 2>/dev/null | grep -oE 'DEXDROP1:[A-Z0-9]+' | head -1)
+how="read from the QR code"
+if [ -z "$invitation" ]; then
+  tap "Copy invitation" || fail "could not copy the invitation"
+  invitation=$(ad clipboard read 2>/dev/null | tr -d '\r' | grep -oE 'DEXDROP1:[^[:space:]"]+' | head -1)
+  how="copied with \"Copy invitation\""
+fi
+[ -n "$invitation" ] || fail "no invitation in the QR code or on the clipboard"
+note "- Invitation $how"
 send_with "$invitation" invitation "$dev/note.bin" ||
   fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
 note "- 200 KB sent with the invitation link, accepted, $(received_intact "$dev/note.bin")"

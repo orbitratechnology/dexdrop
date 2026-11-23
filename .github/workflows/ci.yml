@@ -158,7 +158,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install -g agent-device@latest
+      - run: npm install -g agent-device@latest && sudo apt-get install -y zbar-tools
       - name: Android emulator check (agent-device)
         uses: reactivecircus/android-emulator-runner@v2
         with:
