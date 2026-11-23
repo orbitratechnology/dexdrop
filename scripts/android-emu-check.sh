@@ -54,6 +54,11 @@ tap() { # tap <label>: scroll down once if it is not on screen yet
   ad scroll down >/dev/null 2>&1
   ad click "label=\"$1\"" --settle >/dev/null 2>&1
 }
+# tap_only <label>: no scrolling. A scroll with nothing to scroll can act as
+# the system's home gesture and send the app to the background (seen in CI).
+tap_only() { ad click "label=\"$1\"" --settle >/dev/null 2>&1; }
+# The app in front again if something sent it away.
+front() { ad open "$pkg" >/dev/null 2>&1 || true; }
 
 note "## Android emulator check (agent-device)"
 note ""
@@ -149,14 +154,15 @@ send_with() {
     wait "$sender" 2>/dev/null
     return 2
   fi
-  tap Done >/dev/null 2>&1 || true
+  tap_only Done || true
   for _ in $(seq 1 30); do
-    if tap Accept; then
+    if tap_only Accept; then
       accepted=yes
       break
     fi
     kill -0 "$sender" 2>/dev/null || break
-    tap Transfers >/dev/null 2>&1 || true
+    front
+    tap_only Transfers || true
     sleep 2
   done
   if [ "$accepted" != yes ]; then

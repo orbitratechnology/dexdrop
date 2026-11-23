@@ -84,7 +84,10 @@ receive journal is a snapshot plus an append-only log of changed files: for
 
 1. Extend the checks to sending from the app and pause/resume; run on an iPhone and by hand on Windows and macOS.
 2. Android: run on a phone (discovery with a computer); SAF file access and a
-   share target (need an NSH manifest extension or an app that embeds `NshView`).
+   share target (need an NSH manifest extension or an app that embeds `NshView`);
+   transfers while the app is in the background (Android freezes cached apps, so
+   long transfers likely need a foreground service, a manifest `<service>` NSH's
+   packaging cannot declare yet; untested).
 3. iOS: Files/Photos picker; share sheet entry (FR-035).
 4. Store the identity key in the OS keystore.
 5. Run `dexdrop-bench` on real Wi-Fi/Ethernet with loss and latency (loopback results are in docs/ARCHITECTURE.md).
