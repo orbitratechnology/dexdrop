@@ -814,6 +814,22 @@ pub fn radar(colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
         .child(center)
 }
 
+/// A small turning indicator: work in progress without a known end
+/// (pulsing instead with reduced motion).
+pub fn spinner(side: f32) -> View {
+    let animation = if reduce_motion() {
+        KeyframeAnimation::new(Keyframes::Pulse).duration(1200.0)
+    } else {
+        KeyframeAnimation::new(Keyframes::Spin).duration(900.0)
+    };
+    view()
+        .size(px(side))
+        .items_center()
+        .justify_center()
+        .animation(animation)
+        .child(icon(Icon::Refresh, side, move || theme().primary))
+}
+
 /// An illustration and one line for an empty state.
 pub fn empty(i: Icon, line: impl IntoReactive<SharedString> + 'static) -> View {
     view()

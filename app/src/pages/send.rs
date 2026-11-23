@@ -22,6 +22,29 @@ use crate::{
 
 // ---------------------------------------------------------------- selection
 
+/// What is being read while picked files are handed over and copied (on
+/// phones the system hands over every byte first, which takes a while for
+/// videos): shown instead of silence.
+#[derive(Clone, Default, PartialEq)]
+pub struct Loading(pub Option<String>);
+
+pub fn loading() -> Signal<Loading> {
+    global::<Loading>()
+}
+
+fn set_loading(what: Option<String>) {
+    loading().set(Loading(what));
+}
+
+/// Runs `work` to its end whatever the screen does meanwhile: a task
+/// started from a row (removing a file) or a page ends with them
+/// otherwise, leaving the selection uncounted or the loading card up.
+fn detached(work: impl std::future::Future<Output = ()> + 'static) {
+    Owner::detached().run(|| {
+        spawn(work);
+    });
+}
+
 pub fn has_selection() -> bool {
     selection().with_untracked(|s| !s.paths.is_empty())
 }
@@ -47,7 +70,7 @@ pub fn select(paths: Vec<PathBuf>) {
             dexdrop_core::manifest::Manifest::build(&all)
                 .map(|m| (m.files, m.folders, m.total_bytes))
         });
-        spawn(async move {
+        detached(async move {
             match counting.await {
                 Ok(Ok(summary)) => selection().update(|s| s.summary = Some(summary)),
                 Ok(Err(err)) => {
@@ -99,6 +122,11 @@ fn choose_staged(kind: Kind) {
             file_dialog::FileFilter,
             picker::{FilePickRequest, PickFormat, PickRequest},
         };
+        set_loading(Some(match kind {
+            Kind::Photos => "Getting your photos…".into(),
+            Kind::Videos => "Getting your videos…".into(),
+            Kind::Files => "Getting your files…".into(),
+        }));
         let picked = match kind {
             Kind::Photos => {
                 let mut request = PickRequest::new(true, 0);
@@ -116,11 +144,17 @@ fn choose_staged(kind: Kind) {
             }
             Kind::Files => pick_files(FilePickRequest::new(true, 0)),
         };
-        spawn(async move {
+        detached(async move {
             let files = picked.await;
             if files.is_empty() {
+                set_loading(None);
                 return;
             }
+            set_loading(Some(if files.len() == 1 {
+                "Preparing 1 file…".to_owned()
+            } else {
+                format!("Preparing {} files…", files.len())
+            }));
             let staging = bridge::default_download_dir()
                 .parent()
                 .map(|p| p.join("state").join("staging"))
@@ -140,7 +174,9 @@ fn choose_staged(kind: Kind) {
                 }
                 Ok::<_, std::io::Error>(paths)
             });
-            match staged.await {
+            let staged = staged.await;
+            set_loading(None);
+            match staged {
                 Ok(Ok(paths)) => select(paths),
                 Ok(Err(err)) => toast(
                     NoticeKind::Error,
@@ -198,13 +234,26 @@ fn picked_peer() -> Option<PeerInfo> {
 
 pub fn page() -> impl IntoElement {
     let has = move || selection().with(|s| !s.paths.is_empty());
+    let busy = move || loading().with(|l| l.0.clone());
+    let dropping = signal(false);
     view()
         .flex_1()
+        .on_file_drag_enter(move |_: &FileDragEvent| dropping.set(true))
+        .on_file_drag_leave(move || dropping.set(false))
+        .on_file_drop(move |event: &FileDropEvent| {
+            dropping.set(false);
+            select(file_paths(&event.uris));
+        })
         .child(body(
             view()
                 .gap(px(space::XL))
                 .child(kinds())
-                .child(when(has, selected)),
+                .child(when(move || busy().is_some(), move || loading_card(busy)))
+                .child(when(has, selected))
+                .child(when(
+                    move || desktop_platform() && !has(),
+                    move || drop_zone(dropping),
+                )),
         ))
         .child(when(has, next_bar))
 }
@@ -258,9 +307,125 @@ fn kinds() -> impl IntoElement {
     grid
 }
 
-/// What is selected, each removable.
+/// Computers: a place to drop files and folders, lit while they hover.
+fn drop_zone(dropping: Signal<bool>) -> impl IntoElement {
+    view()
+        .items_center()
+        .justify_center()
+        .gap(px(space::M))
+        .py(px(space::XXL))
+        .rounded(px(20.0))
+        .border_2()
+        .border_dashed()
+        .border_color(move || {
+            if dropping.get() {
+                theme().primary
+            } else {
+                theme().border
+            }
+        })
+        .bg(move || {
+            if dropping.get() {
+                theme().primary.opacity(0.08)
+            } else {
+                theme().card.opacity(0.0)
+            }
+        })
+        .child(ui::soft_glyph(Icon::Plus, move || theme().primary, 56.0))
+        .child(ui::strong("Drop files or folders here"))
+        .child(muted("Or choose them above. Photos show as previews."))
+}
+
+/// Picked files being handed over: a spinner and what is happening.
+fn loading_card(what: impl Fn() -> Option<String> + Copy + 'static) -> impl IntoElement {
+    ui::tile()
+        .flex_row()
+        .items_center()
+        .gap(px(space::M))
+        .child(
+            view()
+                .size(px(44.0))
+                .rounded(px(12.0))
+                .items_center()
+                .justify_center()
+                .bg(move || theme().primary.opacity(0.12))
+                .child(ui::spinner(22.0)),
+        )
+        .child(
+            view()
+                .flex_1()
+                .gap(px(2.0))
+                .child(ui::strong(move || what().unwrap_or_default()))
+                .child(
+                    muted("Large videos take a moment to copy.").text_size(px(ui::size::CAPTION)),
+                ),
+        )
+}
+
+/// A picked path as the selection shows it.
+#[derive(Clone, PartialEq)]
+struct Pick {
+    path: PathBuf,
+    name: String,
+    folder: bool,
+    size: u64,
+}
+
+impl Pick {
+    fn of(path: &PathBuf) -> Self {
+        let meta = std::fs::metadata(path).ok();
+        Self {
+            path: path.clone(),
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            folder: meta.as_ref().is_some_and(|m| m.is_dir()),
+            size: meta.map_or(0, |m| m.len()),
+        }
+    }
+
+    /// Shown as a photo tile.
+    fn photo(&self) -> bool {
+        !self.folder && crate::files::is_image(&self.name) && self.size <= 40 * 1024 * 1024
+    }
+}
+
+/// What is selected, each removable: photos as a grid of previews, the
+/// rest as a list with their kind and size.
 fn selected() -> impl IntoElement {
-    let items = move || selection().with(|s| s.paths.clone());
+    let picks =
+        computed(move || selection().with(|s| s.paths.iter().map(Pick::of).collect::<Vec<_>>()));
+    let photos = move || {
+        picks
+            .get()
+            .into_iter()
+            .filter(Pick::photo)
+            .take(crate::files::PREVIEWED)
+            .collect::<Vec<_>>()
+    };
+    let others = move || {
+        let mut shown = 0;
+        picks
+            .get()
+            .into_iter()
+            .filter(|p| {
+                let photo = p.photo() && shown < crate::files::PREVIEWED;
+                if p.photo() {
+                    shown += 1;
+                }
+                !photo
+            })
+            .collect::<Vec<_>>()
+    };
+    let counting = move || selection().with(|s| s.summary.is_none());
+    // Four across on a phone, fixed tiles on wider windows.
+    let side = if ui::mobile() {
+        ((window().width.0.min(ui::content_width()) - 2.0 * space::L - 3.0 * space::S) / 4.0)
+            .floor()
+    } else {
+        104.0
+    };
     view()
         .gap(px(space::M))
         .child(
@@ -269,34 +434,96 @@ fn selected() -> impl IntoElement {
                 .items_center()
                 .justify_between()
                 .child(ui::section("Selected"))
-                .child(muted(summary)),
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(space::XS))
+                        .child(when(counting, || ui::spinner(14.0)))
+                        .child(muted(summary)),
+                ),
         )
-        .child(ui::group().child(each(
-            items,
-            |p: &PathBuf| p.clone(),
-            |p, i| {
-                let path = p.get_untracked();
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let folder = path.is_dir();
-                let glyph = if folder {
-                    Icon::Folder
-                } else {
-                    Icon::for_file(&name)
-                };
-                view()
-                    .child(when(move || i.get() > 0, || ui::separator(64.0)))
-                    .child(ui::row(
-                        ui::kind_glyph(glyph, 36.0),
-                        name.clone(),
-                        String::new,
-                        ui::round_btn(Icon::X, format!("Remove {name}"), Variant::Secondary, 28.0)
-                            .on_press(move || remove(path.clone())),
-                    ))
+        .child(when(
+            move || !photos().is_empty(),
+            move || {
+                view().flex_row().flex_wrap().gap(px(space::S)).child(each(
+                    photos,
+                    |p: &Pick| p.path.clone(),
+                    move |p, _| photo_tile(p.get_untracked(), side),
+                ))
             },
-        )))
+        ))
+        .child(when(
+            move || !others().is_empty(),
+            move || {
+                ui::group().child(each(
+                    others,
+                    |p: &Pick| p.path.clone(),
+                    |p, i| {
+                        let pick = p.get_untracked();
+                        let detail = signal(if pick.folder {
+                            "Folder".to_owned()
+                        } else {
+                            format::bytes(pick.size)
+                        });
+                        let glyph = if pick.folder {
+                            ui::kind_glyph(Icon::Folder, 40.0)
+                        } else {
+                            crate::files::thumb(&pick.name, None, 40.0, 10.0)
+                        };
+                        let name = pick.name.clone();
+                        let path = pick.path.clone();
+                        view()
+                            .child(when(move || i.get() > 0, || ui::separator(68.0)))
+                            .child(ui::row(
+                                glyph,
+                                name.clone(),
+                                move || detail.get(),
+                                ui::round_btn(
+                                    Icon::X,
+                                    format!("Remove {name}"),
+                                    Variant::Secondary,
+                                    28.0,
+                                )
+                                .on_press(move || remove(path.clone())),
+                            ))
+                    },
+                ))
+            },
+        ))
+}
+
+/// A picked photo: its preview, with a button to remove it.
+fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
+    let path = pick.path.clone();
+    view()
+        .size(px(side))
+        .child(crate::files::thumb(
+            &pick.name,
+            Some(&pick.path),
+            side,
+            14.0,
+        ))
+        .child(
+            ui::pressable()
+                .accessibility_label(format!("Remove {}", pick.name))
+                .on_press(move || remove(path.clone()))
+                .absolute()
+                .top(px(2.0))
+                .right(px(2.0))
+                .size(px(ui::hit().min(36.0)))
+                .items_center()
+                .justify_center()
+                .child(
+                    view()
+                        .size(px(24.0))
+                        .rounded(px(12.0))
+                        .items_center()
+                        .justify_center()
+                        .bg(rgba(0x0000_0099))
+                        .child(ui::icon(Icon::X, 12.0, white())),
+                ),
+        )
 }
 
 /// The action at the foot of the send page: straight to the device picked

@@ -284,3 +284,29 @@ fn resetting_the_identity_gives_a_new_device_id() {
         app.screen().texts()
     );
 }
+
+/// Settings: the avatar opens the picker; an emoji chosen shows at once and
+/// is kept.
+#[test]
+fn chooses_an_avatar() {
+    let (mut app, dir) = start();
+    wait_for_text(&mut app, "Visible as ");
+    app.press_key("mod+3").unwrap();
+    app.press("role:button[Change avatar]").unwrap();
+    app.wait_for("Emoji").unwrap();
+    let foxes = |app: &mut Headless| app.screen().texts().iter().filter(|t| **t == "🦊").count();
+    assert_eq!(foxes(&mut app), 1, "only the choice shows a fox");
+    app.press("role:button[🦊]").unwrap();
+    for _ in 0..50 {
+        if foxes(&mut app) > 1 {
+            break;
+        }
+        app.wait(Duration::from_millis(100)).unwrap();
+    }
+    assert!(foxes(&mut app) > 1, "the avatar does not show the fox");
+    drop(app);
+    let settings = std::fs::read_to_string(dir.path().join("state").join("settings.json"))
+        .or_else(|_| std::fs::read_to_string(dir.path().join("settings.json")))
+        .unwrap_or_default();
+    assert!(settings.contains("🦊"), "not kept: {settings}");
+}
