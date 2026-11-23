@@ -69,8 +69,15 @@ pub fn tab() -> Tab {
     global::<CurrentTab>().get().0
 }
 
+/// Shows `tab`. Choosing the tab already shown goes back to its root, as
+/// the platforms' tab bars do, and rebuilds nothing else.
 pub fn set_tab(tab: Tab) {
-    global::<CurrentTab>().set(CurrentTab(tab));
+    let current = global::<CurrentTab>();
+    if current.get_untracked().0 == tab {
+        truncate(tab, 1);
+    } else {
+        current.set(CurrentTab(tab));
+    }
 }
 
 /// A page of a tab's navigation stack.

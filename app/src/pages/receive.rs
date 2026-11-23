@@ -25,7 +25,14 @@ pub fn spoken_code(shown: &str) -> String {
 }
 
 pub fn page() -> impl IntoElement {
-    // The code and invitation end when the user leaves this page.
+    // A fresh code and invitation whenever the page shows (coming back to
+    // it from another tab too); they end when the user leaves it. Asked for
+    // after this update, so a page shown again in place gets its new code
+    // after the old one closed.
+    spawn(async {
+        bridge::send(Command::CreateCode);
+        bridge::send(Command::CreateInvitation);
+    });
     cleanup(|| bridge::send(Command::CloseInvitations));
     let me = move || {
         model().with(|m| {

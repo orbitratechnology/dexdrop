@@ -94,6 +94,43 @@ fn receive_shows_a_code_and_closes_it() {
         .unwrap();
 }
 
+/// Choosing the tab already shown goes back to its root; the Receive page
+/// asks for its own code, so it has one again after a trip to another tab.
+#[test]
+fn reselecting_a_tab_goes_home_and_receive_gets_a_fresh_code() {
+    let (mut app, _dir) = start();
+    wait_for_text(&mut app, "Visible as ");
+    app.press("role:button[Receive]").unwrap();
+    app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
+        .unwrap();
+    app.press_key("mod+1").unwrap();
+    app.wait_for_gone("Ready to receive", Duration::from_secs(5))
+        .unwrap();
+    app.wait_for("role:button[Receive]").unwrap();
+
+    app.press("role:button[Receive]").unwrap();
+    app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
+        .unwrap();
+    app.press_key("mod+2").unwrap();
+    app.wait_for("Files you send and receive show up here.")
+        .unwrap();
+    app.press_key("mod+1").unwrap();
+    app.wait_for("Ready to receive").unwrap();
+    app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
+        .unwrap();
+    for _ in 0..100 {
+        if !app.screen().texts().iter().any(|t| t.contains("····")) {
+            break;
+        }
+        app.wait(Duration::from_millis(100)).unwrap();
+    }
+    assert!(
+        !app.screen().texts().iter().any(|t| t.contains("····")),
+        "no code: {:?}",
+        app.screen().texts()
+    );
+}
+
 #[test]
 fn send_offers_photos_videos_and_files() {
     let (mut app, _dir) = start();

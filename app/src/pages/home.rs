@@ -87,11 +87,7 @@ fn actions() -> impl IntoElement {
             Icon::Receive,
             "Receive",
             ui::RECEIVE,
-            || {
-                bridge::send(Command::CreateCode);
-                bridge::send(Command::CreateInvitation);
-                push(Route::Receive);
-            },
+            || push(Route::Receive),
         ))
 }
 
