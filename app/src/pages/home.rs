@@ -80,6 +80,8 @@ fn actions() -> impl IntoElement {
         .flex_row()
         .justify_center()
         .gap(px(if ui::mobile() { 40.0 } else { 64.0 }))
+        // Large system text: one above the other, so the labels fit.
+        .style_when(ui::large_text, |s| s.flex_col().items_center())
         .pt(px(space::S))
         .child(ui::hero_action(Icon::Send, "Send", ui::SEND, || {
             push(Route::Send)

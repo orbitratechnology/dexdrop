@@ -140,25 +140,10 @@ fn application_menu() {
     set_application_menu(menus);
 }
 
-/// Coming back to the app (a phone unlocked, a window restored): the network
-/// may have changed or the system may have closed discovery's sockets, so
-/// look again (FR-013). Transfers keep their own journals (every 2 s).
-fn refresh_on_return() {
-    let was_away = std::cell::Cell::new(false);
-    effect(move || {
-        let now = lifecycle();
-        if now == nsh_core::platform::Lifecycle::Background {
-            was_away.set(true);
-        } else if now == nsh_core::platform::Lifecycle::Active && was_away.replace(false) {
-            bridge::send(Command::RefreshDiscovery);
-        }
-    });
-}
-
 pub fn shell() -> impl IntoElement {
     shortcuts();
     application_menu();
-    refresh_on_return();
+    crate::device::watch();
     view()
         .flex_1()
         .bg(move || theme().background)

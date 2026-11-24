@@ -583,7 +583,8 @@ fn fact(icon: Icon, colors: (u32, u32), label: &'static str, value: String) -> i
         )
 }
 
-/// "Today, 14:05", "Yesterday, 09:12", "Mon 3 Nov 2026, 18:40" in local time.
+/// "Today, 14:05", "Yesterday, 09:12", "Mon 3 Nov 2026, 18:40" in local time,
+/// on the 12- or 24-hour clock the user chose ("Today, 2:05 PM").
 pub fn when_text(unix: u64) -> String {
     use chrono::{Local, TimeZone};
     let Some(t) = Local.timestamp_opt(unix as i64, 0).single() else {
@@ -591,7 +592,11 @@ pub fn when_text(unix: u64) -> String {
     };
     let today = Local::now().date_naive();
     let day = t.date_naive();
-    let time = t.format("%H:%M");
+    // The user's clock: 14:05 or 2:05 PM (NSH's locale settings).
+    let twelve = nsh_core::element::locale_settings()
+        .hour_cycle
+        .twelve_hour();
+    let time = t.format(if twelve { "%-I:%M %p" } else { "%H:%M" });
     if day == today {
         format!("Today, {time}")
     } else if today.pred_opt() == Some(day) {

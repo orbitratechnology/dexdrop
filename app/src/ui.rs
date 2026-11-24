@@ -38,6 +38,12 @@ pub fn hit() -> f32 {
     }
 }
 
+/// The user chose large system text (NSH's `font_scale`): rows of
+/// labelled controls go one above the other so their labels fit.
+pub fn large_text() -> bool {
+    font_scale() > 1.3
+}
+
 /// Whether this is a phone or tablet (iOS, Android).
 pub fn mobile() -> bool {
     matches!(os().name(), "ios" | "android")

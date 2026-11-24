@@ -252,6 +252,7 @@ fn apply(event: Event) {
                 m.requests.retain(|r| r.id != request.id);
                 m.requests.push(request);
             });
+            crate::device::buzz(crate::device::Buzz::Request);
             // A system notification, for when the window is in the background.
             // The notification is posted now; the answer (whether the system
             // showed it) is not needed.
@@ -303,6 +304,13 @@ fn notify_finished(t: &dexdrop_core::api::TransferSnapshot) {
         Direction::Outgoing => ("Sent", "to"),
         Direction::Incoming => ("Received", "from"),
     };
+    use crate::device::{Buzz, buzz};
+    buzz(match &t.state {
+        TransferState::Completed => Buzz::Done,
+        TransferState::CompletedWithIssues => Buzz::Issues,
+        TransferState::Cancelled { .. } => return,
+        _ => Buzz::Failed,
+    });
     let (title, body) = match &t.state {
         TransferState::Completed => (
             format!("{verb} {}", t.label),

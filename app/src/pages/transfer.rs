@@ -297,6 +297,9 @@ fn controls(id: TransferId, s: impl Fn() -> TransferSnapshot + Copy + 'static) -
         .flex_row()
         .justify_center()
         .gap(px(space::XL))
+        .style_when(ui::large_text, |s| {
+            s.flex_col().items_center().gap(px(space::M))
+        })
         .child(when(
             move || s().can_pause(),
             move || {

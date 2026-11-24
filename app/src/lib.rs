@@ -8,6 +8,7 @@
 //! engine (`dexdrop-net`) and renders the events it sends back.
 
 mod bridge;
+mod device;
 mod files;
 mod pages;
 mod shell;

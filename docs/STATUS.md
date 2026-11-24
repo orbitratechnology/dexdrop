@@ -125,7 +125,7 @@ names the test or check; "Gap" is what is still missing.
 | FR-010 Discover on LAN | P0 | Done | Bonjour (`dns_sd`) on Apple devices, NsdManager on Android, mdns-sd elsewhere; CI: both directions on Android, iOS, macOS; desktop CLI→app | Real cross-device pairs (phone ⇄ computer) not run |
 | FR-011 Device info | P0 | Done | Avatar, name, platform badge; no IP or port in the UI | |
 | FR-012 Deduplicate | P0 | Done | Keyed by peer ID (engine) | |
-| FR-013 Network changes | P0 | Done | Re-advertises on address change (5 s poll); refreshes when the app returns from the background | |
+| FR-013 Network changes | P0 | Done | Re-advertises on address change (5 s poll); after returning from the background or waking from sleep (NSH `lifecycle`, `wake_count`) it looks again and retries at once the transfers that gave up | |
 | FR-014 Denied permission | P0 | Done | Discovery failure says the network blocks it and points to the code; no prompt loop (the app never asks itself) | No deep link to iOS Settings (NSH has none) |
 | FR-015 Trusted devices | P1 | Done | Trust on accept, list, forget (engine tests) | |
 | FR-016 Connection quality | P1 | Done | Measured MB/s only, after a transfer | |
@@ -183,14 +183,14 @@ names the test or check; "Gap" is what is still missing.
 | 7.4 Transfer card | Done | Peer and platform, name, size, state, MB/s, time left, Pause/Resume/Retry/Cancel, plain errors |
 | 7.5 States | Done | Pressed, hover, keyboard focus ring (every control), disabled, loading, success, error |
 | 7.6 Visual design | Done | Theme tokens, light and dark, system type; richer visuals than the PRD's "minimal" at the product owner's request |
-| 7.7 Accessibility | Done | Labels and roles (UI tests), focus rings, text follows Dynamic Type / font size (NSH), 44 pt iOS / 48 dp Android targets (UI test), reduced motion, state announcements |
+| 7.7 Accessibility | Done | Labels and roles (UI tests), focus rings, text follows Dynamic Type / font size (NSH); with large text Home's actions and the transfer controls stack (`tests/device.rs`), 44 pt iOS / 48 dp Android targets (UI test), reduced motion, state announcements; times on the user's 12- or 24-hour clock |
 | 8.3 iOS Bonjour without multicast entitlement | Done | Fixed service type, plist keys |
 | 8.4 Android local network | Partial | NSD; API 37 permission/picker not needed at target 35 |
-| 8.5 / 10.2 Android background transfers | Open | Needs a foreground service or user-initiated job: NSH's packaging cannot declare the `<service>` |
+| 8.5 / 10.2 Android background transfers | Open | Needs a foreground service or user-initiated job: NSH's packaging cannot declare the `<service>`. Meanwhile, leaving the app mid-transfer posts a notification to return; haptics mark requests and results |
 | 8.5 / 10.1 iOS background | Done | Foreground transfers; journals every 2 s; resume on return |
 | 10.1 iOS files | Done | Photos and Files pickers, app storage, share sheet export |
 | 10.3 macOS | Done | Open panels, Finder drop, menus, Show in folder; menu-bar extra not done (optional) |
-| 10.4 Windows | Partial | Dialogs, Explorer drop, notifications, per-user installer; taskbar progress has no NSH API |
+| 10.4 Windows | Partial | Dialogs, Explorer drop, notifications, per-user installer, taskbar progress (NSH `WindowProgress`; the Dock on macOS), icon badge for waiting requests |
 | 10.5 Linux | Partial | GTK 4.14+ documented, dialogs; tested under X11 (Xvfb) only, not GNOME/KDE on Wayland |
 
 ## Against the recommended architecture (Discovery → Connection → Transfer → Verification)
@@ -278,7 +278,6 @@ receive journal is a snapshot plus an append-only log of changed files: for
 3. **Phones: folders and share-sheet entry** (FR-031 on phones, FR-035): need
    NSH picker and packaging support.
 4. **Camera QR** (FR-024): VisionKit on iOS, tested on a device.
-5. **Desktop polish**: Windows taskbar progress, GNOME/KDE Wayland checks, a
-   20 GB transfer.
+5. **Desktop polish**: GNOME/KDE Wayland checks, a 20 GB transfer.
 6. **Identity keys**: macOS Keychain with signed builds, Android Keystore.
 7. **Internet transfers in production:** run the project's own `iroh-relay` and point the apps at it; a mobile-data check (FR-072); measure real NATs. Then the browser client (Phase 7).
