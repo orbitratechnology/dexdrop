@@ -130,12 +130,16 @@ wait "$receiver" 2>/dev/null
 # "Done" closes.
 open_sheet() {
   local _
+  # A notification (a transfer just received) can leave the system's shade
+  # pulled down over the app; the QR code must be on screen.
+  adb shell cmd statusbar collapse >/dev/null 2>&1 || true
   tap_only Share || true
   # Done may be below the fold on a small screen: the header's back works too.
   tap_only Done || tap_only "Navigate up" || true
   for _ in 1 2 3; do
     ad wait 'label="Receive"' 5000 >/dev/null 2>&1 || true
     if tap_only Receive && ad wait text "Pairing code" 5000 >/dev/null 2>&1; then
+      adb shell cmd statusbar collapse >/dev/null 2>&1 || true
       step "$1"
       return 0
     fi

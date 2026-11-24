@@ -72,9 +72,10 @@ Add an id when a test needs a control; add it to this table.
 - **No debug info in the test hosts** (`CARGO_PROFILE_DEV_DEBUG=0` on
   every e2e step). NSH builds them with cargo's `dev` profile; with full
   debug info Android's came to 3.7 GB (1.2 GB of `libnsh.so` per ABI) and
-  the emulator refused it (INSUFFICIENT_STORAGE, 5 GB free). Without, the
-  Linux host is 311 MB instead of 1.1 GB. Set it locally too when the host
-  is only driven, not debugged.
+  the emulator refused it (INSUFFICIENT_STORAGE, 5 GB free). Without, it
+  is 752 MB and installs in 6 s; the Linux host is 311 MB instead of
+  1.1 GB. It did not make CI's builds shorter (compiling dominates). Set
+  it locally too when the host is only driven, not debugged.
 - **Environment variables do not reach the app** under `nsh test` unless
   `nsh.json` declares them in `capabilities.process.env`, and declaring any
   capability makes NSH refuse everything undeclared. DexDrop declares none,
@@ -126,4 +127,6 @@ building the development host, 3 tests at ~27 s under Xvfb), on Windows
 building, 3–6 s a test). Run 65, after the agent-device checks: macOS
 11 min (10.7 min building, 2.5–10 s a test), iOS simulator 11.7 min
 (10.6 min building, 7–10 s a test). On Android `nsh test` builds the development
-host for all three ABIs (~12 min).
+host for all three ABIs (~10 min), installs it in 6 s and runs the three
+tests in 2.6–4.2 s each (run 67). Run 67's e2e steps: Linux 7.5 min,
+Windows 8.8 min, macOS 12 min.

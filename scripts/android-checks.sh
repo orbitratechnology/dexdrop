@@ -8,6 +8,7 @@ set -uo pipefail
 
 apk=$1 cli=$2 out=$3
 mkdir -p "$out"
+out=$(cd "$out" && pwd) # nsh runs in app/
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 # Space on the device, before and after: NSH's test host has been refused
@@ -32,11 +33,13 @@ if [ "$e2e" != 0 ]; then
       unzip -l "$host" | sort -k1 -n | tail -8
     done
   } >> "$out/device-storage.txt" 2>&1
-  # The check below installs DexDrop: make room (NSH's host, if it got in).
-  for pkg in $(adb shell pm list packages 2>/dev/null | tr -d '\r' | sed -n 's/^package://p' | grep -i nsh); do
-    adb uninstall "$pkg" > /dev/null 2>&1 || true
-  done
 fi
+# The check below starts from a device like a user's: without NSH's host
+# (its space, its notifications, its process).
+for pkg in $(adb shell pm list packages 2>/dev/null | tr -d '\r' | sed -n 's/^package://p' | grep -i nsh); do
+  adb uninstall "$pkg" > /dev/null 2>&1 || true
+done
+adb shell cmd statusbar collapse > /dev/null 2>&1 || true
 
 check=0
 bash "$root/scripts/android-emu-check.sh" "$apk" "$cli" "$out" || check=1
