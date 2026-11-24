@@ -302,6 +302,9 @@ step 08-selected
 note "- Picked \`$out_file\` (24 MB, about 24 s at the receiver's 1 MB/s cap) in Android's file picker"
 tap_only "Choose device" || { step 08-no-next; fail "could not tap Choose device"; }
 ad wait 'label="Send to CI Emulator Inbox"' 15000 >/dev/null 2>&1 || true
+# Bring the device's row clear of the tab bar that floats over the bottom
+# (a tap on a row behind it lands on the tab: seen in CI on a 640 pt screen).
+ad scroll down >/dev/null 2>&1 || true
 tap_only "Send to CI Emulator Inbox" || { step 08-no-send; fail "could not tap Send for the CLI receiver"; }
 # The list stays (more devices can be tapped); on to the progress.
 ad wait 'label="See progress"' 15000 >/dev/null 2>&1 || true

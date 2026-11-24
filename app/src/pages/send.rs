@@ -833,7 +833,7 @@ pub fn devices_page() -> impl IntoElement {
     // Everything sent from this page is one group: tap a device and it is
     // sent to at once while the list stays, tap another and it is sent to
     // as well (the engine reads the selection once for all of them).
-    let group: TransferId = dexdrop_core::random_id();
+    let group = new_group();
     let peers = move || model().with(|m| m.peers.clone());
     let me = move || {
         model().with(|m| {
@@ -876,10 +876,18 @@ pub fn devices_page() -> impl IntoElement {
                     view()
                         .items_center()
                         .gap(px(space::M))
+                        // Smaller on short screens: the devices are what this
+                        // page is for, and they should not start under the
+                        // tab bar.
                         .child(ui::radar(
                             ui::SEND,
-                            220.0,
-                            ui::avatar(me, my_platform, ui::my_avatar, 72.0),
+                            if short_screen() { 140.0 } else { 220.0 },
+                            ui::avatar(
+                                me,
+                                my_platform,
+                                ui::my_avatar,
+                                if short_screen() { 56.0 } else { 72.0 },
+                            ),
                         ))
                         .child(muted(move || {
                             let n = model().with(|m| m.peers.iter().filter(|p| p.nearby).count());
@@ -890,6 +898,21 @@ pub fn devices_page() -> impl IntoElement {
                             }
                         })),
                 )
+                .child(when(
+                    move || model().with(|m| !m.peers.is_empty()),
+                    move || {
+                        ui::group().child(each(
+                            peers,
+                            |p: &PeerInfo| p.peer_id,
+                            move |p, i| {
+                                view()
+                                    .child(when(move || i.get() > 0, || ui::separator(76.0)))
+                                    .child(device_row(p, group))
+                            },
+                        ))
+                    },
+                ))
+                // Below the devices, which stay high on small screens.
                 .child(when(
                     move || unsent().len() >= 2,
                     move || {
@@ -906,20 +929,6 @@ pub fn devices_page() -> impl IntoElement {
                             .test_id("send-to-all")
                     },
                 ))
-                .child(when(
-                    move || model().with(|m| !m.peers.is_empty()),
-                    move || {
-                        ui::group().child(each(
-                            peers,
-                            |p: &PeerInfo| p.peer_id,
-                            move |p, i| {
-                                view()
-                                    .child(when(move || i.get() > 0, || ui::separator(76.0)))
-                                    .child(device_row(p, group))
-                            },
-                        ))
-                    },
-                ))
                 .child(ui::group().child(ui::nav_row(
                     ui::glyph(Icon::Keypad, (0x64748b, 0x475569), 30.0),
                     "Use a code",
@@ -928,6 +937,27 @@ pub fn devices_page() -> impl IntoElement {
                 ))),
         ))
         .child(when(sent_any, move || progress_bar(group)))
+}
+
+fn short_screen() -> bool {
+    nsh_core::element::window().height.0 < 720.0
+}
+
+/// An id for what is sent from one visit to the device list.
+fn new_group() -> TransferId {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        dexdrop_core::random_id()
+    }
+    // The web preview sends nothing; any id unique to the page will do.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let mut id = [0u8; 16];
+        id[..8].copy_from_slice(&NEXT.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+        id
+    }
 }
 
 /// Sends the selection to `targets` as part of `group`, staying on the

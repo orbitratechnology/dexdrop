@@ -132,6 +132,14 @@ so each device's figure is lower than on its own hardware):
 | 2 | 266–294 MB/s | 532–587 MB/s |
 | 4 | 167–174 MB/s | 670–678 MB/s |
 
+CI's runners, `bench --mb 512` to one device then `--mb 256 --to 3` (run 71):
+
+| Runner | To one | To three at once, in all |
+|---|---|---|
+| Linux (4 vCPU) | 161 MB/s | 198 MB/s |
+| macOS 15 (arm64) | 345 MB/s | 473 MB/s |
+| Windows (slow shared disk) | 52 MB/s | 75 MB/s |
+
 Total throughput grows with receivers: the sender is not the limit at
 these rates, let alone at Wi-Fi's (tens of MB/s). On one Wi-Fi network the
 devices share its airtime, so N devices each get about 1/N of what one
