@@ -4,7 +4,7 @@
       "radius": "0.875rem"
     },
     "light": {
-      "background": "oklch(0.985 0.003 95)",
+      "background": "oklch(1 0 0)",
       "foreground": "oklch(0.16 0 0)",
       "card": "oklch(1 0 0)",
       "card-foreground": "oklch(0.16 0 0)",
@@ -22,7 +22,7 @@
       "input": "oklch(0.91 0.002 95)",
       "ring": "oklch(0.17 0 0)",
       "destructive": "oklch(0.58 0.21 25)",
-      "sidebar": "oklch(0.965 0.003 95)",
+      "sidebar": "oklch(1 0 0)",
       "success": "oklch(0.6 0.14 160)",
       "warning": "oklch(0.72 0.15 70)",
       "info-bg": "oklch(0.95 0.002 95)"

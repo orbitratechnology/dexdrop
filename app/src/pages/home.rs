@@ -85,6 +85,8 @@ fn status() -> impl IntoElement {
         .py(px(6.0))
         .rounded(px(999.0))
         .bg(ui::surface)
+        .border_1()
+        .border_color(move || theme().border)
         .active(|s| s.opacity(0.7))
         .child(ui::dot(tone))
         .child(muted(line).font_weight(FontWeight::MEDIUM))
@@ -227,17 +229,22 @@ fn nearby() -> impl IntoElement {
     let empty = move || model().with(|m| !m.peers.iter().any(|p| p.nearby));
     view()
         .gap(px(space::M))
+        // "Nearby" centered, over the centered radar; Look again (computers)
+        // at the end, out of the way of the centering.
         .child(
             view()
                 .flex_row()
                 .items_center()
-                .justify_between()
+                .justify_center()
+                .min_h(px(32.0))
                 .child(ui::section("Nearby"))
                 .child(when(
                     move || !ui::mobile(),
                     || {
-                        ui::round_btn(Icon::Refresh, "Look again", Variant::Secondary, 32.0)
-                            .on_press(|| bridge::send(Command::RefreshDiscovery))
+                        view().absolute().right_0().child(
+                            ui::round_btn(Icon::Refresh, "Look again", Variant::Secondary, 32.0)
+                                .on_press(|| bridge::send(Command::RefreshDiscovery)),
+                        )
                     },
                 )),
         )
@@ -361,16 +368,17 @@ fn looking() -> impl IntoElement {
             _ => "Looking for devices on this Wi‑Fi…".to_owned(),
         })
     };
+    // The radar centered, the Wi‑Fi mark large in it, the words below.
     ui::tile()
-        .flex_row()
         .items_center()
-        .gap(px(space::L))
+        .gap(px(space::M))
+        .py(px(space::XL))
         .child(ui::radar(
             ui::SEND,
-            56.0,
-            ui::icon(Icon::Wifi, 22.0, move || theme().foreground),
+            120.0,
+            ui::icon(Icon::Wifi, 44.0, move || theme().foreground),
         ))
-        .child(muted(line).flex_1())
+        .child(muted(line).text_center().max_w(px(320.0)))
 }
 
 // ---------------------------------------------------------------- recent

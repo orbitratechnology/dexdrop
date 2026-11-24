@@ -473,6 +473,8 @@ fn kinds() -> impl IntoElement {
             .py(px(if ui::mobile() { space::L } else { space::XL }))
             .rounded(px(20.0))
             .bg(ui::surface)
+            .border_1()
+            .border_color(move || theme().border)
             .active(|s| s.scale(0.97).opacity(0.85))
             .hover(move |s| s.bg(move || theme().muted))
             // A kind of file: its icon in its color, filling its place.
@@ -1250,6 +1252,8 @@ pub fn code_page() -> impl IntoElement {
                     .px(px(space::L))
                     .rounded(px(18.0))
                     .bg(ui::surface)
+                    .border_1()
+                    .border_color(move || theme().border)
                     .text_size(px(26.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .letter_spacing(px(2.0))

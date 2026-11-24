@@ -84,12 +84,12 @@ fn device() -> impl IntoElement {
                 .child(
                     view()
                         .absolute()
-                        .top(px(-2.0))
-                        .right(px(-2.0))
-                        .size(px(22.0))
-                        .items_center()
-                        .justify_center()
-                        .child(ui::icon(Icon::Pencil, 22.0, move || theme().foreground)),
+                        .top(px(-4.0))
+                        .right(px(-4.0))
+                        .child(ui::badge_disc(
+                            28.0,
+                            ui::icon(Icon::Pencil, 16.0, move || theme().foreground),
+                        )),
                 ),
         )
         .child(

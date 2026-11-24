@@ -532,15 +532,20 @@ pub fn round_btn(
 
 // ---------------------------------------------------------------- surfaces
 
-/// The fill of cards and groups: one step above the page's background, in
-/// light and dark alike (every page paints the theme's background).
+/// The fill of cards and groups: white in light, on the white page with a
+/// hairline edge (`edged`); one step above the page's background in dark.
 pub fn surface() -> AdaptiveColor {
     theme().card
 }
 
 /// A rounded group of rows on the page's grouped background.
 pub fn group() -> View {
-    view().rounded(px(16.0)).bg(surface).overflow_hidden()
+    edged(view().rounded(px(16.0)).bg(surface).overflow_hidden())
+}
+
+/// A hairline around a card: in light, cards and the page are both white.
+pub fn edged(v: View) -> View {
+    v.border_1().border_color(move || theme().border)
 }
 
 /// A tile: a rounded card.
@@ -550,6 +555,8 @@ pub fn tile() -> View {
         .gap(px(space::M))
         .rounded(px(18.0))
         .bg(surface)
+        .border_1()
+        .border_color(move || theme().border)
 }
 
 /// A row of a [`group`]: leading view, a title with a detail line under it
@@ -746,6 +753,21 @@ pub fn face(name: &str, chosen: Option<&str>, diameter: f32) -> View {
         .child(inner)
 }
 
+/// A small icon set on another element (an avatar's corner, a picture):
+/// on a disc of the card's color with a hairline edge, so it stands apart
+/// from what is under it. The icon fills most of the disc.
+pub fn badge_disc(side: f32, child: impl IntoElement) -> View {
+    view()
+        .size(px(side))
+        .rounded(px(side / 2.0))
+        .bg(surface)
+        .border_1()
+        .border_color(move || theme().border)
+        .items_center()
+        .justify_center()
+        .child(child)
+}
+
 /// A device's avatar: its chosen emoji or its initial on a gradient circle,
 /// with its kind (phone, laptop, desktop) in a small badge.
 pub fn avatar(
@@ -765,10 +787,9 @@ pub fn avatar(
                 .absolute()
                 .right(px(-2.0))
                 .bottom(px(-2.0))
-                .size(px(badge + 4.0))
-                .items_center()
-                .justify_center()
-                .child(dynamic(move || os_badge(&platform(), badge))),
+                .child(dynamic(move || {
+                    badge_disc(badge + 4.0, os_badge(&platform(), badge * 0.62))
+                })),
         )
 }
 
@@ -800,10 +821,10 @@ pub fn far_avatar(
                 .absolute()
                 .left(px(-2.0))
                 .bottom(px(-2.0))
-                .size(px(badge))
-                .items_center()
-                .justify_center()
-                .child(icon(Icon::Globe, badge, move || theme().foreground))
+                .child(badge_disc(
+                    badge + 4.0,
+                    icon(Icon::Globe, badge * 0.62, move || theme().foreground),
+                ))
         }))
 }
 
@@ -871,6 +892,7 @@ pub fn radar(_colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
     };
     view()
         .size(px(side))
+        .test_id("radar")
         .items_center()
         .justify_center()
         // The pings say "looking"; with reduced motion the still circles do.

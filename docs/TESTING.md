@@ -16,7 +16,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
 | UI headless, toasts | `cargo test -p dexdrop-app --test toasts` | ~2 s | NSH's toast stack: an alert, timed out by the manager on the manual clock, Escape dismisses the newest before going back |
 | UI headless, keyboard and long presses | `cargo test -p dexdrop-app --test keys` | ~3 s | Home's S / R / arrows, Escape back; a past transfer removed and a device forgotten by a long press, through the system's alert (`answer_dialogs_myself`) |
-| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~3 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
+| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~4 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), Home's header (icon and name), "Nearby" and the radar centered on iPhone, Android and Mac, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
 | UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
@@ -63,6 +63,7 @@ kebab-case:
 | `accept`, `decline` | the incoming request |
 | `pause`, `resume`, `retry`, `done` | a transfer's controls |
 | `send-to-all`, `see-progress` | the device list (several devices) |
+| `brand`, `radar` | Home's centered header (the app's icon and name) and the radar looking for devices |
 | `pause-all`, `resume-all` | a group's progress |
 | `copy-invitation` | Receive |
 | `change-avatar`, `rename`, `save-to`, `save-to-downloads` | Settings |

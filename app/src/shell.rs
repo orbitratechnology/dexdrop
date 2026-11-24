@@ -286,7 +286,7 @@ fn tab_stack(t: Tab) -> impl IntoElement {
             let route = route.get_untracked();
             let root = route == Route::Root;
             let (title, content) = pages::page(t, route);
-            page(title, root, content)
+            page(title, root, t == Tab::Share && root, content)
                 // The user went back natively (swipe, back button).
                 .on_dismiss(move || truncate(t, index.get_untracked()))
         },
@@ -294,16 +294,24 @@ fn tab_stack(t: Tab) -> impl IntoElement {
 }
 
 /// A page: the system's header on phones (a large title at a tab's root
-/// on iOS), the app's own on desktops and the web.
-fn page(title: pages::Title, root: bool, content: AnyElement) -> Screen {
+/// on iOS), the app's own on desktops and the web. Home's header is the
+/// app's icon and name, centered.
+fn page(title: pages::Title, root: bool, home: bool, content: AnyElement) -> Screen {
     let t = title.clone();
     let ios = nsh_core::element::os() == nsh_core::platform::Os::Ios;
-    nav_page()
+    let screen = nav_page()
         .title(move || t())
         // iOS: the system's large, transparent header that the content
-        // scrolls under. Android: a standard header in the theme's colours
-        // (its large title would lay the page out under the header).
-        .header_large_title(root && ios)
+        // scrolls under (Home's, a centered brand, stays standard). Android:
+        // a standard header in the theme's colours (its large title would
+        // lay the page out under the header).
+        .header_large_title(root && ios && !home);
+    let screen = if home && ui::mobile() {
+        screen.header_title(brand(title.clone()))
+    } else {
+        screen
+    };
+    screen
         .header_style_with(move |s| {
             if ios {
                 s
@@ -313,12 +321,53 @@ fn page(title: pages::Title, root: bool, content: AnyElement) -> Screen {
                     .tint_color(move || theme().primary)
             }
         })
-        .header(desktop_header(title, root))
+        // (Phones show the system's header; Home's brand is its title view.)
+        .header(desktop_header(title, root, home && !ui::mobile()))
         .child(content)
 }
 
-/// The header desktops and the web draw: a back button and the title.
-fn desktop_header(title: pages::Title, root: bool) -> impl IntoElement {
+/// The app's icon and its name side by side, centered in the header.
+fn brand(title: pages::Title) -> impl IntoElement {
+    // Android's bar lays a title view out from its start (16 pt in), as
+    // wide as its content: as wide as the window less that inset on both
+    // sides, its content is centered on the window. (iOS centers it.)
+    let android = os() == nsh_core::platform::Os::Android;
+    view()
+        .w_full()
+        .style_when(move || android, |s| s.w(window().width - px(32.0)))
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .role(AccessibilityRole::Header)
+        .label(move || title().to_string())
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .gap(px(space::S))
+                .test_id("brand")
+                .child(image(asset!("brand/icon.png")).size(px(28.0)))
+                .child(
+                    text("DexDrop")
+                        .text_size(px(ui::size::HEADING + 2.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(move || theme().foreground),
+                ),
+        )
+}
+
+/// The header desktops and the web draw: a back button and the title
+/// (Home: the app's icon and name, centered).
+fn desktop_header(title: pages::Title, root: bool, home: bool) -> AnyElement {
+    if home {
+        return view()
+            .bg(move || theme().background)
+            .px(px(space::XL))
+            .pt(px(space::XL))
+            .pb(px(space::S))
+            .child(brand(title))
+            .into_element();
+    }
     view()
         .bg(move || theme().background)
         .flex_row()
@@ -342,6 +391,7 @@ fn desktop_header(title: pages::Title, root: bool) -> impl IntoElement {
                 .text_color(move || theme().foreground)
                 .role(AccessibilityRole::Header),
         )
+        .into_element()
 }
 
 // ---------------------------------------------------------------- phone
@@ -421,6 +471,12 @@ fn native_tab_bar() -> impl IntoElement {
         .left_0()
         .right_0()
         .bottom_0()
+        // Android's navigation bar in the app's surface (white in light);
+        // iOS keeps the system's bar (Liquid Glass on iOS 26).
+        .style_when(
+            || os() == nsh_core::platform::Os::Android,
+            |s| s.bg(move || theme().card),
+        )
 }
 
 /// The tab's icon by the platform's name: an SF Symbol on iOS, one of

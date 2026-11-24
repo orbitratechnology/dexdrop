@@ -136,6 +136,8 @@ fn search(query: Signal<String>) -> impl IntoElement {
         .px(px(space::M))
         .rounded(px(12.0))
         .bg(ui::surface)
+        .border_1()
+        .border_color(move || theme().border)
         .child(ui::icon(Icon::Search, 18.0, move || {
             theme().muted_foreground
         }))

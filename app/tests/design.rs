@@ -143,3 +143,35 @@ fn history_filter_is_a_toggle_group_outside_ios() {
     app.press("text:Sent").unwrap();
     app.wait_for("text:Sent").unwrap();
 }
+
+/// Home's header is the app's icon and name, centered, and so are
+/// "Nearby" and the radar looking for devices: on an iPhone, an Android
+/// phone and a Mac.
+#[test]
+fn home_header_and_nearby_are_centered() {
+    type Setup = (&'static str, fn(&mut EngineConfig), f32);
+    let setups: [Setup; 3] = [
+        ("iPhone", |_| {}, 390.0),
+        ("Android", as_android, 360.0),
+        ("Mac", as_mac, 1100.0),
+    ];
+    for (name, env, width) in setups {
+        let (mut app, _dir) = start(env);
+        // The Mac's sidebar takes the left; the page is centered right of it.
+        let page = if name == "Mac" {
+            let p = frame(&mut app, "id:brand");
+            (p.0, p.2)
+        } else {
+            (0.0, width)
+        };
+        let middle = page.0 + page.1 / 2.0;
+        for selector in ["id:brand", "text:Nearby", "id:radar"] {
+            let f = frame(&mut app, selector);
+            let centre = f.0 + f.2 / 2.0;
+            assert!(
+                (centre - middle).abs() <= 2.0,
+                "{name}: {selector} is centered at {centre} pt, the page at {middle} pt"
+            );
+        }
+    }
+}
