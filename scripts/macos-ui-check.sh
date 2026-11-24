@@ -167,9 +167,11 @@ step 06-received
 note "- 3 MB sent with the code, accepted in the app, received byte-identical"
 
 # 2. Sending from the app, with Pause and Resume: a file picked in the Open
-#    panel goes to a CLI receiver that accepts on its own and reads at 1 MB/s.
+#    panel goes to a CLI receiver that accepts on its own and reads at 1 MB/s:
+#    24 MB, about 24 s, so Pause is still there to tap (8 MB, two chunks,
+#    finished first once the sender read ahead).
 outgoing="$work/dexdrop-out.bin"
-head -c 8000000 /dev/urandom >"$outgoing"
+head -c 24000000 /dev/urandom >"$outgoing"
 "$cli" --max-rate 1 --state "$work/inbox-state" receive --yes --name "CI Mac Inbox" --dir "$work/inbox" >"$out/cli-inbox.log" 2>&1 &
 inbox=$!
 tap Share || true # re-selecting the tab leaves the finished transfer for home
@@ -189,10 +191,10 @@ tell application "System Events"
   key code 36
 end tell
 EOF
-ad wait text "8.00 MB" 20000 >/dev/null 2>&1 || ad wait text "dexdrop-out.bin" 5000 >/dev/null 2>&1 ||
+ad wait text "24.0 MB" 20000 >/dev/null 2>&1 || ad wait text "dexdrop-out.bin" 5000 >/dev/null 2>&1 ||
   { step 07-not-selected; fail "the file picked in the Open panel is not selected"; }
 step 07-selected
-note "- Picked \`dexdrop-out.bin\` (8 MB) in the Open panel"
+note "- Picked \`dexdrop-out.bin\` (24 MB) in the Open panel"
 tap "Choose device" || { step 07-no-next; fail "could not tap Choose device"; }
 ad wait 'label="Send to CI Mac Inbox"' 15000 >/dev/null 2>&1 || true
 tap "Send to CI Mac Inbox" || { step 07-no-send; fail "could not tap Send"; }
@@ -205,7 +207,7 @@ before=$(held)
 sleep 4
 after=$(held)
 [ "$before" = "$after" ] || fail "the receiver kept getting data while paused ($before -> $after bytes)"
-note "- Paused from the app: the receiver held at $after of 8000000 bytes"
+note "- Paused from the app: the receiver held at $after of 24000000 bytes"
 tap Resume || fail "could not tap Resume"
 for _ in $(seq 1 60); do
   [ -f "$work/inbox/dexdrop-out.bin" ] && break

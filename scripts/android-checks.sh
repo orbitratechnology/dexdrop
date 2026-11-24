@@ -14,6 +14,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 # with INSUFFICIENT_STORAGE.
 adb shell df -h /data > "$out/device-storage.txt" 2>&1
 
+# NSH's test host is a debug build: with full debug info its libnsh.so
+# came to 1.2 GB an ABI (3.7 GB for the three), more than the emulator's
+# 5 GB free could install. Line numbers are not needed to drive the UI.
+export CARGO_PROFILE_DEV_DEBUG=0
+
 e2e=0
 (cd "$root/app" && nsh test e2e/app.test.ts --target android --junit "$out/e2e-android.xml") \
   2>&1 | tee "$out/e2e-android.log" || e2e=1

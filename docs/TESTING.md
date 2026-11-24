@@ -69,6 +69,12 @@ Add an id when a test needs a control; add it to this table.
   over Home, once the engine has started. `e2e/app.test.ts` waits for the
   engine (Home's "Visible as …" line, a `text:/…/` regex selector), then
   presses `id:local-network-continue` if it is there, as a person would.
+- **No debug info in the test hosts** (`CARGO_PROFILE_DEV_DEBUG=0` on
+  every e2e step). NSH builds them with cargo's `dev` profile; with full
+  debug info Android's came to 3.7 GB (1.2 GB of `libnsh.so` per ABI) and
+  the emulator refused it (INSUFFICIENT_STORAGE, 5 GB free). Without, the
+  Linux host is 311 MB instead of 1.1 GB. Set it locally too when the host
+  is only driven, not debugged.
 - **Environment variables do not reach the app** under `nsh test` unless
   `nsh.json` declares them in `capabilities.process.env`, and declaring any
   capability makes NSH refuse everything undeclared. DexDrop declares none,
@@ -109,7 +115,7 @@ Add an id when a test needs a control; add it to this table.
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
 | Package macOS and iOS | `nsh test … --target macos`, `--target ios`, after the checks (the e2e first launch starts discovery in NSH's host; its system prompt must not be the one the checks answer) | desktop check, agent-device macOS and iOS checks (run first) |
-| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did). Open: the emulator refuses NSH's test host with INSUFFICIENT_STORAGE even with a 6 GB data partition; the script saves the device's free space and the host APK's size in `device-storage.txt` | agent-device emulator check |
+| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`) | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
 (`desktop-check-*`, `e2e-apple`, `android-check`).
