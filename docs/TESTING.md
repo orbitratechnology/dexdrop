@@ -130,3 +130,9 @@ building, 3–6 s a test). Run 65, after the agent-device checks: macOS
 host for all three ABIs (~10 min), installs it in 6 s and runs the three
 tests in 2.6–4.2 s each (run 67). Run 67's e2e steps: Linux 7.5 min,
 Windows 8.8 min, macOS 12 min.
+
+Run 69 (b2ae85c) was the first with every job green, the e2e suite on all
+five targets included. Its e2e steps: Linux 14 min (a slow runner; 4.7–7.5
+min before), Windows 7 min, macOS 11.7 min, iOS simulator 6.6 min,
+Android 7.3 min (3.1–3.4 s a test), then the Android agent-device check in
+92 s. Build times dominate everywhere; the tests themselves take seconds.
