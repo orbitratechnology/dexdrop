@@ -1354,3 +1354,88 @@ async fn the_local_network_explanation_is_remembered() {
     let saved = dexdrop_core::store::Settings::load(&a.state().join("settings.json"));
     assert!(saved.local_network_explained);
 }
+
+/// One send to several devices: each gets its own transfer, asked and
+/// answered on its own (one declines, the others receive), all from one
+/// reading of the selection; a device added later to the same group gets
+/// the same files without a second reading.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sends_to_several_devices_at_once() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let mut c = Node::start("Carol").await;
+    let mut d = Node::start("Dave").await;
+    let mut e = Node::start("Erin").await;
+    let src = tempfile::tempdir().unwrap();
+    write_file(&src.path().join("talk.mp4"), 9_000_000, 11);
+    write_file(&src.path().join("Slides/deck.pdf"), 250_000, 12);
+    let paths = vec![src.path().join("talk.mp4"), src.path().join("Slides")];
+    let group = [7u8; 16];
+
+    a.send(Command::Send {
+        targets: vec![b.target(), c.target(), d.target()],
+        paths: paths.clone(),
+        group: Some(group),
+    });
+    // All three are asked at once; each answers for itself.
+    let (rb, rc, rd) = (
+        b.wait_request().await,
+        c.wait_request().await,
+        d.wait_request().await,
+    );
+    for r in [&rb, &rc, &rd] {
+        assert_eq!(r.files, 2);
+        assert_eq!(r.total_bytes, 9_250_000);
+    }
+    d.send(Command::Respond {
+        id: rd.id,
+        accept: false,
+        trust: false,
+        conflict: ConflictPolicy::KeepBoth,
+    });
+    b.send(accept(rb.id));
+    c.send(accept(rc.id));
+    for node in [&mut b, &mut c] {
+        node.wait_state("received", |s| *s == TransferState::Completed)
+            .await;
+        assert_eq!(
+            std::fs::read(node.downloads().join("talk.mp4")).unwrap(),
+            std::fs::read(src.path().join("talk.mp4")).unwrap()
+        );
+        assert!(node.downloads().join("Slides/deck.pdf").exists());
+    }
+
+    // Another device, later, the same selection.
+    a.send(Command::Send {
+        targets: vec![e.target()],
+        paths,
+        group: Some(group),
+    });
+    let re = e.wait_request().await;
+    assert_eq!(re.total_bytes, 9_250_000);
+    e.send(accept(re.id));
+    e.wait_state("received", |s| *s == TransferState::Completed)
+        .await;
+
+    // The sender saw four transfers of one group: three sent, one declined.
+    let mut finished = std::collections::HashMap::new();
+    while finished.len() < 4 {
+        let t = a
+            .wait("the sender's results", |ev| match ev {
+                Event::Transfer(t) if t.state.is_finished() => Some(t.clone()),
+                _ => None,
+            })
+            .await;
+        assert_eq!(t.group, Some(group));
+        finished.insert(t.id, t.state);
+    }
+    let sent = finished
+        .values()
+        .filter(|s| **s == TransferState::Completed)
+        .count();
+    let declined = finished
+        .values()
+        .filter(|s| matches!(s, TransferState::Declined(_)))
+        .count();
+    assert_eq!((sent, declined), (3, 1));
+}

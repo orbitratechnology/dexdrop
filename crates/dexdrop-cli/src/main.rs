@@ -62,7 +62,8 @@ enum Cmd {
     Send {
         /// A nearby device's name or ID prefix, an invitation (DEXDROP1:…) or
         /// a picture of its QR code (.png/.jpg/.webp), a pairing code
-        /// (K7P2-QX9M) or an address (host:port[#peer-id]).
+        /// (K7P2-QX9M) or an address (host:port[#peer-id]). Several,
+        /// separated by commas ("Desk,Laptop"), are sent to at once.
         to: String,
         #[arg(required = true)]
         paths: Vec<PathBuf>,
@@ -89,6 +90,9 @@ enum Cmd {
         /// Size of each small file, in KiB (with --files).
         #[arg(long, default_value_t = 16)]
         file_kib: u64,
+        /// Send to this many receivers at once (one send, a transfer each).
+        #[arg(long, default_value_t = 1)]
+        to: usize,
     },
 }
 
@@ -158,7 +162,8 @@ async fn main() -> Result<()> {
             chunk_kib,
             files,
             file_kib,
-        } => bench(mb, chunk_kib, files, file_kib).await,
+            to,
+        } => bench(mb, chunk_kib, files, file_kib, to.max(1)).await,
     }
 }
 
@@ -376,41 +381,83 @@ async fn resolve_target(
 async fn send(state: PathBuf, to: String, paths: Vec<PathBuf>) -> Result<()> {
     let (engine, mut events, _done) =
         dexdrop_net::spawn(config(state, default_downloads())).await?;
-    let target = resolve_target(&to, &mut events).await?;
-    engine.send(Command::SendFiles { target, paths });
-    let mut announced = false;
-    // Transfers restored from earlier sessions also report; follow only the
-    // one this command starts (it is announced while preparing).
-    let mut ours = None;
+    let mut targets = Vec::new();
+    for one in to.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+        targets.push(resolve_target(one, &mut events).await?);
+    }
+    let count = targets.len();
+    if count == 0 {
+        bail!("no device to send to");
+    }
+    // One send, a transfer for each device, all at once.
+    let group = dexdrop_core::random_id();
+    engine.send(Command::Send {
+        targets,
+        paths,
+        group: Some(group),
+    });
+    let mut announced = std::collections::HashSet::new();
+    let mut live: std::collections::HashMap<_, dexdrop_net::TransferSnapshot> = Default::default();
+    let mut failed = false;
     while let Some(event) = events.recv().await {
         match event {
-            Event::Transfer(t) => {
-                if ours.is_none() && t.state == TransferState::Preparing {
-                    ours = Some(t.id);
-                }
-                if ours != Some(t.id) {
-                    continue;
-                }
-                if let (Some(sas), false) = (&t.sas, announced) {
+            // Transfers restored from earlier sessions also report; follow
+            // only this command's.
+            Event::Transfer(t) if t.group == Some(group) => {
+                if let Some(sas) = &t.sas
+                    && announced.insert(t.id)
+                {
+                    eprintln!();
                     println!("Connected to {} — verification number {sas}", t.peer_name);
-                    announced = true;
                 }
                 match &t.state {
-                    TransferState::Waiting => eprint!("\rWaiting for {} to accept…", t.peer_name),
-                    TransferState::Transferring => eprint!("\r{}        ", progress_line(&t)),
-                    TransferState::Interrupted { reason, .. } => eprint!("\r{reason}        "),
+                    TransferState::Waiting if count == 1 => {
+                        eprint!("\rWaiting for {} to accept…", t.peer_name)
+                    }
+                    TransferState::Transferring if count == 1 => {
+                        eprint!("\r{}        ", progress_line(&t))
+                    }
+                    TransferState::Interrupted { reason, .. } => {
+                        eprint!("\r{}: {reason}        ", t.peer_name)
+                    }
                     s if s.is_finished() => {
                         eprintln!();
-                        println!("{}: {}", s.label(), t.label);
+                        let to = if count > 1 {
+                            format!(" to {}", t.peer_name)
+                        } else {
+                            String::new()
+                        };
+                        println!("{}: {}{to}", s.label(), t.label);
                         for (path, why) in &t.failures {
                             println!("  {path}: {why}");
                         }
-                        if *s == TransferState::Completed {
-                            return Ok(());
-                        }
-                        bail!("transfer did not complete");
+                        failed |= *s != TransferState::Completed;
                     }
                     _ => {}
+                }
+                live.insert(t.id, t);
+                if count > 1 {
+                    let moving: Vec<_> = live.values().filter(|t| !t.state.is_finished()).collect();
+                    if moving
+                        .iter()
+                        .any(|t| t.state == TransferState::Transferring)
+                    {
+                        let done: u64 = live.values().map(|t| t.bytes_done).sum();
+                        let total: u64 = live.values().map(|t| t.total_bytes).sum();
+                        eprint!(
+                            "\r{} of {} devices · {} of {}        ",
+                            live.len() - moving.len(),
+                            count,
+                            format::bytes(done),
+                            format::bytes(total)
+                        );
+                    }
+                }
+                if live.len() == count && live.values().all(|t| t.state.is_finished()) {
+                    if failed {
+                        bail!("not every transfer completed");
+                    }
+                    return Ok(());
                 }
             }
             Event::Notice {
@@ -472,7 +519,7 @@ async fn id(state: PathBuf) -> Result<()> {
 
 /// Two engines in one process over loopback TLS: the end-to-end ceiling of
 /// the protocol on this machine (disk, hashing, encryption included).
-async fn bench(mb: u64, chunk_kib: u32, files: u64, file_kib: u64) -> Result<()> {
+async fn bench(mb: u64, chunk_kib: u32, files: u64, file_kib: u64, to: usize) -> Result<()> {
     let dir = tempfile_dir()?;
     let block: Vec<u8> = (0..1024 * 1024)
         .map(|i| ((i * 2654435761u64 as usize) >> 13) as u8)
@@ -515,56 +562,96 @@ async fn bench(mb: u64, chunk_kib: u32, files: u64, file_kib: u64) -> Result<()>
         c
     };
     let (a, mut a_events, _a) = dexdrop_net::spawn(make("a")).await?;
-    let (b, mut b_events, _b) = dexdrop_net::spawn(make("b")).await?;
-    let b_status = loop {
-        if let Some(Event::Status(s)) = b_events.recv().await {
-            break s;
-        }
-    };
-    let addr = SocketAddr::from(([127, 0, 0, 1], b_status.port));
-    let started = Instant::now();
-    a.send(Command::SendFiles {
-        target: Target::Address {
-            addr,
+    // The receivers, each answering its request; their events merged.
+    let (answers, mut requests) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let mut targets = Vec::new();
+    let mut receivers = Vec::new();
+    for i in 0..to {
+        let (b, mut b_events, b_done) = dexdrop_net::spawn(make(&format!("b{i}"))).await?;
+        let b_status = loop {
+            if let Some(Event::Status(s)) = b_events.recv().await {
+                break s;
+            }
+        };
+        targets.push(Target::Address {
+            addr: SocketAddr::from(([127, 0, 0, 1], b_status.port)),
             peer_id: Some(b_status.peer_id),
-        },
+        });
+        let answers = answers.clone();
+        receivers.push((
+            b_done,
+            tokio::spawn(async move {
+                while let Some(e) = b_events.recv().await {
+                    if let Event::Request(r) = e {
+                        let _ = answers.send(());
+                        b.send(Command::Respond {
+                            id: r.id,
+                            accept: true,
+                            trust: false,
+                            conflict: ConflictPolicy::KeepBoth,
+                        });
+                    }
+                }
+            }),
+        ));
+    }
+    let started = Instant::now();
+    a.send(Command::Send {
+        targets,
         paths: vec![src.clone()],
+        group: None,
     });
-    let _ = &src;
     let mut accepted_at = None;
-    loop {
+    let mut finished = Vec::new();
+    while finished.len() < to {
         tokio::select! {
-            Some(e) = b_events.recv() => if let Event::Request(r) = e {
-                accepted_at = Some(Instant::now());
-                b.send(Command::Respond { id: r.id, accept: true, trust: false, conflict: ConflictPolicy::KeepBoth });
+            Some(()) = requests.recv() => {
+                accepted_at.get_or_insert_with(Instant::now);
             },
             Some(e) = a_events.recv() => if let Event::Transfer(t) = e && t.state.is_finished() {
                 let elapsed = accepted_at.map(|t| t.elapsed()).unwrap_or_else(|| started.elapsed());
-                if files > 0 {
-                    println!(
-                        "{}: {} files of {} KiB in {:.2} s = {:.0} files/s, {} (peak memory {})",
-                        t.state.label(),
-                        files,
-                        file_kib,
-                        elapsed.as_secs_f64(),
-                        files as f64 / elapsed.as_secs_f64(),
-                        format::rate(bytes as f64 / elapsed.as_secs_f64()),
-                        peak_memory()
-                    );
-                    break;
-                }
-                println!(
-                    "{}: {} in {:.2} s = {} (chunk {} KiB, TCP + TLS 1.3, BLAKE3 per chunk and per file)",
-                    t.state.label(),
-                    format::bytes(bytes),
-                    elapsed.as_secs_f64(),
-                    format::rate(bytes as f64 / elapsed.as_secs_f64()),
-                    chunk_kib
-                );
-                break;
+                finished.push((t, elapsed));
             },
         }
     }
+    let (t, elapsed) = finished.last().expect("one at least").clone();
+    if files > 0 {
+        println!(
+            "{}: {} files of {} KiB to {to} in {:.2} s = {:.0} files/s, {} (peak memory {})",
+            t.state.label(),
+            files,
+            file_kib,
+            elapsed.as_secs_f64(),
+            (files * to as u64) as f64 / elapsed.as_secs_f64(),
+            format::rate((bytes * to as u64) as f64 / elapsed.as_secs_f64()),
+            peak_memory()
+        );
+    } else if to == 1 {
+        println!(
+            "{}: {} in {:.2} s = {} (chunk {} KiB, TCP + TLS 1.3, BLAKE3 per chunk and per file)",
+            t.state.label(),
+            format::bytes(bytes),
+            elapsed.as_secs_f64(),
+            format::rate(bytes as f64 / elapsed.as_secs_f64()),
+            chunk_kib
+        );
+    } else {
+        // Several at once: each device's own speed, and all together.
+        let each: Vec<String> = finished
+            .iter()
+            .map(|(_, e)| format::rate(bytes as f64 / e.as_secs_f64()))
+            .collect();
+        println!(
+            "{}: {} to {to} devices at once in {:.2} s = {} in all (each: {}; peak memory {})",
+            t.state.label(),
+            format::bytes(bytes),
+            elapsed.as_secs_f64(),
+            format::rate((bytes * to as u64) as f64 / elapsed.as_secs_f64()),
+            each.join(", "),
+            peak_memory()
+        );
+    }
+    drop(receivers);
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

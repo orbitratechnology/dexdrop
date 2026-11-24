@@ -303,6 +303,9 @@ note "- Picked \`$out_file\` (24 MB, about 24 s at the receiver's 1 MB/s cap) in
 tap_only "Choose device" || { step 08-no-next; fail "could not tap Choose device"; }
 ad wait 'label="Send to CI Emulator Inbox"' 15000 >/dev/null 2>&1 || true
 tap_only "Send to CI Emulator Inbox" || { step 08-no-send; fail "could not tap Send for the CLI receiver"; }
+# The list stays (more devices can be tapped); on to the progress.
+ad wait 'label="See progress"' 15000 >/dev/null 2>&1 || true
+tap_only "See progress" || { step 08-no-progress; fail "could not tap See progress"; }
 ad wait 'label="Pause"' 30000 >/dev/null 2>&1 || { step 09-not-sending; fail "the transfer did not start (no Pause button)"; }
 tap_only Pause || fail "could not tap Pause"
 ad wait text "Paused" 15000 >/dev/null 2>&1 || { step 09-not-paused; fail "the transfer did not pause"; }

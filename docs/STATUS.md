@@ -139,6 +139,7 @@ names the test or check; "Gap" is what is still missing.
 | FR-031 Folders | P0 | Partial | Desktop: folder dialog and drop, nested, empty folders (CI desktop check) | Phones cannot pick a folder (NSH pickers are files only) |
 | FR-032 Streaming | P0 | Done | Bounded pipeline; 300 MB byte-identical; memory flat | 20 GB test not run |
 | FR-033 Pre-send summary | P0 | Done | Selection with count and size; "Send to <device>" | |
+| Several devices at once | — | Done | Tap each device (the list stays, each row shows its transfer), "Send to all nearby", group progress with Pause all; one reading of the selection for all (ADR-003); CLI `send "A,B"`; `tests/multi.rs`, `sends_to_several_devices_at_once`, `bench --to N` | Swarm relaying between recipients not done (ADR-003) |
 | FR-034 Any file type | P0 | Done | Opaque bytes, no compression | |
 | FR-035 Share-sheet entry | P1 | Open | — | Needs an iOS share extension / Android intent filter NSH's packaging cannot add |
 | FR-036 Drag and drop | P1 | Done | Desktop drop overlay; path parsing tests on every OS | |

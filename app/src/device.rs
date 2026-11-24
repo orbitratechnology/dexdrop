@@ -190,6 +190,7 @@ fn badge() {
 /// A short vibration on phones (NSH's haptics; nothing elsewhere).
 pub fn buzz(what: Buzz) {
     haptic(match what {
+        Buzz::Tap => Haptic::Selection,
         Buzz::Request => Haptic::Impact(HapticImpact::Medium),
         Buzz::Done => Haptic::Notification(HapticNotification::Success),
         Buzz::Issues => Haptic::Notification(HapticNotification::Warning),
@@ -200,6 +201,8 @@ pub fn buzz(what: Buzz) {
 /// What a vibration says.
 #[derive(Clone, Copy)]
 pub enum Buzz {
+    /// A tap that did something (sent to a device).
+    Tap,
     /// Another device wants to send something.
     Request,
     /// A transfer finished, verified.

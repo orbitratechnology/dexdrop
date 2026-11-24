@@ -38,6 +38,8 @@ jobs:
           # Windows' Credential Manager works on CI: the key must go there.
           DEXDROP_EXPECT_SYSTEM_KEYSTORE: ${{ runner.os == 'Windows' && '1' || '' }}
       - run: cargo run --release -p dexdrop-cli -- bench --mb 512
+      # One send to three receivers at once (ADR-003).
+      - run: cargo run --release -p dexdrop-cli -- bench --mb 256 --to 3
       - name: Transport benchmark (TCP + TLS against QUIC)
         if: runner.os == 'Linux'
         run: cargo run --release -p dexdrop-bench -- 512 3

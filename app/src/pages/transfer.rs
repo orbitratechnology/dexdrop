@@ -115,11 +115,164 @@ pub fn title(id: Option<TransferId>) -> SharedString {
 }
 
 pub fn page(id: Option<TransferId>) -> impl IntoElement {
-    let snap = move || find(id);
-    body(dynamic(move || match snap() {
+    // What to show, rebuilt only when that changes (not on every byte): the
+    // transfer, or, for the latest send to several devices, all of them.
+    let shown = computed(move || {
+        let first = find(id)?;
+        let group = first.group.filter(|g| id.is_none() && group_size(*g) > 1);
+        Some(match group {
+            Some(g) => Shown::Group(g),
+            None => Shown::One(first.id),
+        })
+    });
+    body(dynamic(move || match shown.get() {
         None => ui::empty(Icon::Paperplane, "Getting ready…").into_element(),
-        Some(first) => progress(first.id).into_element(),
+        Some(Shown::One(id)) => progress(id).into_element(),
+        Some(Shown::Group(g)) => group_progress(g).into_element(),
     }))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Shown {
+    One(TransferId),
+    Group(TransferId),
+}
+
+fn group_size(group: TransferId) -> usize {
+    model().with(|m| {
+        m.transfers
+            .iter()
+            .filter(|t| t.group == Some(group))
+            .count()
+    })
+}
+
+fn in_group(group: TransferId) -> Vec<TransferSnapshot> {
+    model().with(|m| {
+        m.transfers
+            .iter()
+            .filter(|t| t.group == Some(group))
+            .cloned()
+            .collect()
+    })
+}
+
+/// The same files going to several devices: all of them together, then
+/// each with its own progress (a tap for its details, Pause or Cancel).
+fn group_progress(group: TransferId) -> impl IntoElement {
+    let all = move || in_group(group);
+    let overall = move || {
+        let all = all();
+        let total: u64 = all.iter().map(|t| t.total_bytes).sum();
+        let done: u64 = all.iter().map(|t| t.bytes_done).sum();
+        if total == 0 {
+            0.0
+        } else {
+            done as f64 / total as f64
+        }
+    };
+    let summary = move || {
+        let all = all();
+        let sent = all
+            .iter()
+            .filter(|t| t.state == TransferState::Completed)
+            .count();
+        format!("Sent to {sent} of {}", all.len())
+    };
+    let can_pause = move || all().iter().any(|t| t.can_pause());
+    let can_resume = move || {
+        all()
+            .iter()
+            .any(|t| t.can_resume() && !t.state.is_finished())
+    };
+    view()
+        .gap(px(space::L))
+        .pt(px(space::L))
+        .child(
+            view().gap(px(space::S)).child(ui::title(summary)).child(
+                nsh_base::progress()
+                    .value(move || (overall() * 100.0) as f32)
+                    .accessibility_label("All devices")
+                    .h(px(8.0)),
+            ),
+        )
+        .child(ui::group().child(each(
+            all,
+            |t: &TransferSnapshot| t.id,
+            |t, i| {
+                view()
+                    .child(when(move || i.get() > 0, || ui::separator(16.0)))
+                    .child(group_row(t))
+            },
+        )))
+        .child(
+            view()
+                .flex_row()
+                .justify_center()
+                .gap(px(space::M))
+                .child(when(can_pause, move || {
+                    ui::icon_btn(Icon::Pause, "Pause all", Variant::Secondary)
+                        .test_id("pause-all")
+                        .on_press(move || {
+                            for t in all().into_iter().filter(|t| t.can_pause()) {
+                                bridge::send(Command::Pause(t.id));
+                            }
+                        })
+                }))
+                .child(when(can_resume, move || {
+                    ui::icon_btn(Icon::Play, "Resume all", Variant::Primary)
+                        .test_id("resume-all")
+                        .on_press(move || {
+                            for t in all()
+                                .into_iter()
+                                .filter(|t| t.can_resume() && !t.state.is_finished())
+                            {
+                                bridge::send(Command::Resume(t.id));
+                            }
+                        })
+                })),
+        )
+}
+
+/// One device of a group: its name, state and progress.
+fn group_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
+    let line = move || {
+        t.with(|t| match t.state {
+            TransferState::Transferring => format!(
+                "{}% · {}",
+                (t.progress() * 100.0).floor(),
+                t.rate.map(dexdrop_core::format::rate).unwrap_or_default()
+            ),
+            ref other => short_state(other).to_owned(),
+        })
+    };
+    ui::pressable()
+        .accessibility_label(move || {
+            Some(SharedString::from(t.with(|t| {
+                format!("{}, {}", t.peer_name, short_state(&t.state))
+            })))
+        })
+        .on_press(move || crate::state::push(Route::Transfer(Some(t.with_untracked(|t| t.id)))))
+        .gap(px(4.0))
+        .px(px(space::L))
+        .py(px(space::M))
+        .active(move |s| s.bg(move || theme().muted))
+        .child(
+            view()
+                .flex_row()
+                .justify_between()
+                .gap(px(space::S))
+                .child(ui::strong(move || t.with(|t| t.peer_name.clone())).number_of_lines(1))
+                .child(muted(line).number_of_lines(1)),
+        )
+        .child(
+            nsh_base::progress()
+                .value(move || (t.with(|t| t.progress()) * 100.0) as f32)
+                .accessibility_label(move || {
+                    Some(SharedString::from(t.with(|t| t.peer_name.clone())))
+                })
+                .h(px(4.0)),
+        )
 }
 
 fn progress(id: TransferId) -> impl IntoElement {

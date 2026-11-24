@@ -38,6 +38,15 @@ pub enum Command {
         target: Target,
         paths: Vec<PathBuf>,
     },
+    /// Sends the same files to one or several devices at once: a transfer
+    /// for each (its own consent, progress, pause and resume), all from one
+    /// reading of the selection. Sends with the same `group` (more devices
+    /// tapped while the selection is the same) reuse that reading.
+    Send {
+        targets: Vec<Target>,
+        paths: Vec<PathBuf>,
+        group: Option<TransferId>,
+    },
     /// Answer an incoming request.
     Respond {
         id: TransferId,
@@ -242,6 +251,9 @@ pub struct TransferSnapshot {
     /// The files (up to [`crate::store::FileItem::LISTED`]): outgoing once
     /// the selection is read, incoming once saved.
     pub items: Vec<crate::store::FileItem>,
+    /// Outgoing: sent with others, the same files to several devices (the
+    /// `group` of [`Command::Send`]).
+    pub group: Option<TransferId>,
 }
 
 /// An empty snapshot (a transfer the engine no longer reports): cancelled,
@@ -275,6 +287,7 @@ impl Default for TransferSnapshot {
             route: None,
             peer_avatar: None,
             items: Vec::new(),
+            group: None,
         }
     }
 }

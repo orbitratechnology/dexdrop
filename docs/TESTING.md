@@ -14,6 +14,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay |
 | UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default) |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
+| UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
 | Every platform, real app | `cd app && nsh test e2e/app.test.ts --target <linux\|macos\|windows\|ios\|android>` | 2–6 s a test once built (CI: Windows ~2 s, macOS 3–6 s, Linux under Xvfb ~27 s); building the development host takes 3–7 min on CI, ~0.5 s when reused | the development host through the platform's input, with the same `id:` selectors |
@@ -58,6 +59,8 @@ kebab-case:
 | `next` | "Choose device" / "Send to …" |
 | `accept`, `decline` | the incoming request |
 | `pause`, `resume`, `retry`, `done` | a transfer's controls |
+| `send-to-all`, `see-progress` | the device list (several devices) |
+| `pause-all`, `resume-all` | a group's progress |
 | `copy-invitation` | Receive |
 | `change-avatar`, `rename` | Settings |
 | `local-network-continue` | the first-launch local-network explanation (macOS, iOS) |
@@ -93,7 +96,7 @@ Add an id when a test needs a control; add it to this table.
 - **Count, don't time.** `app.observe` sees each step's mount batch; the
   counts are deterministic, timings on shared machines are not. Budgets
   live in `tests/perf.rs`. Timings need `--release` and the minimum of
-  several runs (`dexdrop bench`).
+  several runs (`dexdrop bench`; `--to N` sends to N receivers at once).
 - **Filter.** `cargo test -p dexdrop-app <name>`, `nsh test … --filter <name>`.
 - **Reuse builds.** `nsh test` builds the development host once and reuses
   it (~0.5 s on later runs).

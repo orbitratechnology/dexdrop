@@ -100,6 +100,51 @@ punching, port mapping) and a relay fallback when no direct path exists.
   engines with local discovery off against a local relay: an invitation,
   then a known device by ID alone.
 
+## ADR-003: Sending to several devices — parallel unicast, one reading
+
+**Decision.** The same selection goes to several devices as one
+independent transfer per device, all started at once: each its own TLS 1.3
+session (or Iroh connection), its own consent and verification number,
+journal, pause, resume and retry. The selection is read once (one
+`Manifest`, shared as `Arc`) for every device of a group
+(`Command::Send { targets, paths, group }`); devices tapped later in the
+same group reuse that reading. Receiving from several devices at once
+already worked (up to 32 incoming connections).
+
+**Why not something else.**
+
+| Option | Verdict |
+|---|---|
+| Wi-Fi multicast / broadcast | Rejected. 802.11 sends multicast at the lowest basic rate, without acknowledgements or retransmission, so it is slower than unicast and lossy (needs FEC); many access points and phones filter or rate-limit it; iOS needs the multicast entitlement; no per-device TLS or consent. |
+| Recipients relaying to each other (swarm, as BitTorrent or iroh-blobs) | Later, if measured. It helps only when the sender's own link is the bottleneck and the recipients have spare capacity, needs protocol v2, and has recipients trust each other's chunks (BLAKE3 per chunk makes that verifiable). |
+| One after another | Rejected: N times as long, and the last device waits for every other. |
+| Parallel unicast | Chosen: no protocol change, the existing pipeline per device, each device as fast as its link allows, one slow or declining device holding up no other. |
+
+**Costs, measured.** The sender reads each file once per device (the page
+cache serves the repeats while transfers run in step) and hashes and
+encrypts per device. `dexdrop bench --to N` sends 512 MB from one engine to
+N engines, all on one 4-core machine (the receivers share its CPU and disk,
+so each device's figure is lower than on its own hardware):
+
+| Receivers | Each | All together |
+|---|---|---|
+| 1 | 534 MB/s | 534 MB/s |
+| 2 | 266–294 MB/s | 532–587 MB/s |
+| 4 | 167–174 MB/s | 670–678 MB/s |
+
+Total throughput grows with receivers: the sender is not the limit at
+these rates, let alone at Wi-Fi's (tens of MB/s). On one Wi-Fi network the
+devices share its airtime, so N devices each get about 1/N of what one
+would; wired or separate bands do not.
+
+**Experience.** Tap a device and it is sent to at once; the list stays and
+each row shows its transfer (waiting, percent, sent, declined); tap another
+to send to it too; "Send to all N nearby" sends to every nearby device in
+one tap. "See progress" shows all of them with an overall bar and Pause
+all / Resume all. One tap per device, no selection mode (the AirDrop and
+Quick Share pattern). The CLI takes several recipients: `dexdrop send
+"Desk,Laptop" file`.
+
 ## Measured performance
 
 `dexdrop bench` runs two engines in one process over loopback TLS, including

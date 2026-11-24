@@ -4,8 +4,9 @@
 use std::path::PathBuf;
 
 use dexdrop_core::{
-    api::{Command, NoticeKind, PeerInfo, Target},
+    api::{Command, NoticeKind, PeerInfo, Target, TransferSnapshot, TransferState},
     format,
+    protocol::TransferId,
 };
 use nsh_base::theme;
 use nsh_core::{file_dialog::OpenDialog, prelude::*};
@@ -829,6 +830,10 @@ fn next_bar() -> impl IntoElement {
 // ---------------------------------------------------------------- devices
 
 pub fn devices_page() -> impl IntoElement {
+    // Everything sent from this page is one group: tap a device and it is
+    // sent to at once while the list stays, tap another and it is sent to
+    // as well (the engine reads the selection once for all of them).
+    let group: TransferId = dexdrop_core::random_id();
     let peers = move || model().with(|m| m.peers.clone());
     let me = move || {
         model().with(|m| {
@@ -846,54 +851,165 @@ pub fn devices_page() -> impl IntoElement {
                 .unwrap_or_default()
         })
     };
-    body(
-        view()
-            .gap(px(space::XL))
-            .child(
-                view()
-                    .items_center()
-                    .gap(px(space::M))
-                    .child(ui::radar(
-                        ui::SEND,
-                        220.0,
-                        ui::avatar(me, my_platform, ui::my_avatar, 72.0),
-                    ))
-                    .child(muted(move || {
-                        let n = model().with(|m| m.peers.iter().filter(|p| p.nearby).count());
-                        match n {
-                            0 => "Looking for devices…".to_owned(),
-                            1 => "1 device nearby".to_owned(),
-                            n => format!("{n} devices nearby"),
-                        }
-                    })),
-            )
-            .child(when(
-                move || model().with(|m| !m.peers.is_empty()),
-                move || {
-                    ui::group().child(each(
-                        peers,
-                        |p: &PeerInfo| p.peer_id,
-                        |p, i| {
-                            view()
-                                .child(when(move || i.get() > 0, || ui::separator(76.0)))
-                                .child(device_row(p))
-                        },
-                    ))
-                },
-            ))
-            .child(ui::group().child(ui::nav_row(
-                ui::glyph(Icon::Keypad, (0x64748b, 0x475569), 30.0),
-                "Use a code",
-                "",
-                || push(Route::Code),
-            ))),
-    )
+    // Nearby devices not sent to yet: "Send to all" sends to these.
+    let unsent = move || {
+        model().with(|m| {
+            m.peers
+                .iter()
+                .filter(|p| p.nearby)
+                .filter(|p| {
+                    !m.transfers
+                        .iter()
+                        .any(|t| t.group == Some(group) && t.peer_id == Some(p.peer_id))
+                })
+                .map(|p| p.peer_id)
+                .collect::<Vec<_>>()
+        })
+    };
+    let sent_any = move || model().with(|m| m.transfers.iter().any(|t| t.group == Some(group)));
+    view()
+        .flex_1()
+        .child(body(
+            view()
+                .gap(px(space::XL))
+                .child(
+                    view()
+                        .items_center()
+                        .gap(px(space::M))
+                        .child(ui::radar(
+                            ui::SEND,
+                            220.0,
+                            ui::avatar(me, my_platform, ui::my_avatar, 72.0),
+                        ))
+                        .child(muted(move || {
+                            let n = model().with(|m| m.peers.iter().filter(|p| p.nearby).count());
+                            match n {
+                                0 => "Looking for devices…".to_owned(),
+                                1 => "1 device nearby".to_owned(),
+                                n => format!("{n} devices nearby · tap each to send"),
+                            }
+                        })),
+                )
+                .child(when(
+                    move || unsent().len() >= 2,
+                    move || {
+                        ui::group()
+                            .child(ui::nav_row(
+                                ui::glyph(Icon::Paperplane, ui::SEND, 30.0),
+                                move || format!("Send to all {} nearby", unsent().len()),
+                                "",
+                                move || {
+                                    let targets = unsent().into_iter().map(Target::Peer).collect();
+                                    send_group(group, targets);
+                                },
+                            ))
+                            .test_id("send-to-all")
+                    },
+                ))
+                .child(when(
+                    move || model().with(|m| !m.peers.is_empty()),
+                    move || {
+                        ui::group().child(each(
+                            peers,
+                            |p: &PeerInfo| p.peer_id,
+                            move |p, i| {
+                                view()
+                                    .child(when(move || i.get() > 0, || ui::separator(76.0)))
+                                    .child(device_row(p, group))
+                            },
+                        ))
+                    },
+                ))
+                .child(ui::group().child(ui::nav_row(
+                    ui::glyph(Icon::Keypad, (0x64748b, 0x475569), 30.0),
+                    "Use a code",
+                    "",
+                    || push(Route::Code),
+                ))),
+        ))
+        .child(when(sent_any, move || progress_bar(group)))
 }
 
-fn device_row(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
+/// Sends the selection to `targets` as part of `group`, staying on the
+/// device list.
+fn send_group(group: TransferId, targets: Vec<Target>) {
+    let paths = selection().with_untracked(|s| s.paths.clone());
+    if paths.is_empty() {
+        toast(NoticeKind::Info, "Choose what to send first.");
+        return;
+    }
+    if targets.is_empty() {
+        return;
+    }
+    crate::device::buzz(crate::device::Buzz::Tap);
+    bridge::send(Command::Send {
+        targets,
+        paths,
+        group: Some(group),
+    });
+}
+
+/// The latest transfer of `group` to `peer`.
+fn sent_to(group: TransferId, peer: dexdrop_core::identity::PeerId) -> Option<TransferSnapshot> {
+    model().with(|m| {
+        m.transfers
+            .iter()
+            .find(|t| t.group == Some(group) && t.peer_id == Some(peer))
+            .cloned()
+    })
+}
+
+/// Once something is sent: on to the progress (of the one transfer, or
+/// all of them), the selection done with.
+fn progress_bar(group: TransferId) -> impl IntoElement {
+    view()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom(px(if ui::mobile() { 96.0 } else { 0.0 }))
+        .px(px(space::L))
+        .pb(px(space::L))
+        .items_center()
+        .child(
+            ui::icon_btn(Icon::Paperplane, "See progress", Variant::Primary)
+                .test_id("see-progress")
+                .w_full()
+                .max_w(px(420.0))
+                .shadow_lg()
+                .on_press(move || {
+                    let ids: Vec<TransferId> = model().with_untracked(|m| {
+                        m.transfers
+                            .iter()
+                            .filter(|t| t.group == Some(group))
+                            .map(|t| t.id)
+                            .collect()
+                    });
+                    selection().set(Selection::default());
+                    picked().set(Picked(None));
+                    reset_to(Route::Transfer(match ids.as_slice() {
+                        [one] => Some(*one),
+                        _ => None,
+                    }));
+                }),
+        )
+}
+
+fn device_row(peer: ReadSignal<PeerInfo>, group: TransferId) -> impl IntoElement {
     let name = move || peer.with(|p| p.name.clone());
     let platform = move || peer.with(|p| p.platform.clone());
+    let id = move || peer.with_untracked(|p| p.peer_id);
+    // What was sent to this device from this page, as it goes.
+    let sent =
+        computed(move || sent_to(group, id()).map(|t| (t.id, t.state.clone(), t.progress())));
     let detail = move || {
+        if let Some((_, state, progress)) = sent.get() {
+            return match state {
+                TransferState::Transferring => format!("Sending · {}%", (progress * 100.0).floor()),
+                TransferState::Waiting => "Waiting for them to accept".to_owned(),
+                TransferState::Completed => "Sent".to_owned(),
+                other => crate::pages::transfer::short_state(&other).to_owned(),
+            };
+        }
         peer.with(|p| {
             let mut parts = vec![platform_label(&p.platform).to_owned()];
             if !p.nearby {
@@ -908,12 +1024,30 @@ fn device_row(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
             parts.join(" · ")
         })
     };
+    let moving = move || {
+        sent.get()
+            .is_some_and(|(_, s, _)| !s.is_finished() && !matches!(s, TransferState::Paused { .. }))
+    };
+    let done = move || {
+        sent.get()
+            .is_some_and(|(_, s, _)| s == TransferState::Completed)
+    };
     ui::pressable()
-        .accessibility_label(format!(
-            "Send to {}",
-            peer.with_untracked(|p| p.name.clone())
-        ))
-        .on_press(move || send_to(Target::Peer(peer.with_untracked(|p| p.peer_id))))
+        .accessibility_label(move || {
+            let name = peer.with(|p| p.name.clone());
+            Some(SharedString::from(match sent.get() {
+                Some((_, state, _)) => {
+                    format!("{name}, {}", crate::pages::transfer::short_state(&state))
+                }
+                None => format!("Send to {name}"),
+            }))
+        })
+        .on_press(move || match sent.get_untracked() {
+            // Sent to already and still going: its progress, to pause or
+            // cancel; once over, a tap sends again.
+            Some((id, state, _)) if !state.is_finished() => push(Route::Transfer(Some(id))),
+            _ => send_group(group, vec![Target::Peer(id())]),
+        })
         .flex_row()
         .items_center()
         .gap(px(space::M))
@@ -931,15 +1065,28 @@ fn device_row(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
         .child(
             view()
                 .flex_1()
-                .gap(px(2.0))
+                .gap(px(4.0))
                 .child(ui::strong(name).number_of_lines(1))
-                .child(muted(detail).number_of_lines(1)),
+                .child(muted(detail).number_of_lines(1))
+                .child(when(moving, move || {
+                    nsh_base::progress()
+                        .value(move || {
+                            sent.get()
+                                .map(|(_, _, p)| (p * 100.0) as f32)
+                                .unwrap_or(0.0)
+                        })
+                        .accessibility_label("Progress")
+                        .h(px(4.0))
+                })),
         )
-        .child(ui::soft_glyph(
-            Icon::Paperplane,
-            move || theme().primary,
-            36.0,
-        ))
+        .child(dynamic(move || {
+            if done() {
+                ui::soft_glyph(Icon::Check, move || ui::tone_color(ui::Tone::Success), 36.0)
+                    .into_element()
+            } else {
+                ui::soft_glyph(Icon::Paperplane, move || theme().primary, 36.0).into_element()
+            }
+        }))
 }
 
 // ---------------------------------------------------------------- code

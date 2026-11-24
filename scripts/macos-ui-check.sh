@@ -198,6 +198,9 @@ note "- Picked \`dexdrop-out.bin\` (24 MB) in the Open panel"
 tap "Choose device" || { step 07-no-next; fail "could not tap Choose device"; }
 ad wait 'label="Send to CI Mac Inbox"' 15000 >/dev/null 2>&1 || true
 tap "Send to CI Mac Inbox" || { step 07-no-send; fail "could not tap Send"; }
+# The list stays (more devices can be tapped); on to the progress.
+ad wait 'label="See progress"' 15000 >/dev/null 2>&1 || true
+tap "See progress" || { step 07-no-progress; fail "could not tap See progress"; }
 ad wait 'label="Pause"' 30000 >/dev/null 2>&1 || { step 08-not-sending; fail "the transfer did not start (no Pause button)"; }
 tap Pause || fail "could not tap Pause"
 ad wait text "Paused" 15000 >/dev/null 2>&1 || { step 08-not-paused; fail "the transfer did not pause"; }

@@ -337,6 +337,7 @@ pub async fn spawn(
         listener_task,
         remote_task,
         internal: None,
+        group_manifest: None,
     };
     actor.boot(internal_tx);
     tokio::spawn(async move {
@@ -463,9 +464,12 @@ pub(crate) enum Internal {
         result: Result<SessionEnd, String>,
         journal: Box<ReceiveJournal>,
     },
-    /// An outgoing transfer's manifest is ready (or failed).
+    /// Outgoing transfers' manifest is ready (or failed): one reading of
+    /// the selection for every device it goes to.
     ManifestReady {
-        id: TransferId,
+        ids: Vec<TransferId>,
+        group: Option<TransferId>,
+        paths: Vec<PathBuf>,
         result: Result<Manifest, String>,
     },
     OutgoingState {
@@ -588,6 +592,10 @@ struct Actor {
     listener_task: tokio::task::JoinHandle<()>,
     remote_task: Option<tokio::task::JoinHandle<()>>,
     internal: Option<mpsc::UnboundedSender<Internal>>,
+    /// The last group's reading of its selection, reused when more devices
+    /// are sent the same files (one at a time: a large folder's manifest
+    /// holds every entry).
+    group_manifest: Option<(TransferId, Vec<PathBuf>, Arc<Manifest>)>,
 }
 
 const MAX_PENDING_REQUESTS: usize = 8;
@@ -835,7 +843,12 @@ impl Actor {
 
     fn command(&mut self, command: Command) {
         match command {
-            Command::SendFiles { target, paths } => self.send_files(target, paths),
+            Command::SendFiles { target, paths } => self.send_files(vec![target], paths, None),
+            Command::Send {
+                targets,
+                paths,
+                group,
+            } => self.send_files(targets, paths, group),
             Command::Respond {
                 id,
                 accept,
@@ -986,10 +999,51 @@ impl Actor {
         self.emit(Event::History(Vec::new()));
     }
 
-    fn send_files(&mut self, target: Target, paths: Vec<PathBuf>) {
+    /// Sends `paths` to each of `targets`: a transfer each, all started
+    /// from one reading of the selection, in parallel (each its own TLS
+    /// session, consent and journal).
+    fn send_files(&mut self, targets: Vec<Target>, paths: Vec<PathBuf>, group: Option<TransferId>) {
         if paths.is_empty() {
             return;
         }
+        let ids: Vec<TransferId> = targets
+            .into_iter()
+            .filter_map(|target| self.new_outgoing(target, &paths, group))
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        // More devices for the same group and selection: no second reading.
+        if let Some((g, p, manifest)) = &self.group_manifest
+            && Some(*g) == group
+            && *p == paths
+        {
+            let manifest = manifest.clone();
+            for id in ids {
+                self.manifest_ready(id, manifest.clone());
+            }
+            return;
+        }
+        let internal = self.ctx.internal.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = Manifest::build(&paths).map_err(|e| e.to_string());
+            let _ = internal.send(Internal::ManifestReady {
+                ids,
+                group,
+                paths,
+                result,
+            });
+        });
+    }
+
+    /// A transfer of `paths` to `target`, preparing; `None` when the
+    /// target is not valid (the user was told).
+    fn new_outgoing(
+        &mut self,
+        target: Target,
+        paths: &[PathBuf],
+        group: Option<TransferId>,
+    ) -> Option<TransferId> {
         let id = dexdrop_core::random_id();
         let mut snap = blank_snapshot(id, Direction::Outgoing);
         match &target {
@@ -1001,6 +1055,14 @@ impl Actor {
                 } else if let Some(trusted) = self.trust.get(peer_id) {
                     snap.peer_name = trusted.name.clone();
                     snap.peer_platform = trusted.platform.clone();
+                } else if let Some(known) = lock(&self.ctx.known)
+                    .peers
+                    .iter()
+                    .find(|k| k.peer_id == *peer_id)
+                {
+                    // Known from before, now over the internet.
+                    snap.peer_name = known.name.clone();
+                    snap.peer_platform = known.platform.clone();
                 }
             }
             Target::Invitation(text) => match invitation::Invitation::decode(text, unix_now()) {
@@ -1010,7 +1072,7 @@ impl Actor {
                 }
                 Err(err) => {
                     self.notice(NoticeKind::Error, err.to_string());
-                    return;
+                    return None;
                 }
             },
             Target::Code(code) => {
@@ -1019,7 +1081,7 @@ impl Actor {
                         NoticeKind::Error,
                         "Codes have 8 letters and digits, like K7P2-QX9M.",
                     );
-                    return;
+                    return None;
                 }
                 snap.peer_name = "Device with code".into();
             }
@@ -1029,6 +1091,7 @@ impl Actor {
             }
         }
         snap.state = TransferState::Preparing;
+        snap.group = group;
         snap.label = paths
             .first()
             .and_then(|p| p.file_name())
@@ -1042,11 +1105,21 @@ impl Actor {
                 resume: false,
             }),
         );
-        let internal = self.ctx.internal.clone();
-        tokio::task::spawn_blocking(move || {
-            let result = Manifest::build(&paths).map_err(|e| e.to_string());
-            let _ = internal.send(Internal::ManifestReady { id, result });
-        });
+        Some(id)
+    }
+
+    /// The selection of transfer `id` is read: fill it in and start.
+    fn manifest_ready(&mut self, id: TransferId, manifest: Arc<Manifest>) {
+        let Some(t) = self.transfers.get_mut(&id) else {
+            return;
+        };
+        fill_from_manifest(&mut t.snap, &manifest);
+        if let Some(plan) = &mut t.outgoing {
+            plan.manifest = Some(manifest);
+        }
+        if t.snap.state == TransferState::Preparing {
+            self.start_outgoing(id);
+        }
     }
 
     fn start_outgoing(&mut self, id: TransferId) {
@@ -1269,31 +1342,34 @@ impl Actor {
                 result,
                 journal,
             } => self.incoming_ended(id, result, *journal),
-            Internal::ManifestReady { id, result } => match result {
+            Internal::ManifestReady {
+                ids,
+                group,
+                paths,
+                result,
+            } => match result {
                 Ok(manifest) => {
-                    let Some(t) = self.transfers.get_mut(&id) else {
-                        return;
-                    };
-                    fill_from_manifest(&mut t.snap, &manifest);
                     if manifest.skipped > 0 {
                         self.notice(
                             NoticeKind::Info,
                             format!("{} links or special files were left out.", manifest.skipped),
                         );
                     }
-                    let t = self.transfers.get_mut(&id).expect("present");
-                    if let Some(plan) = &mut t.outgoing {
-                        plan.manifest = Some(Arc::new(manifest));
+                    let manifest = Arc::new(manifest);
+                    if let Some(group) = group {
+                        self.group_manifest = Some((group, paths, manifest.clone()));
                     }
-                    if t.snap.state == TransferState::Preparing {
-                        self.start_outgoing(id);
+                    for id in ids {
+                        self.manifest_ready(id, manifest.clone());
                     }
                 }
                 Err(err) => {
-                    if let Some(t) = self.transfers.get_mut(&id) {
-                        t.snap.state =
-                            TransferState::Failed(format!("Could not read the files: {err}"));
-                        let _ = self.events.send(Event::Transfer(t.snap.clone()));
+                    for id in ids {
+                        if let Some(t) = self.transfers.get_mut(&id) {
+                            t.snap.state =
+                                TransferState::Failed(format!("Could not read the files: {err}"));
+                            let _ = self.events.send(Event::Transfer(t.snap.clone()));
+                        }
                     }
                 }
             },
@@ -1914,6 +1990,7 @@ fn blank_snapshot(id: TransferId, direction: Direction) -> TransferSnapshot {
         route: None,
         peer_avatar: None,
         items: Vec::new(),
+        group: None,
     }
 }
 
