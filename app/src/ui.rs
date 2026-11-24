@@ -896,19 +896,40 @@ pub fn radar(_colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
         .items_center()
         .justify_center()
         // The pings say "looking"; with reduced motion the still circles do.
-        .child(when(
-            move || !reduce_motion(),
-            move || {
+        .child(
+            when(
+                move || !reduce_motion(),
+                move || {
+                    view()
+                        .absolute()
+                        .size_full()
+                        .items_center()
+                        .justify_center()
+                        .child(ring(0.0))
+                        .child(ring(800.0))
+                        .child(ring(1600.0))
+                },
+            )
+            .otherwise(move || {
+                // Still: three circles, fainter outwards, where the pings go.
+                let still = move |fraction: f32, alpha: f32| {
+                    view()
+                        .absolute()
+                        .size(px(side * fraction))
+                        .rounded(px(side * fraction / 2.0))
+                        .border_2()
+                        .border_color(move || theme().foreground.opacity(alpha))
+                };
                 view()
                     .absolute()
                     .size_full()
                     .items_center()
                     .justify_center()
-                    .child(ring(0.0))
-                    .child(ring(800.0))
-                    .child(ring(1600.0))
-            },
-        ))
+                    .child(still(1.0, 0.06))
+                    .child(still(0.76, 0.1))
+                    .child(still(0.52, 0.16))
+            }),
+        )
         .child(center)
 }
 

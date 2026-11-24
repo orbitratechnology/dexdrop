@@ -175,3 +175,31 @@ fn home_header_and_nearby_are_centered() {
         }
     }
 }
+
+/// With less motion asked for (CI's Android emulator turns animations off),
+/// the radar keeps still circles around the Wi‑Fi mark instead of none.
+#[test]
+fn the_radar_keeps_still_circles_with_less_motion() {
+    let (mut app, _dir) = start(|c| {
+        as_android(c);
+        c.environment.reduce_motion = true;
+    });
+    let radar = frame(&mut app, "id:radar");
+    let centre = (radar.0 + radar.2 / 2.0, radar.1 + radar.3 / 2.0);
+    let circles = app
+        .screen()
+        .layout_nodes()
+        .into_iter()
+        .filter(|n| {
+            let b = n.bounds;
+            let (w, h) = (b.size.width.0, b.size.height.0);
+            let c = (b.origin.x.0 + w / 2.0, b.origin.y.0 + h / 2.0);
+            (w - h).abs() < 0.5
+                && w > 44.0
+                && w < radar.2 - 0.5
+                && (c.0 - centre.0).abs() < 1.0
+                && (c.1 - centre.1).abs() < 1.0
+        })
+        .count();
+    assert!(circles >= 2, "{circles} circles inside the radar");
+}

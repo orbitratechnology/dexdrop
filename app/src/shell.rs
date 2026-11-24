@@ -471,12 +471,9 @@ fn native_tab_bar() -> impl IntoElement {
         .left_0()
         .right_0()
         .bottom_0()
-        // Android's navigation bar in the app's surface (white in light);
-        // iOS keeps the system's bar (Liquid Glass on iOS 26).
-        .style_when(
-            || os() == nsh_core::platform::Os::Android,
-            |s| s.bg(move || theme().card),
-        )
+    // Its colors are the system's: NSH 0.6.1 draws Android's Material 3
+    // bar with Material's own surface color and takes only the tint (CI's
+    // emulator showed a background set here does not reach it).
 }
 
 /// The tab's icon by the platform's name: an SF Symbol on iOS, one of
