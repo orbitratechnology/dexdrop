@@ -473,8 +473,7 @@ fn kinds() -> impl IntoElement {
             .py(px(if ui::mobile() { space::L } else { space::XL }))
             .rounded(px(20.0))
             .bg(ui::surface)
-            .border_1()
-            .border_color(move || theme().border)
+            .shadow_md()
             .active(|s| s.scale(0.97).opacity(0.85))
             .hover(move |s| s.bg(move || theme().muted))
             // A kind of file: its icon in its color, filling its place.
@@ -528,22 +527,14 @@ fn drop_zone(dropping: Signal<bool>) -> impl IntoElement {
         .gap(px(space::M))
         .py(px(space::XXL))
         .rounded(px(20.0))
-        .border_2()
-        .border_dashed()
-        .border_color(move || {
-            if dropping.get() {
-                theme().primary
-            } else {
-                theme().border
-            }
-        })
         .bg(move || {
             if dropping.get() {
                 theme().primary.opacity(0.08)
             } else {
-                theme().card.opacity(0.0)
+                theme().muted.opacity(0.5)
             }
         })
+        .style_when(move || dropping.get(), |s| s.shadow_lg())
         .child(ui::soft_glyph(Icon::Plus, move || theme().primary, 56.0))
         .child(ui::strong("Drop files or folders here"))
         .child(muted("Or choose them above. Photos show as previews."))
@@ -645,7 +636,7 @@ fn selected() -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(ui::section("Selected"))
+                .child(ui::section("Selected").flex_1())
                 .child(
                     view()
                         .flex_row()
@@ -1238,7 +1229,11 @@ pub fn code_page() -> impl IntoElement {
             .gap(px(space::XL))
             .items_center()
             .child(ui::glyph(Icon::Keypad, (0x64748b, 0x475569), 64.0))
-            .child(muted("The code is on the other device's Receive screen.").text_center())
+            .child(
+                muted("The code is on the other device's Receive screen.")
+                    .text_center()
+                    .w_full(),
+            )
             .child(
                 nsh_base::input()
                     .value(move || entry.get())
@@ -1252,8 +1247,7 @@ pub fn code_page() -> impl IntoElement {
                     .px(px(space::L))
                     .rounded(px(18.0))
                     .bg(ui::surface)
-                    .border_1()
-                    .border_color(move || theme().border)
+                    .shadow_md()
                     .text_size(px(26.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .letter_spacing(px(2.0))

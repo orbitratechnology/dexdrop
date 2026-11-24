@@ -126,23 +126,32 @@ fn device() -> impl IntoElement {
                         draft.set(settings().device_name);
                         editing.set(true);
                     })
+                    .self_stretch()
                     .flex_row()
                     .items_center()
                     .gap(px(space::S))
                     .min_h(px(ui::hit()))
                     .active(|s| s.opacity(0.6))
-                    .child(ui::title(name))
+                    // The name centered with the room of the row (not cut
+                    // short where the system font is wider than measured),
+                    // the pencil after it balanced by a space before.
+                    .child(view().size(px(18.0)))
+                    .child(ui::title(name).flex_1().text_center().number_of_lines(2))
                     .child(ui::icon(Icon::Pencil, 18.0, move || theme().primary))
             }),
         )
-        .child(muted(move || {
-            model().with(|m| {
-                m.status
-                    .as_ref()
-                    .map(|s| format!("{} · {}", platform_label(&s.platform), s.fingerprint))
-                    .unwrap_or_default()
+        .child(
+            muted(move || {
+                model().with(|m| {
+                    m.status
+                        .as_ref()
+                        .map(|s| format!("{} · {}", platform_label(&s.platform), s.fingerprint))
+                        .unwrap_or_default()
+                })
             })
-        }))
+            .w_full()
+            .text_center(),
+        )
 }
 
 /// Where received files go now: the folder chosen in Settings, else the

@@ -134,10 +134,9 @@ fn search(query: Signal<String>) -> impl IntoElement {
         .items_center()
         .gap(px(space::S))
         .px(px(space::M))
-        .rounded(px(12.0))
+        .rounded(px(999.0))
         .bg(ui::surface)
-        .border_1()
-        .border_color(move || theme().border)
+        .shadow_md()
         .child(ui::icon(Icon::Search, 18.0, move || {
             theme().muted_foreground
         }))
@@ -167,7 +166,7 @@ fn section(
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(ui::section(title))
+                .child(ui::section(title).flex_1())
                 .child(muted(move || {
                     let n = list().len();
                     if n == 1 {
@@ -294,28 +293,14 @@ fn app_row(
 
 /// A round tick, filled when chosen.
 fn check(selected: impl Fn() -> bool + Clone + 'static) -> impl IntoElement {
-    let on = selected.clone();
     let on2 = selected.clone();
     view()
         .size(px(26.0))
         .rounded(px(13.0))
         .items_center()
         .justify_center()
-        .border_2()
-        .border_color(move || {
-            if on() {
-                theme().primary
-            } else {
-                theme().border
-            }
-        })
-        .bg(move || {
-            if on2() {
-                theme().primary
-            } else {
-                theme().card.opacity(0.0)
-            }
-        })
+        .shadow_sm()
+        .bg(move || if on2() { theme().primary } else { theme().card })
         .child(when(selected, || {
             ui::icon(Icon::Check, 15.0, move || theme().primary_foreground)
         }))

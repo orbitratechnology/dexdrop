@@ -78,6 +78,11 @@ fn status() -> impl IntoElement {
         .accessibility_label("This device")
         .on_press(|| set_tab(Tab::Settings))
         .self_center()
+        // As wide as it may be, the words centered in it: a pill hugging
+        // its words was cut short on phones whose system font is wider
+        // than the one measured.
+        .w_full()
+        .max_w(px(360.0))
         .flex_row()
         .items_center()
         .gap(px(space::S))
@@ -85,11 +90,18 @@ fn status() -> impl IntoElement {
         .py(px(6.0))
         .rounded(px(999.0))
         .bg(ui::surface)
-        .border_1()
-        .border_color(move || theme().border)
+        .shadow_md()
         .active(|s| s.opacity(0.7))
         .child(ui::dot(tone))
-        .child(muted(line).font_weight(FontWeight::MEDIUM))
+        .child(
+            muted(line)
+                .font_weight(FontWeight::MEDIUM)
+                .flex_1()
+                .text_center()
+                .number_of_lines(1),
+        )
+        // Balances the dot, so the words sit in the middle.
+        .child(view().size(px(8.0)))
 }
 
 /// Send and Receive, floating at the bottom where a thumb rests: above
@@ -118,9 +130,9 @@ fn actions() -> impl IntoElement {
         )
 }
 
-/// One of the two actions: filled with the primary color (Send) or on the
-/// card color with a border (Receive), its icon and label in the
-/// foreground of that fill.
+/// One of the two actions, pill-shaped: filled with the primary color
+/// (Send) or the card color (Receive), both on a shadow, their icon and
+/// label in the foreground of that fill.
 fn action(
     i: Icon,
     label: &'static str,
@@ -140,7 +152,7 @@ fn action(
         .on_press(on_press)
         .flex_1()
         .min_h(px(ACTION))
-        .rounded(px(20.0))
+        .rounded(px(999.0))
         .flex_row()
         .items_center()
         .justify_center()
@@ -152,8 +164,6 @@ fn action(
                 theme().card
             }
         })
-        .border(px(if filled { 0.0 } else { 1.0 }))
-        .border_color(move || theme().border)
         .shadow_lg()
         .active(|s| s.scale(0.97))
         .child(ui::icon(i, 24.0, fg))
@@ -237,7 +247,7 @@ fn nearby() -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .min_h(px(32.0))
-                .child(ui::section("Nearby"))
+                .child(ui::section("Nearby").flex_1().text_center())
                 .child(when(
                     move || !ui::mobile(),
                     || {
@@ -331,6 +341,7 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
                 .font_weight(FontWeight::MEDIUM)
                 .number_of_lines(2)
                 .text_center()
+                .w_full()
                 .text_color(move || theme().foreground),
         )
 }
@@ -378,7 +389,13 @@ fn looking() -> impl IntoElement {
             120.0,
             ui::icon(Icon::Wifi, 44.0, move || theme().foreground),
         ))
-        .child(muted(line).text_center().max_w(px(320.0)))
+        .child(
+            muted(line)
+                .text_center()
+                .w_full()
+                .max_w(px(320.0))
+                .self_center(),
+        )
 }
 
 // ---------------------------------------------------------------- recent
@@ -396,7 +413,7 @@ fn recent() -> impl IntoElement {
                         .flex_row()
                         .items_center()
                         .justify_between()
-                        .child(ui::section("Recent"))
+                        .child(ui::section("Recent").flex_1())
                         .child(
                             ui::btn("See all", Variant::Plain)
                                 .on_press(|| open(Tab::History, Route::Root)),
@@ -424,10 +441,8 @@ fn drop_hint() -> impl IntoElement {
         .right(px(space::L))
         .bottom(px(space::L))
         .rounded(px(24.0))
-        .border_2()
-        .border_dashed()
-        .border_color(move || theme().foreground)
-        .bg(move || theme().foreground.opacity(0.05))
+        .bg(move || theme().card.opacity(0.92))
+        .shadow_xl()
         .items_center()
         .justify_center()
         .gap(px(space::M))

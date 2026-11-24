@@ -80,6 +80,11 @@ pub enum Command {
     /// Removes one past transfer (its `transfer_id`) from the history; its
     /// files stay where they are.
     RemoveHistory(String),
+    /// What the app has selected to send now (empty when nothing): copies
+    /// of picked files (made by the system's pickers on phones) that
+    /// neither this selection nor an unfinished transfer reads are deleted
+    /// at once, and a send group with another selection is over.
+    KeepPicked(Vec<std::path::PathBuf>),
     RefreshDiscovery,
     /// The user read why the local network is used (FR-004): discovery
     /// starts, and with it the system's permission prompt where there is one.

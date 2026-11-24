@@ -278,3 +278,32 @@ uses its own service behind one `DiscoveryEvent` contract
 
 Devices on other networks are not discovered: they are reached by key
 (ADR-002), from an invitation or a previous exchange.
+
+## ADR-004: Copies of picked files — the app's selection decides
+
+**Context.** Phones' pickers hand over copies (NSH's `nsh-picker` in the
+app's cache), which the app moves into its `staging` folder. A 1 GB video
+picked is 1 GB more in the app's storage. The engine used to delete a copy
+when its transfer ended, but kept everything the last send group read until
+another group replaced it, kept small photos a week for History, and
+cleaned up strays only at the next start, an hour later. A user saw the
+app's storage grow with every share.
+
+**Decision.** The app tells the engine what is selected to send
+(`Command::KeepPicked`) each time the selection changes. The engine keeps a
+copy only while the selection, an unfinished (or failed, retryable)
+transfer, or the open send group reads it; a send group with another
+selection is over. A copy taken out of the selection, and a finished
+transfer's copies, go at once; any other copy nothing needs goes when the
+selection changes, when a transfer ends and at start, unless it was
+written in the last minute (a pick still being copied, or not yet in the
+selection). Only DexDrop's `staging` and NSH's picker folders are touched,
+never the user's files; a computer's shared temporary folder keeps its
+one-hour rule.
+
+**Consequences.** Storage returns to its size once a share is over, and
+after a restart at the latest when the app was closed mid-pick. History no
+longer shows previews of sent photos (their copies are gone). Tests:
+`a_groups_copies_go_when_the_selection_is_cleared`,
+`copies_nothing_selects_go`, `copies_of_picked_files_go_once_sent`
+(engine), `a_picked_copy_goes_when_taken_out_of_the_selection` (app).

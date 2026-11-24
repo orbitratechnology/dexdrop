@@ -1470,13 +1470,87 @@ async fn copies_of_picked_files_go_once_sent() {
     while staged.join("clip.mp4").exists() && std::time::Instant::now() < deadline {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
+    while staged.join("photo.jpg").exists() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
     assert!(!staged.join("clip.mp4").exists(), "the video's copy stayed");
     assert!(
-        staged.join("photo.jpg").exists(),
-        "the photo's copy went too soon"
+        !staged.join("photo.jpg").exists(),
+        "the photo's copy stayed"
     );
     assert!(
         own.path().join("notes.txt").exists(),
         "a user's own file was removed"
+    );
+}
+
+/// Waits up to 5 s for `path` to be gone.
+async fn gone(path: &std::path::Path) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while path.exists() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    !path.exists()
+}
+
+/// Sent to devices from the device list (a send group): the copy stays
+/// while it is still selected (another device may be tapped), and goes
+/// once the app's selection is cleared, the transfer over. It used to stay
+/// until the next group or a restart.
+#[tokio::test]
+async fn a_groups_copies_go_when_the_selection_is_cleared() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let staged = a.dir.path().join("state/staging/pick1");
+    std::fs::create_dir_all(&staged).unwrap();
+    let copy = staged.join("movie.mp4");
+    write_file(&copy, 2_000_000, 31);
+    a.send(Command::KeepPicked(vec![copy.clone()]));
+    a.send(Command::Send {
+        targets: vec![b.target()],
+        paths: vec![copy.clone()],
+        group: Some([9; 16]),
+    });
+    let request = b.wait_request().await;
+    b.send(accept(request.id));
+    a.wait_state("sent", |s| *s == TransferState::Completed)
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(copy.exists(), "the copy went while still selected");
+    a.send(Command::KeepPicked(Vec::new()));
+    assert!(gone(&copy).await, "the group's copy stayed");
+}
+
+/// Picked but never sent: a copy taken out of the selection goes at once;
+/// a stray copy from before goes; one being copied right now (fresh, not
+/// yet selected) stays.
+#[tokio::test]
+async fn copies_nothing_selects_go() {
+    let a = Node::start("Alice").await;
+    let staging = a.dir.path().join("state/staging");
+    let picker = a.dir.path().join("cache/nsh-picker");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::create_dir_all(&picker).unwrap();
+    let chosen = picker.join("chosen.jpg");
+    let stray = picker.join("stray.mov");
+    let fresh = staging.join("fresh.mov");
+    for (p, seed) in [(&chosen, 1u8), (&stray, 2), (&fresh, 3)] {
+        write_file(p, 10_000, seed);
+    }
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+    std::fs::File::options()
+        .write(true)
+        .open(&stray)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    a.send(Command::KeepPicked(vec![chosen.clone()]));
+    assert!(gone(&stray).await, "the stray copy stayed");
+    assert!(chosen.exists(), "the selected copy went");
+    assert!(fresh.exists(), "a copy being made went");
+    a.send(Command::KeepPicked(Vec::new()));
+    assert!(
+        gone(&chosen).await,
+        "the copy taken out of the selection stayed"
     );
 }

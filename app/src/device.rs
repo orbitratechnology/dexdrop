@@ -23,6 +23,21 @@ pub fn watch() {
     reconnect_on_return();
     taskbar_progress();
     badge();
+    keep_picked();
+}
+
+/// Tells the engine what is selected to send, each time that changes: the
+/// copies phones make of picked files that nothing selects or sends any
+/// more are deleted then, not left in the app's storage.
+fn keep_picked() {
+    let last = std::cell::RefCell::new(None::<Vec<std::path::PathBuf>>);
+    effect(move || {
+        let paths = crate::state::selection().with(|s| s.paths.clone());
+        if last.borrow().as_ref() != Some(&paths) {
+            *last.borrow_mut() = Some(paths.clone());
+            crate::bridge::send(dexdrop_core::api::Command::KeepPicked(paths));
+        }
+    });
 }
 
 /// Back from the background (a phone unlocked) or from sleep (a laptop's

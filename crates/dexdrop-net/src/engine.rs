@@ -338,6 +338,7 @@ pub async fn spawn(
         remote_task,
         internal: None,
         group_manifest: None,
+        selected: Vec::new(),
     };
     actor.boot(internal_tx);
     tokio::spawn(async move {
@@ -514,6 +515,9 @@ struct OutgoingPlan {
     target: Target,
     manifest: Option<Arc<Manifest>>,
     resume: bool,
+    /// What was chosen to send (the manifest is read from it later, off
+    /// the engine's thread): kept while that reading goes on.
+    paths: Vec<PathBuf>,
 }
 
 #[derive(Default)]
@@ -596,6 +600,8 @@ struct Actor {
     /// are sent the same files (one at a time: a large folder's manifest
     /// holds every entry).
     group_manifest: Option<(TransferId, Vec<PathBuf>, Arc<Manifest>)>,
+    /// What the app has selected to send (`Command::KeepPicked`).
+    selected: Vec<PathBuf>,
 }
 
 const MAX_PENDING_REQUESTS: usize = 8;
@@ -699,6 +705,7 @@ impl Actor {
                 target: Target::Peer(record.peer_id),
                 manifest: Some(Arc::new(record.manifest.clone())),
                 resume: true,
+                paths: Vec::new(),
             };
             self.insert(snap, Some(plan));
             if let Some(t) = self.transfers.get_mut(&record.transfer_id) {
@@ -712,73 +719,107 @@ impl Actor {
                 };
             }
         }
-        self.purge_staging();
+        self.tidy();
     }
 
-    /// Copies of picked files no transfer needs any more go: DexDrop's
-    /// `staging`, and NSH's picker copies (`nsh-picker`, `nsh-picked-*` in
-    /// the app's cache). Anything an unfinished transfer or the open send
-    /// group needs stays; small photos stay a week (History shows them);
-    /// the rest goes after an hour (picked but never sent).
-    fn purge_staging(&self) {
+    /// Copies of picked files nothing needs any more go, at once: DexDrop's
+    /// `staging` and NSH's picker copies (`nsh-picker`, `nsh-picked-*` in
+    /// the app's cache). Kept: what the app has selected, what unfinished
+    /// transfers and the open send group read, and copies written in the
+    /// last minute (a pick being copied, not yet in the selection). Run at
+    /// start, when the selection changes and when a transfer ends, so a
+    /// picked 1 GB video does not stay in the app's storage.
+    fn tidy(&self) {
         let needed = self.needed_sources();
-        let mut roots = vec![self.ctx.state.staging()];
-        roots.extend(picker_dirs(&self.ctx.state.staging()));
-        for root in roots {
+        let staging = self.ctx.state.staging();
+        let mut roots = vec![(staging.clone(), FRESH)];
+        for dir in picker_dirs(&staging) {
+            // A computer's temporary folder is shared with other apps:
+            // there only what is an hour old goes.
+            let shared = cfg!(not(any(target_os = "android", target_os = "ios")))
+                && dir.parent() == Some(std::env::temp_dir().as_path());
+            roots.push((
+                dir,
+                if shared {
+                    Duration::from_secs(3600)
+                } else {
+                    FRESH
+                },
+            ));
+        }
+        for (root, after) in roots {
             // What is inside each root: the roots stay (NSH writes into
             // its own; staging is made again when needed anyway).
             match std::fs::read_dir(&root) {
-                Ok(entries) => {
+                Ok(entries) if root.is_dir() => {
                     for e in entries.flatten() {
-                        purge_tree(&e.path(), &needed, Duration::from_secs(3600));
+                        purge_tree(&e.path(), &needed, after);
                     }
                 }
-                Err(_) => purge_tree(&root, &needed, Duration::from_secs(3600)),
+                _ => purge_tree(&root, &needed, after),
             }
         }
     }
 
-    /// The source files unfinished transfers and the open send group read.
+    /// The source files the selection, unfinished transfers and the open
+    /// send group read.
     fn needed_sources(&self) -> Vec<std::path::PathBuf> {
-        let mut needed: Vec<std::path::PathBuf> = self
-            .transfers
-            .values()
-            .filter(|t| !t.snap.state.is_finished())
-            .filter_map(|t| t.outgoing.as_ref()?.manifest.clone())
-            .flat_map(|m| {
-                m.entries
-                    .iter()
-                    .filter_map(|e| e.source.clone())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let mut needed: Vec<std::path::PathBuf> = self.selected.clone();
+        for t in self.transfers.values() {
+            // A failed transfer can still be retried (it reads again).
+            if t.snap.state.is_finished() && !matches!(t.snap.state, TransferState::Failed(_)) {
+                continue;
+            }
+            let Some(plan) = t.outgoing.as_ref() else {
+                continue;
+            };
+            needed.extend(plan.paths.iter().cloned());
+            if let Some(m) = &plan.manifest {
+                needed.extend(m.entries.iter().filter_map(|e| e.source.clone()));
+            }
+        }
         if let Some((_, paths, _)) = &self.group_manifest {
             needed.extend(paths.iter().cloned());
         }
         needed
     }
 
-    /// A finished outgoing transfer's copies of picked files go at once (a
-    /// 5 GB video copied off a phone's gallery must not stay twice), unless
-    /// another transfer or the open send group still reads them; small
-    /// photos stay for History's previews (purged after a week).
-    fn release_staged(&self, id: &TransferId) {
+    /// What the app has selected now: a send group with another selection
+    /// is over (its transfers keep what they read until they end), and
+    /// copies nothing needs go.
+    fn keep_picked(&mut self, paths: Vec<PathBuf>) {
+        if self
+            .group_manifest
+            .as_ref()
+            .is_some_and(|(_, group, _)| *group != paths)
+        {
+            self.group_manifest = None;
+        }
+        let dropped: Vec<PathBuf> = self
+            .selected
+            .iter()
+            .filter(|p| !paths.contains(p))
+            .cloned()
+            .collect();
+        self.selected = paths;
+        self.release(dropped);
+        self.tidy();
+    }
+
+    /// Copies among `paths` (whole picks: a file or a folder) that nothing
+    /// needs go now, however new: they were read, or put aside.
+    fn release(&self, paths: impl IntoIterator<Item = PathBuf>) {
         let staging = self.ctx.state.staging();
-        let Some(manifest) = self
-            .transfers
-            .get(id)
-            .and_then(|t| t.outgoing.as_ref()?.manifest.clone())
-        else {
-            return;
-        };
         let needed = self.needed_sources();
-        for entry in &manifest.entries {
-            if let Some(source) = &entry.source
-                && is_copy(source, &staging)
-                && !needed.iter().any(|n| source.starts_with(n))
-                && !small_photo(source, entry.wire.size)
+        for p in paths {
+            if is_copy(&p, &staging)
+                && !needed.iter().any(|n| p.starts_with(n) || n.starts_with(&p))
             {
-                let _ = std::fs::remove_file(source);
+                let _ = if p.is_dir() {
+                    std::fs::remove_dir_all(&p)
+                } else {
+                    std::fs::remove_file(&p)
+                };
             }
         }
     }
@@ -964,6 +1005,7 @@ impl Actor {
                 self.emit_peers();
             }
             Command::ClearHistory => self.clear_history(),
+            Command::KeepPicked(paths) => self.keep_picked(paths),
             Command::RemoveHistory(id) => {
                 let before = self.history.entries.len();
                 self.history.entries.retain(|e| e.transfer_id != id);
@@ -1118,6 +1160,7 @@ impl Actor {
                 target,
                 manifest: None,
                 resume: false,
+                paths: paths.to_vec(),
             }),
         );
         Some(id)
@@ -1376,20 +1419,9 @@ impl Actor {
                             self.group_manifest
                                 .replace((group, paths, manifest.clone()));
                         // The group before is closed: its copies go unless
-                        // its transfers still read them.
-                        if let Some((_, old_paths, _)) = previous {
-                            let staging = self.ctx.state.staging();
-                            let needed = self.needed_sources();
-                            for p in old_paths {
-                                if is_copy(&p, &staging) && !needed.iter().any(|n| p.starts_with(n))
-                                {
-                                    let _ = if p.is_dir() {
-                                        std::fs::remove_dir_all(&p)
-                                    } else {
-                                        std::fs::remove_file(&p)
-                                    };
-                                }
-                            }
+                        // something still reads them.
+                        if previous.is_some() {
+                            self.tidy();
                         }
                     }
                     for id in ids {
@@ -1475,15 +1507,31 @@ impl Actor {
                             format!("Sent {} to {}.", snap.label, snap.peer_name),
                         );
                     }
-                    // Over for good (a failed one can still be retried).
-                    if matches!(
+                    // What it read goes, unless the selection, another
+                    // transfer or the open group still reads it (a failed
+                    // one keeps it for Retry).
+                    let over = matches!(
                         snap.state,
                         TransferState::Completed
                             | TransferState::Cancelled { .. }
                             | TransferState::Declined(_)
-                    ) {
-                        self.release_staged(&id);
+                    );
+                    let read: Vec<PathBuf> = self
+                        .transfers
+                        .get(&id)
+                        .and_then(|t| t.outgoing.as_ref())
+                        .map(|plan| {
+                            let mut read = plan.paths.clone();
+                            if let Some(m) = &plan.manifest {
+                                read.extend(m.entries.iter().filter_map(|e| e.source.clone()));
+                            }
+                            read
+                        })
+                        .unwrap_or_default();
+                    if over {
+                        self.release(read);
                     }
+                    self.tidy();
                 }
             }
         }
@@ -2132,20 +2180,6 @@ fn is_copy(path: &std::path::Path, staging: &std::path::Path) -> bool {
             .is_some_and(|n| n.to_string_lossy().starts_with("nsh-picked-"))
 }
 
-/// A photo small enough to keep a week for History's preview.
-fn small_photo(path: &std::path::Path, size: u64) -> bool {
-    const SMALL: u64 = 8 * 1024 * 1024;
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    size <= SMALL
-        && matches!(
-            ext.as_str(),
-            "jpg" | "jpeg" | "png" | "heic" | "heif" | "webp" | "gif" | "avif"
-        )
-}
-
 /// Where NSH's pickers may have left copies: `nsh-picker` in the app's
 /// cache (beside its files on Android), found from the state folder.
 fn picker_dirs(staging: &std::path::Path) -> Vec<std::path::PathBuf> {
@@ -2174,10 +2208,14 @@ fn picker_dirs(staging: &std::path::Path) -> Vec<std::path::PathBuf> {
     found
 }
 
-/// Removes what under `root` nothing needs: files older than `after`
-/// (small photos: a week), then the folders left empty.
+/// How old a copy nothing needs must be to go: older than a pick being
+/// copied right now (its file grows, so it stays fresh) and the moment
+/// before the app says it is selected.
+const FRESH: Duration = Duration::from_secs(60);
+
+/// Removes what under `root` nothing needs: files older than `after`, then
+/// the folders left empty.
 fn purge_tree(root: &std::path::Path, needed: &[std::path::PathBuf], after: Duration) {
-    let week = Duration::from_secs(7 * 24 * 3600);
     let age = |p: &std::path::Path| {
         std::fs::symlink_metadata(p)
             .and_then(|m| m.modified())
@@ -2189,14 +2227,7 @@ fn purge_tree(root: &std::path::Path, needed: &[std::path::PathBuf], after: Dura
         return;
     };
     if meta.is_file() {
-        if !needed.iter().any(|n| root.starts_with(n) || n == root)
-            && age(root)
-                > if small_photo(root, meta.len()) {
-                    week
-                } else {
-                    after
-                }
-        {
+        if !needed.iter().any(|n| root.starts_with(n) || n == root) && age(root) > after {
             let _ = std::fs::remove_file(root);
         }
         return;

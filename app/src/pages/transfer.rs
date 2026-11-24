@@ -390,7 +390,8 @@ fn progress(id: TransferId) -> impl IntoElement {
                 .child(
                     ui::title(move || s().label)
                         .number_of_lines(2)
-                        .text_center(),
+                        .text_center()
+                        .w_full(),
                 )
                 .child(
                     ui::pill(move || short_state(&s().state), move || tone_of(&s().state))
@@ -399,7 +400,7 @@ fn progress(id: TransferId) -> impl IntoElement {
                 // Detail the pill does not say: bytes and time, or why it ended.
                 .child(when(
                     move || one_line(&s()) != short_state(&s().state),
-                    move || muted(move || one_line(&s())).text_center(),
+                    move || muted(move || one_line(&s())).text_center().w_full(),
                 )),
         )
         .child(peer_card(s))
@@ -759,14 +760,15 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                 .items_center()
                 .gap(px(space::S))
                 .child(ui::avatar(n1, p1, a1, 72.0))
-                .child(ui::title(name.clone()).text_center())
+                .child(ui::title(name.clone()).text_center().w_full())
                 .child(
                     muted(format!(
                         "wants to send {} · {}",
                         r.label,
                         format::bytes(r.total_bytes)
                     ))
-                    .text_center(),
+                    .text_center()
+                    .w_full(),
                 )
                 // Where it goes, before accepting (FR-041).
                 .child(

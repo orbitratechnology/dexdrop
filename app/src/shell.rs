@@ -216,13 +216,13 @@ fn local_network_intro() -> impl IntoElement {
                     200.0,
                     ui::glyph(Icon::Wifi, ui::SEND, 84.0),
                 ))
-                .child(ui::title("Find your devices").text_center())
+                .child(ui::title("Find your devices").text_center().w_full())
                 .child(
                     ui::muted(
                         "DexDrop finds your devices on this Wi‑Fi and sends files straight to them. \
                          Allow access to your local network when asked.",
                     )
-                    .text_center(),
+                    .text_center().w_full(),
                 )
                 .child(
                     ui::btn("Continue", Variant::Primary)
@@ -397,25 +397,45 @@ fn desktop_header(title: pages::Title, root: bool, home: bool) -> AnyElement {
 // ---------------------------------------------------------------- phone
 
 fn phone() -> impl IntoElement {
-    view().flex_1().child(tab_stacks()).child(if ui::mobile() {
-        native_tab_bar().into_element()
-    } else {
-        drawn_tab_bar().into_element()
-    })
+    view()
+        .flex_1()
+        .child(tab_stacks())
+        .child(if ui::drawn_tabs() {
+            drawn_tab_bar().into_element()
+        } else {
+            native_tab_bar().into_element()
+        })
 }
 
-/// A narrow window on a desktop or the web: the same tabs, drawn.
+/// The tabs the app draws in its own colors: on Android (the system's
+/// Material bar takes the wallpaper's colors, which NSH cannot set), and
+/// in a narrow window on a desktop or the web. White in light, with a
+/// soft shadow above it, no border; the chosen tab in the primary color on
+/// a pill, Material's way; History counts what waits.
 fn drawn_tab_bar() -> impl IntoElement {
+    let android = os() == nsh_core::platform::Os::Android;
     view()
+        .test_id("tab-bar")
         .absolute()
         .left_0()
         .right_0()
         .bottom_0()
-        .h(px(ui::DRAWN_TAB_BAR))
+        .h(px(ui::drawn_tab_bar_height()))
+        .pb(px(ui::drawn_tab_bar_height()
+            - if android {
+                ui::ANDROID_TAB_BAR
+            } else {
+                ui::DRAWN_TAB_BAR
+            }))
         .flex_row()
         .bg(move || theme().card)
-        .border_t_1()
-        .border_t_color(move || theme().border)
+        // A soft shadow cast upwards, onto the page.
+        .shadow([nsh_core::BoxShadow {
+            offset_y: px(-2.0),
+            blur: px(16.0),
+            color: rgba(0x0000_0014).into(),
+            ..Default::default()
+        }])
         .children(Tab::ALL.map(|t| {
             let active = move || tab() == t;
             let color = move || {
@@ -433,19 +453,61 @@ fn drawn_tab_bar() -> impl IntoElement {
                 .flex_1()
                 .items_center()
                 .justify_center()
-                .gap(px(2.0))
-                .child(ui::icon(sidebar_icon(t), 22.0, color))
+                .gap(px(if android { 4.0 } else { 2.0 }))
+                .child(
+                    view()
+                        .w(px(if android { 60.0 } else { 40.0 }))
+                        .h(px(if android { 32.0 } else { 24.0 }))
+                        .rounded(px(999.0))
+                        .items_center()
+                        .justify_center()
+                        .bg(move || {
+                            if android && active() {
+                                theme().muted
+                            } else {
+                                theme().muted.opacity(0.0)
+                            }
+                        })
+                        .child(ui::icon(sidebar_icon(t), 22.0, color))
+                        .child(when(
+                            move || t == Tab::History && activity() > 0,
+                            || {
+                                view()
+                                    .absolute()
+                                    .top(px(-2.0))
+                                    .right(px(6.0))
+                                    .min_w(px(16.0))
+                                    .h(px(16.0))
+                                    .px(px(4.0))
+                                    .rounded(px(999.0))
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(move || theme().destructive)
+                                    .child(
+                                        text(move || activity().to_string())
+                                            .text_size(px(10.0))
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(white()),
+                                    )
+                            },
+                        )),
+                )
                 .child(
                     text(t.title())
+                        .w_full()
+                        .text_center()
                         .text_size(px(ui::size::CAPTION))
-                        .font_weight(FontWeight::MEDIUM)
+                        .font_weight(if android {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::MEDIUM
+                        })
                         .text_color(color),
                 )
         }))
 }
 
-/// The system's tab bar: `UITabBar` (Liquid Glass on iOS 26), Material 3's
-/// navigation bar on Android.
+/// The system's tab bar on iOS: `UITabBar` (Liquid Glass on iOS 26).
 fn native_tab_bar() -> impl IntoElement {
     tab_bar()
         .items(move || {
@@ -868,8 +930,6 @@ fn toast_stack() -> impl IntoElement {
                         .py(px(space::M))
                         .rounded(px(16.0))
                         .bg(move || theme().popover)
-                        .border(px(1.0))
-                        .border_color(move || theme().border)
                         .shadow_lg()
                         .transition_all()
                         .duration(200.0)

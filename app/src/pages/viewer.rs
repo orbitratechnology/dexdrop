@@ -182,6 +182,7 @@ fn cannot_play(failed: Signal<Option<String>>) -> impl IntoElement {
                 .text_color(rgba(0xffff_ffaa))
                 .text_size(px(ui::size::CAPTION))
                 .text_center()
+                .w_full()
                 .number_of_lines(3),
         )
 }

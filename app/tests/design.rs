@@ -203,3 +203,83 @@ fn the_radar_keeps_still_circles_with_less_motion() {
         .count();
     assert!(circles >= 2, "{circles} circles inside the radar");
 }
+
+/// On Android the tabs are the app's own, drawn in its colors: white in
+/// light (Material's bar took the phone's wallpaper colors, brown on a
+/// user's phone), with Send and Receive above them; a tab opens its page.
+#[test]
+fn android_tabs_are_drawn_white() {
+    let (mut app, _dir) = start(as_android);
+    let style = app
+        .screen()
+        .view_style("id:tab-bar")
+        .unwrap()
+        .expect("a drawn tab bar");
+    assert_eq!(style.background_color, Some(0xffff_ffff), "not white");
+    let bar = frame(&mut app, "id:tab-bar");
+    for name in ["id:send", "id:receive"] {
+        let f = frame(&mut app, name);
+        assert!(f.1 + f.3 <= bar.1, "{name} is under the tabs");
+    }
+    app.press("label:Settings").unwrap();
+    app.wait_for_within("id:save-to", Duration::from_secs(5))
+        .unwrap();
+}
+
+/// Words that are centered or head a row take the room around them, not
+/// only the width measured for them: on a phone whose system font is wider
+/// than the one measured, "Nearby" showed as "Nearb" and the status pill
+/// lost the device's name.
+#[test]
+fn headings_and_the_status_take_their_rows_width() {
+    let (mut app, _dir) = start(as_android);
+    app.wait_for_within("text:/^Visible as /", Duration::from_secs(5))
+        .unwrap();
+    let nearby = frame(&mut app, "text:Nearby");
+    let status = frame(&mut app, "text:/^Visible as /");
+    for (name, f, least) in [("Nearby", nearby, 200.0), ("status", status, 200.0)] {
+        assert!(f.2 >= least, "{name} is only {} pt wide", f.2);
+    }
+}
+
+/// A phone's picker hands over copies of picked files (NSH's `nsh-picker`
+/// in the app's cache): one taken out of the selection is deleted at
+/// once, not left to fill the app's storage.
+#[test]
+fn a_picked_copy_goes_when_taken_out_of_the_selection() {
+    let (mut app, dir) = start(as_android);
+    let picker = dir.path().join("cache/nsh-picker/pick1");
+    std::fs::create_dir_all(&picker).unwrap();
+    let copy = picker.join("clip.mp4");
+    std::fs::write(&copy, vec![5u8; 64 * 1024]).unwrap();
+    app.on_pick_paths(vec![copy.clone()]).unwrap();
+    app.press("id:send").unwrap();
+    app.wait_for("id:pick-files").unwrap();
+    app.press("id:pick-files").unwrap();
+    app.wait_for_within("label:Remove clip.mp4", Duration::from_secs(5))
+        .unwrap();
+    // The app moves the picker's copy into its staging folder.
+    let staged = find(dir.path(), "clip.mp4").expect("the copy, somewhere");
+    app.press("label:Remove clip.mp4").unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while staged.exists() && std::time::Instant::now() < deadline {
+        app.wait_for_within("id:pick-files", Duration::from_millis(100))
+            .unwrap();
+    }
+    assert!(!staged.exists(), "the copy stayed after it was taken out");
+}
+
+/// The file named `name` under `dir`, if any.
+fn find(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if let Some(found) = find(&p, name) {
+                return Some(found);
+            }
+        } else if e.file_name() == name {
+            return Some(p);
+        }
+    }
+    None
+}

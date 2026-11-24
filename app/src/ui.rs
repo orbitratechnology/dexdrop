@@ -52,17 +52,38 @@ pub fn mobile() -> bool {
 /// The height of the tab bar a narrow window draws (desktops, the web).
 pub const DRAWN_TAB_BAR: f32 = 56.0;
 
+/// The height of the tab bar the app draws on Android, above the system's
+/// navigation (gesture handle or buttons).
+pub const ANDROID_TAB_BAR: f32 = 68.0;
+
+/// Whether the app draws its own tab bar: everywhere but iOS, whose
+/// system bar takes the app's colors. Android's Material bar takes the
+/// phone's wallpaper colors (Material You), which NSH 0.6.1 cannot set.
+pub fn drawn_tabs() -> bool {
+    os() != nsh_core::platform::Os::Ios
+}
+
+/// The height of the drawn tab bar, the system's navigation below it
+/// included.
+pub fn drawn_tab_bar_height() -> f32 {
+    if os() == nsh_core::platform::Os::Android {
+        ANDROID_TAB_BAR + nsh_core::element::safe_area().bottom.0
+    } else {
+        DRAWN_TAB_BAR
+    }
+}
+
 /// How far above the window's bottom edge a bar floating over a page sits:
-/// clear of the tab bar (the system's on phones, about 96 pt with the home
-/// indicator; the drawn one in a narrow window), or at the edge when a
-/// sidebar holds the tabs.
+/// clear of the tab bar (the system's on iOS, about 96 pt with the home
+/// indicator; the drawn one elsewhere), or at the edge when a sidebar
+/// holds the tabs.
 pub fn above_tab_bar() -> f32 {
     if crate::state::wide() {
         0.0
-    } else if mobile() {
+    } else if !drawn_tabs() {
         96.0
     } else {
-        DRAWN_TAB_BAR
+        drawn_tab_bar_height()
     }
 }
 
@@ -533,7 +554,7 @@ pub fn round_btn(
 // ---------------------------------------------------------------- surfaces
 
 /// The fill of cards and groups: white in light, on the white page with a
-/// hairline edge (`edged`); one step above the page's background in dark.
+/// soft shadow (`edged`); one step above the page's background in dark.
 pub fn surface() -> AdaptiveColor {
     theme().card
 }
@@ -543,9 +564,10 @@ pub fn group() -> View {
     edged(view().rounded(px(16.0)).bg(surface).overflow_hidden())
 }
 
-/// A hairline around a card: in light, cards and the page are both white.
+/// A soft shadow under a card: in light, cards and the page are both
+/// white; no borders anywhere.
 pub fn edged(v: View) -> View {
-    v.border_1().border_color(move || theme().border)
+    v.shadow_md()
 }
 
 /// A tile: a rounded card.
@@ -555,8 +577,7 @@ pub fn tile() -> View {
         .gap(px(space::M))
         .rounded(px(18.0))
         .bg(surface)
-        .border_1()
-        .border_color(move || theme().border)
+        .shadow_md()
 }
 
 /// A row of a [`group`]: leading view, a title with a detail line under it
@@ -754,15 +775,14 @@ pub fn face(name: &str, chosen: Option<&str>, diameter: f32) -> View {
 }
 
 /// A small icon set on another element (an avatar's corner, a picture):
-/// on a disc of the card's color with a hairline edge, so it stands apart
+/// on a disc of the card's color with a soft shadow, so it stands apart
 /// from what is under it. The icon fills most of the disc.
 pub fn badge_disc(side: f32, child: impl IntoElement) -> View {
     view()
         .size(px(side))
         .rounded(px(side / 2.0))
         .bg(surface)
-        .border_1()
-        .border_color(move || theme().border)
+        .shadow_md()
         .items_center()
         .justify_center()
         .child(child)
@@ -956,7 +976,13 @@ pub fn empty(i: Icon, line: impl IntoReactive<SharedString> + 'static) -> View {
         .gap(px(space::M))
         .py(px(space::XXL))
         .child(soft_glyph(i, || theme().muted_foreground, 64.0))
-        .child(muted(line).text_center().max_w(px(280.0)))
+        .child(
+            muted(line)
+                .text_center()
+                .w_full()
+                .max_w(px(280.0))
+                .self_center(),
+        )
 }
 
 /// A QR code drawn black on white, whatever the appearance.

@@ -115,7 +115,7 @@ pub fn page() -> impl IntoElement {
                                 .flex_row()
                                 .items_center()
                                 .justify_between()
-                                .child(ui::section("Earlier"))
+                                .child(ui::section("Earlier").flex_1())
                                 .child(ui::btn("Clear", Variant::Plain).on_press(|| {
                                     bridge::send(Command::ClearHistory);
                                     bridge::send(Command::ClearFinished);
@@ -340,7 +340,12 @@ fn details(e: HistoryEntry) -> impl IntoElement {
                 .child(ui::file_badge(&e.label, 88.0, 24.0))
                 .into_element(),
         })
-        .child(ui::title(e.label.clone()).text_center().number_of_lines(2))
+        .child(
+            ui::title(e.label.clone())
+                .text_center()
+                .w_full()
+                .number_of_lines(2),
+        )
         .child(ui::pill(status, move || tone).self_center())
         .child(muted(size_line))
         .children(video.map(|path| {

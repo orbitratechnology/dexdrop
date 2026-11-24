@@ -87,14 +87,8 @@ fn swatch(c: u8, color: Signal<u8>) -> impl IntoElement {
         .rounded(px(ui::hit().max(44.0) / 2.0))
         .items_center()
         .justify_center()
-        .border_2()
-        .border_color(move || {
-            if selected() {
-                theme().foreground
-            } else {
-                theme().card
-            }
-        })
+        .bg(move || theme().card)
+        .style_when(selected, |s| s.shadow_lg())
         .child(
             ui::gradient(ui::AVATAR[c as usize])
                 .size(px(34.0))
@@ -136,13 +130,6 @@ fn choice(selected: impl Fn() -> bool + Copy + 'static) -> nsh_base::ButtonEleme
                 theme().muted.opacity(0.5)
             }
         })
-        .border_2()
-        .border_color(move || {
-            if selected() {
-                theme().primary
-            } else {
-                theme().muted.opacity(0.0)
-            }
-        })
+        .style_when(selected, |s| s.shadow_md())
         .active(|s| s.scale(0.92))
 }

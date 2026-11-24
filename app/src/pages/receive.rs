@@ -68,20 +68,28 @@ pub fn page() -> impl IntoElement {
                 view()
                     .items_center()
                     .gap(px(space::XS))
-                    .child(ui::title(move || {
-                        if visible() {
-                            "Ready to receive".to_owned()
-                        } else {
-                            "Hidden".to_owned()
-                        }
-                    }))
-                    .child(muted(move || {
-                        if visible() {
-                            format!("Nearby devices see “{}”", me())
-                        } else {
-                            "Others can still send with the code".to_owned()
-                        }
-                    })),
+                    .child(
+                        ui::title(move || {
+                            if visible() {
+                                "Ready to receive".to_owned()
+                            } else {
+                                "Hidden".to_owned()
+                            }
+                        })
+                        .w_full()
+                        .text_center(),
+                    )
+                    .child(
+                        muted(move || {
+                            if visible() {
+                                format!("Nearby devices see “{}”", me())
+                            } else {
+                                "Others can still send with the code".to_owned()
+                            }
+                        })
+                        .w_full()
+                        .text_center(),
+                    ),
             )
             .child(code_card()),
     )
@@ -103,9 +111,15 @@ fn code_card() -> impl IntoElement {
         .items_center()
         .gap(px(space::L))
         .py(px(space::XL))
-        .child(muted("Or enter this code on the other device"))
+        .child(
+            muted("Or enter this code on the other device")
+                .w_full()
+                .text_center(),
+        )
         .child(
             text(code)
+                .w_full()
+                .text_center()
                 .text_size(px(ui::size::DISPLAY))
                 .font_weight(FontWeight::BOLD)
                 .letter_spacing(px(3.0))
