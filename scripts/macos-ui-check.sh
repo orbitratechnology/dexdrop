@@ -206,7 +206,16 @@ tap Pause || fail "could not tap Pause"
 ad wait text "Paused" 15000 >/dev/null 2>&1 || { step 08-not-paused; fail "the transfer did not pause"; }
 step 08-paused
 held() { cat "$work"/inbox/.dexdrop-out.bin.*dexdrop-part "$work/inbox/dexdrop-out.bin" 2>/dev/null | wc -c | tr -d ' '; }
+# The chunk already on its way when Pause went (4 MiB, about 4 s at the
+# receiver's 1 MB/s cap) still lands: wait for the size to settle (up to
+# 16 s), then check that nothing more comes.
 before=$(held)
+for _ in $(seq 1 8); do
+  sleep 2
+  now=$(held)
+  [ "$now" = "$before" ] && break
+  before=$now
+done
 sleep 4
 after=$(held)
 [ "$before" = "$after" ] || fail "the receiver kept getting data while paused ($before -> $after bytes)"

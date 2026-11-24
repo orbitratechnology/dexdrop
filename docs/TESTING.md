@@ -21,7 +21,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
 | Every platform, real app | `cd app && nsh test e2e/app.test.ts --target <linux\|macos\|windows\|ios\|android>` | 2–6 s a test once built (CI: Windows ~2 s, macOS 3–6 s, Linux under Xvfb ~27 s); building the development host takes 3–7 min on CI, ~0.5 s when reused | the development host through the platform's input, with the same `id:` selectors |
-| Cross-app, CI | `scripts/{android-emu,ios-sim,macos-ui}-check.sh` (agent-device) | 5–30 min | system pickers, the CLI as the other device, discovery over the network, the share sheet |
+| Cross-app, CI | `scripts/{android-emu,ios-sim,macos-ui}-check.sh` (agent-device) | 5–30 min | system pickers, the CLI as the other device, discovery over the network, the share sheet; Pause from the app (the chunk in flight lands, up to 4 MiB, then the received size must hold for 4 s) |
 
 Run the first four before every push (about 25 s together):
 
