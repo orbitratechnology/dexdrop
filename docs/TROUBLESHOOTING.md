@@ -75,10 +75,14 @@ A file that fails is never saved, not even partly.
 
 ## Where are my files?
 
-- *Desktops:* `Downloads/DexDrop` unless you chose another folder in
-  Settings. *Show in folder* opens it.
-- *Phones:* in DexDrop's own storage; use *Share or save* on the finished
-  transfer to put them in Files, Photos or another app.
+Settings › Receiving › *Save to* shows where.
+
+- *Computers:* your Downloads folder, unless you chose another folder
+  there (*Use the Downloads folder* goes back). *Show in folder* opens it.
+- *Android:* your phone's Downloads (on Android 10 and older, DexDrop's own
+  storage). *Share or save* on a finished transfer sends them elsewhere.
+- *iPhone and iPad:* the Files app, *On My iPhone › DexDrop*. *Share or
+  save* puts them in Photos or another app.
 - Names that already exist are never overwritten unless you chose
   *Replace* (and confirmed). By default you get `name (1).ext`.
 

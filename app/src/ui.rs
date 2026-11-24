@@ -59,8 +59,9 @@ pub fn warning() -> AdaptiveColor {
     theme().color("warning").unwrap_or(theme().destructive)
 }
 
-/// The two brand gradients: sending (blue to indigo), receiving (green to
-/// teal). Each is `(from, to)`.
+/// The two actions' marks: sending and receiving. The app is black and
+/// white; these stay for the few places a pair of colors still tells the
+/// two apart (avatars of the past, file kinds keep their own colors).
 pub const SEND: (u32, u32) = (0x6366f1, 0x8b5cf6);
 pub const RECEIVE: (u32, u32) = (0x10b981, 0x0d9488);
 
@@ -227,14 +228,15 @@ pub fn icon(
     image(icon.asset()).size(px(size)).tint_color(color)
 }
 
-/// An icon on a tinted rounded square, as the system's settings show them.
-pub fn glyph(i: Icon, colors: (u32, u32), side: f32) -> View {
-    gradient(colors)
+/// An icon filling `side`, in the page's foreground: the black-and-white
+/// mark of a row or a heading. No tile behind it (`_colors` stays for the
+/// callers that once had one).
+pub fn glyph(i: Icon, _colors: (u32, u32), side: f32) -> View {
+    view()
         .size(px(side))
-        .rounded(px(side * 0.28))
         .items_center()
         .justify_center()
-        .child(icon(i, side * 0.56, white()))
+        .child(icon(i, side, move || theme().foreground))
 }
 
 /// The color of a kind of file.
@@ -329,97 +331,61 @@ pub fn file_kind(name: &str) -> (Icon, u32, Option<String>) {
     (icon, color, tag)
 }
 
-/// A file's picture when there is no preview: its kind's icon on a soft
-/// square of its color, with its format ("PDF", "XLSX") on a tag.
-pub fn file_badge(name: &str, side: f32, radius: f32) -> View {
-    let (i, c, tag) = file_kind(name);
-    // Small badges (40 pt rows with a corner badge) go without the tag.
-    let tagged = side >= 42.0;
-    let badge = view()
-        .size(px(side))
-        .rounded(px(radius))
-        .items_center()
-        .justify_center()
-        .bg(rgba((c << 8) | 0x24))
-        .child(
-            icon(
-                i,
-                side * if tagged && tag.is_some() { 0.42 } else { 0.5 },
-                rgb(c),
-            )
-            .mb(px(if tagged && tag.is_some() {
-                side * 0.16
-            } else {
-                0.0
-            })),
-        );
-    match tag.filter(|_| tagged) {
-        Some(tag) => badge.child(
-            view()
-                .absolute()
-                .bottom(px(side * 0.1))
-                .self_center()
-                .px(px((side * 0.07).max(3.0)))
-                .rounded(px(4.0))
-                .bg(rgb(c))
-                .child(
-                    text(tag)
-                        .text_size(px((side * 0.19).clamp(8.0, 16.0)))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(white())
-                        .number_of_lines(1),
-                ),
-        ),
-        None => badge,
-    }
-}
-
-/// A device's operating system: its mark and the colors of its badge
-/// (background, mark).
-pub fn os_mark(platform: &str) -> (Icon, u32, u32) {
-    match platform {
-        "ios" | "macos" => (Icon::Apple, 0x1f2937, 0xffffff),
-        "windows" => (Icon::Windows, 0x0078d4, 0xffffff),
-        "android" => (Icon::Android, 0x3ddc84, 0x073042),
-        "linux" => (Icon::Linux, 0xfbbf24, 0x111827),
-        "web" => (Icon::Globe, 0x6366f1, 0xffffff),
-        _ => (Icon::Monitor, 0x64748b, 0xffffff),
-    }
-}
-
-/// A device's operating system as a round badge.
-pub fn os_badge(platform: &str, side: f32) -> View {
-    let (i, bg, fg) = os_mark(platform);
+/// A file's picture when there is no preview: its kind's icon in its
+/// kind's color, filling `side` (no tile behind it). `_radius` stays for
+/// the callers that once rounded a tile.
+pub fn file_badge(name: &str, side: f32, _radius: f32) -> View {
+    let (i, c, _tag) = file_kind(name);
     view()
         .size(px(side))
-        .rounded(px(side / 2.0))
         .items_center()
         .justify_center()
-        .bg(rgb(bg))
-        .child(icon(i, side * 0.62, rgb(fg)))
+        .child(icon(i, side, rgb(c)))
 }
 
-/// A file's kind on a soft circle of its color.
+/// A device's operating system: its mark and the mark's color (`None`:
+/// the page's foreground, for black marks such as Apple's).
+pub fn os_mark(platform: &str) -> (Icon, Option<u32>) {
+    match platform {
+        "ios" | "macos" => (Icon::Apple, None),
+        "windows" => (Icon::Windows, Some(0x0078d4)),
+        "android" => (Icon::Android, Some(0x3ddc84)),
+        "linux" => (Icon::Linux, Some(0xf59e0b)),
+        "web" => (Icon::Globe, None),
+        _ => (Icon::Monitor, None),
+    }
+}
+
+/// A device's operating system: its mark, in its color, filling `side`.
+pub fn os_badge(platform: &str, side: f32) -> View {
+    let (i, color) = os_mark(platform);
+    view()
+        .size(px(side))
+        .items_center()
+        .justify_center()
+        .child(match color {
+            Some(c) => icon(i, side, rgb(c)),
+            None => icon(i, side, move || theme().foreground),
+        })
+}
+
+/// A file's kind: its icon in its color, filling `side`.
 pub fn kind_glyph(i: Icon, side: f32) -> View {
     let c = kind_color(i);
     view()
         .size(px(side))
-        .rounded(px(side / 2.0))
         .items_center()
         .justify_center()
-        .bg(rgba((c << 8) | 0x24))
-        .child(icon(i, side * 0.5, rgb(c)))
+        .child(icon(i, side, rgb(c)))
 }
 
-/// An icon on a soft circle of its own color.
+/// An icon in its own color, filling `side` (no circle behind it).
 pub fn soft_glyph(i: Icon, color: impl Fn() -> AdaptiveColor + Copy + 'static, side: f32) -> View {
     view()
         .size(px(side))
-        .rounded(px(side / 2.0))
         .items_center()
         .justify_center()
-        .bg(move || color().opacity(0.14))
-        .child(icon(i, side * 0.5, color))
+        .child(icon(i, side, color))
 }
 
 // ---------------------------------------------------------------- text
@@ -545,42 +511,6 @@ pub fn round_btn(
         .hover(|s| s.opacity(0.88))
         .accessibility_label(label.into())
         .child(icon(i, side * 0.42, fg))
-}
-
-/// One of the two big actions of the home screen: a gradient circle with
-/// an icon, its label below.
-pub fn hero_action(
-    i: Icon,
-    label: &'static str,
-    colors: (u32, u32),
-    on_press: impl Fn() + 'static,
-) -> impl IntoElement {
-    let side = if mobile() { 112.0 } else { 120.0 };
-    pressable()
-        .accessibility_label(label)
-        .test_id(&label.to_ascii_lowercase())
-        .on_press(on_press)
-        .items_center()
-        .gap(px(space::M))
-        .active(|s| s.scale(0.95))
-        .child(
-            gradient(colors)
-                .size(px(side))
-                .rounded(px(side / 2.0))
-                .items_center()
-                .justify_center()
-                .shadow_lg()
-                .shadow_color(rgba((colors.0 << 8) | 0x66))
-                .border(px(4.0))
-                .border_color(rgba((colors.1 << 8) | 0x33))
-                .child(icon(i, side * 0.4, white())),
-        )
-        .child(
-            text(label)
-                .text_size(px(size::HEADING + 1.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(colors.0)),
-        )
 }
 
 // ---------------------------------------------------------------- surfaces
@@ -819,11 +749,8 @@ pub fn avatar(
                 .right(px(-2.0))
                 .bottom(px(-2.0))
                 .size(px(badge + 4.0))
-                .rounded(px(badge / 2.0 + 2.0))
                 .items_center()
                 .justify_center()
-                .bg(move || theme().card)
-                .shadow_sm()
                 .child(dynamic(move || os_badge(&platform(), badge))),
         )
 }
@@ -857,12 +784,9 @@ pub fn far_avatar(
                 .left(px(-2.0))
                 .bottom(px(-2.0))
                 .size(px(badge))
-                .rounded(px(badge / 2.0))
                 .items_center()
                 .justify_center()
-                .bg(rgb(SEND.0))
-                .shadow_sm()
-                .child(icon(Icon::Globe, badge * 0.62, white()))
+                .child(icon(Icon::Globe, badge, move || theme().foreground))
         }))
 }
 
@@ -914,14 +838,14 @@ pub fn progress_ring(
 }
 
 /// Rings that pulse out from the center, as a radar looking for devices.
-pub fn radar(colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
+pub fn radar(_colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
     let ring = move |delay: f32| {
         view()
             .absolute()
             .size(px(side / 2.0))
             .rounded(px(side / 4.0))
             .border_2()
-            .border_color(rgba((colors.0 << 8) | 0x55))
+            .border_color(move || theme().foreground.opacity(0.18))
             .animation(
                 KeyframeAnimation::new(Keyframes::Ping)
                     .duration(2400.0)
@@ -932,20 +856,6 @@ pub fn radar(colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
         .size(px(side))
         .items_center()
         .justify_center()
-        .child(
-            view()
-                .absolute()
-                .size(px(side * 0.72))
-                .rounded(px(side * 0.36))
-                .bg(rgba((colors.0 << 8) | 0x10)),
-        )
-        .child(
-            view()
-                .absolute()
-                .size(px(side * 0.46))
-                .rounded(px(side * 0.23))
-                .bg(rgba((colors.0 << 8) | 0x18)),
-        )
         // The pings say "looking"; with reduced motion the still circles do.
         .child(when(
             move || !reduce_motion(),
@@ -1021,4 +931,79 @@ pub fn qr(width: usize, modules: Vec<bool>, side: f32) -> impl IntoElement {
 /// Page content width on desktops.
 pub fn content_width() -> f32 {
     if desktop_platform() { 720.0 } else { 640.0 }
+}
+
+/// A choice of one among a few, as a segmented control: the system's own
+/// on iOS (`UISegmentedControl`); elsewhere, where the platform has none,
+/// NSH's `ToggleGroup` of `Toggle`s (a toolbar to screen readers, one
+/// keyboard stop with arrow keys), drawn as joined segments.
+pub fn segmented<T: Copy + PartialEq + 'static>(
+    items: &'static [(&'static str, T)],
+    value: Signal<T>,
+) -> AnyElement {
+    let index = move || {
+        items
+            .iter()
+            .position(|(_, v)| *v == value.get())
+            .unwrap_or(0) as u32
+    };
+    if os().name() == "ios" {
+        return nsh_core::mobile::segmented_control()
+            .items(
+                items
+                    .iter()
+                    .map(|(l, _)| nsh_core::mobile::SegmentedControlItem::new(*l))
+                    .collect::<Vec<_>>(),
+            )
+            .selected_index(index)
+            .on_change(move |i: &u32| {
+                if let Some((_, v)) = items.get(*i as usize) {
+                    value.set(*v);
+                }
+            })
+            .self_stretch()
+            .into_element();
+    }
+    nsh_base::toggle_group()
+        .child(
+            view()
+                .flex_row()
+                .p(px(3.0))
+                .rounded(px(12.0))
+                .bg(move || theme().muted)
+                .children(items.iter().map(|(label, v)| {
+                    let v = *v;
+                    let on = move || value.get() == v;
+                    nsh_base::toggle()
+                        .pressed(on)
+                        .on_change(move |_: &bool| value.set(v))
+                        .flex_1()
+                        .min_h(px(hit() - 6.0))
+                        .px(px(space::M))
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(9.0))
+                        .bg(move || {
+                            if on() {
+                                theme().card
+                            } else {
+                                theme().card.opacity(0.0)
+                            }
+                        })
+                        .child(
+                            text(*label)
+                                .text_size(px(size::SMALL))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(move || {
+                                    if on() {
+                                        theme().foreground
+                                    } else {
+                                        theme().muted_foreground
+                                    }
+                                }),
+                        )
+                })),
+        )
+        .self_stretch()
+        .into_element()
 }

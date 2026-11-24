@@ -25,10 +25,10 @@ enum Filter {
 }
 
 impl Filter {
-    const ALL: [(Filter, &'static str); 3] = [
-        (Filter::All, "All"),
-        (Filter::Sent, "Sent"),
-        (Filter::Received, "Received"),
+    const ALL_BY_LABEL: [(&'static str, Filter); 3] = [
+        ("All", Filter::All),
+        ("Sent", Filter::Sent),
+        ("Received", Filter::Received),
     ];
 
     fn keeps(self, direction: Direction) -> bool {
@@ -147,69 +147,10 @@ pub fn page() -> impl IntoElement {
     )
 }
 
-/// All / Sent / Received: the system's segmented control on iOS, the app's
-/// own elsewhere.
+/// All / Sent / Received: the system's segmented control on iOS, NSH's
+/// toggle group elsewhere ([`ui::segmented`]).
 fn filter_bar(filter: Signal<Filter>) -> impl IntoElement {
-    let index = move || {
-        Filter::ALL
-            .iter()
-            .position(|(f, _)| *f == filter.get())
-            .unwrap_or(0) as u32
-    };
-    if os().name() == "ios" {
-        nsh_core::mobile::segmented_control()
-            .items(
-                Filter::ALL
-                    .map(|(_, l)| nsh_core::mobile::SegmentedControlItem::new(l))
-                    .to_vec(),
-            )
-            .selected_index(index)
-            .on_change(move |i: &u32| {
-                if let Some((f, _)) = Filter::ALL.get(*i as usize) {
-                    filter.set(*f);
-                }
-            })
-            .self_stretch()
-            .into_element()
-    } else {
-        view()
-            .flex_row()
-            .self_start()
-            .p(px(3.0))
-            .rounded(px(12.0))
-            .bg(ui::surface)
-            .children(Filter::ALL.map(|(f, label)| {
-                let selected = move || filter.get() == f;
-                ui::pressable()
-                    .selected(selected)
-                    .accessibility_label(label)
-                    .on_press(move || filter.set(f))
-                    .px(px(space::L))
-                    .min_h(px(ui::hit() - 4.0))
-                    .justify_center()
-                    .rounded(px(9.0))
-                    .bg(move || {
-                        if selected() {
-                            theme().primary
-                        } else {
-                            theme().card.opacity(0.0)
-                        }
-                    })
-                    .child(
-                        text(label)
-                            .text_size(px(ui::size::SMALL))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(move || {
-                                if selected() {
-                                    theme().primary_foreground
-                                } else {
-                                    theme().muted_foreground
-                                }
-                            }),
-                    )
-            }))
-            .into_element()
-    }
+    ui::segmented(&Filter::ALL_BY_LABEL, filter)
 }
 
 /// A transfer of this session: its progress, a tap from its details.
@@ -318,36 +259,16 @@ pub fn row(entry: impl Fn() -> Option<HistoryEntry> + Copy + 'static) -> impl In
 }
 
 /// A past transfer's picture: its first photo when still on this device,
-/// else its kind, with which way it went in the corner.
+/// else its kind (which way it went is in its text: "To", "From").
 fn row_picture(e: HistoryEntry) -> View {
-    let outgoing = e.direction == Direction::Outgoing;
     let preview = e
         .items
         .iter()
         .find_map(|i| crate::files::preview_of(i).map(|p| (i.name().to_owned(), p)));
-    view()
-        .child(match &preview {
-            Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, 10.0),
-            None => ui::file_badge(&e.label, 40.0, 10.0),
-        })
-        .child(
-            view()
-                .absolute()
-                .right(px(-4.0))
-                .bottom(px(-4.0))
-                .size(px(20.0))
-                .rounded(px(10.0))
-                .items_center()
-                .justify_center()
-                .bg(rgb(if outgoing { ui::SEND.0 } else { ui::RECEIVE.0 }))
-                .border_2()
-                .border_color(ui::surface)
-                .child(ui::icon(
-                    if outgoing { Icon::Send } else { Icon::Receive },
-                    11.0,
-                    white(),
-                )),
-        )
+    view().child(match &preview {
+        Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, 10.0),
+        None => ui::file_badge(&e.label, 40.0, 10.0),
+    })
 }
 
 // ---------------------------------------------------------------- details
@@ -399,24 +320,6 @@ fn details(e: HistoryEntry) -> impl IntoElement {
             Some(strip) => strip.into_element(),
             None => view()
                 .child(ui::file_badge(&e.label, 88.0, 24.0))
-                .child(
-                    view()
-                        .absolute()
-                        .right(px(-4.0))
-                        .bottom(px(-4.0))
-                        .size(px(32.0))
-                        .rounded(px(16.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(rgb(if outgoing { ui::SEND.0 } else { ui::RECEIVE.0 }))
-                        .border_2()
-                        .border_color(ui::surface)
-                        .child(ui::icon(
-                            if outgoing { Icon::Send } else { Icon::Receive },
-                            16.0,
-                            white(),
-                        )),
-                )
                 .into_element(),
         })
         .child(ui::title(e.label.clone()).text_center().number_of_lines(2))

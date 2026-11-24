@@ -312,13 +312,14 @@ fn progress(id: TransferId) -> impl IntoElement {
                 .child(dynamic(move || {
                     if done() {
                         let pop_in = motion().entering(MotionPreset::ZoomIn);
-                        ui::gradient(ui::RECEIVE)
+                        view()
                             .bind_motion(&pop_in)
                             .size(px(96.0))
-                            .rounded(px(48.0))
                             .items_center()
                             .justify_center()
-                            .child(ui::icon(Icon::Check, 48.0, white()))
+                            .child(ui::icon(Icon::Check, 96.0, move || {
+                                ui::tone_color(Tone::Success)
+                            }))
                             .into_element()
                     } else {
                         view()
@@ -815,76 +816,17 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
 }
 
 /// What to do with a file that already exists: the system's segmented
-/// control on iOS, the app's own elsewhere.
+/// control on iOS, NSH's toggle group elsewhere ([`ui::segmented`]).
 fn conflict_picker(conflict: Signal<ConflictPolicy>) -> impl IntoElement {
     const POLICIES: [(&str, ConflictPolicy); 3] = [
         ("Keep both", ConflictPolicy::KeepBoth),
         ("Skip", ConflictPolicy::Skip),
         ("Replace", ConflictPolicy::Replace),
     ];
-    let index = move || {
-        POLICIES
-            .iter()
-            .position(|(_, p)| *p == conflict.get())
-            .unwrap_or(0) as u32
-    };
     view()
         .px(px(space::L))
         .py(px(space::M))
         .gap(px(space::S))
         .child(muted("If a file is already there"))
-        .child(if os().name() == "ios" {
-            nsh_core::mobile::segmented_control()
-                .items(
-                    POLICIES
-                        .map(|(l, _)| nsh_core::mobile::SegmentedControlItem::new(l))
-                        .to_vec(),
-                )
-                .selected_index(index)
-                .on_change(move |i: &u32| {
-                    if let Some((_, p)) = POLICIES.get(*i as usize) {
-                        conflict.set(*p);
-                    }
-                })
-                .self_stretch()
-                .into_element()
-        } else {
-            view()
-                .flex_row()
-                .p(px(3.0))
-                .rounded(px(12.0))
-                .bg(move || theme().muted)
-                .children(POLICIES.map(|(label, policy)| {
-                    let selected = move || conflict.get() == policy;
-                    ui::pressable()
-                        .selected(selected)
-                        .accessibility_label(label)
-                        .on_press(move || conflict.set(policy))
-                        .flex_1()
-                        .min_h(px(ui::hit() - 6.0))
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(9.0))
-                        .bg(move || {
-                            if selected() {
-                                theme().card
-                            } else {
-                                theme().muted.opacity(0.0)
-                            }
-                        })
-                        .child(
-                            text(label)
-                                .text_size(px(ui::size::SMALL))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(move || {
-                                    if selected() {
-                                        theme().foreground
-                                    } else {
-                                        theme().muted_foreground
-                                    }
-                                }),
-                        )
-                }))
-                .into_element()
-        })
+        .child(ui::segmented(&POLICIES, conflict))
 }

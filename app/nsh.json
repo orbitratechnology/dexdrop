@@ -13,7 +13,9 @@
       "NSLocalNetworkUsageDescription": "DexDrop finds your other devices on this network and sends files to them directly.",
       "NSBonjourServices": [
         "_dexdrop._tcp"
-      ]
+      ],
+      "UIFileSharingEnabled": true,
+      "LSSupportsOpeningDocumentsInPlace": true
     }
   },
   "macos": {

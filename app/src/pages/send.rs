@@ -475,7 +475,12 @@ fn kinds() -> impl IntoElement {
             .bg(ui::surface)
             .active(|s| s.scale(0.97).opacity(0.85))
             .hover(move |s| s.bg(move || theme().muted))
-            .child(ui::glyph(i, colors, if ui::mobile() { 44.0 } else { 52.0 }))
+            // A kind of file: its icon in its color, filling its place.
+            .child(ui::soft_glyph(
+                i,
+                move || AdaptiveColor::from(rgb(colors.0)),
+                if ui::mobile() { 40.0 } else { 48.0 },
+            ))
             .child(ui::strong(label))
     };
     let mut grid = view().flex_row().flex_wrap().gap(px(space::M));

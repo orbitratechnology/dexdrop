@@ -31,17 +31,32 @@ pub fn page() -> impl IntoElement {
             view()
                 .gap(px(space::XXL))
                 .child(status())
-                .child(actions())
                 .child(when(
                     move || model().with(|m| m.transfers.iter().any(|t| !t.state.is_finished())),
                     active,
                 ))
                 .child(nearby())
                 .child(far_devices())
-                .child(recent()),
+                .child(recent())
+                // Room for the actions floating over the bottom.
+                .child(view().h(px(actions_height()))),
         ))
+        .child(actions())
         .child(when(move || dropping.get(), drop_hint))
 }
+
+/// The height the floating actions take: both side by side, or one above
+/// the other with large text.
+fn actions_height() -> f32 {
+    if ui::large_text() {
+        2.0 * ACTION + space::M
+    } else {
+        ACTION
+    }
+}
+
+/// The height of Send and Receive: a big target for a thumb.
+const ACTION: f32 = 64.0;
 
 /// "Visible as Pixel 8": this device, and whether others can see it.
 fn status() -> impl IntoElement {
@@ -75,23 +90,77 @@ fn status() -> impl IntoElement {
         .child(muted(line).font_weight(FontWeight::MEDIUM))
 }
 
+/// Send and Receive, floating at the bottom where a thumb rests: above
+/// the tab bar on phones, at the window's foot on computers. Two big
+/// buttons sharing the width (one above the other with large text).
 fn actions() -> impl IntoElement {
     view()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom(px(if ui::mobile() { 96.0 } else { 0.0 }))
+        .px(px(space::L))
+        .pb(px(space::L))
+        .items_center()
+        .child(
+            view()
+                .w_full()
+                .max_w(px(520.0))
+                .flex_row()
+                .gap(px(space::M))
+                .style_when(ui::large_text, |s| s.flex_col())
+                .child(action(Icon::Send, "Send", true, || push(Route::Send)))
+                .child(action(Icon::Receive, "Receive", false, || {
+                    push(Route::Receive)
+                })),
+        )
+}
+
+/// One of the two actions: filled with the primary color (Send) or on the
+/// card color with a border (Receive), its icon and label in the
+/// foreground of that fill.
+fn action(
+    i: Icon,
+    label: &'static str,
+    filled: bool,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let fg = move || {
+        if filled {
+            theme().primary_foreground
+        } else {
+            theme().foreground
+        }
+    };
+    ui::pressable()
+        .accessibility_label(label)
+        .test_id(&label.to_ascii_lowercase())
+        .on_press(on_press)
+        .flex_1()
+        .min_h(px(ACTION))
+        .rounded(px(20.0))
         .flex_row()
+        .items_center()
         .justify_center()
-        .gap(px(if ui::mobile() { 40.0 } else { 64.0 }))
-        // Large system text: one above the other, so the labels fit.
-        .style_when(ui::large_text, |s| s.flex_col().items_center())
-        .pt(px(space::S))
-        .child(ui::hero_action(Icon::Send, "Send", ui::SEND, || {
-            push(Route::Send)
-        }))
-        .child(ui::hero_action(
-            Icon::Receive,
-            "Receive",
-            ui::RECEIVE,
-            || push(Route::Receive),
-        ))
+        .gap(px(space::S))
+        .bg(move || {
+            if filled {
+                theme().primary
+            } else {
+                theme().card
+            }
+        })
+        .border(px(if filled { 0.0 } else { 1.0 }))
+        .border_color(move || theme().border)
+        .shadow_lg()
+        .active(|s| s.scale(0.97))
+        .child(ui::icon(i, 24.0, fg))
+        .child(
+            text(label)
+                .text_size(px(ui::size::HEADING + 1.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(fg),
+        )
 }
 
 /// Transfers running now, each a tap away from its progress.
@@ -277,7 +346,7 @@ fn looking() -> impl IntoElement {
         .child(ui::radar(
             ui::SEND,
             56.0,
-            ui::icon(Icon::Wifi, 22.0, rgb(ui::SEND.0)),
+            ui::icon(Icon::Wifi, 22.0, move || theme().foreground),
         ))
         .child(muted(line).flex_1())
 }
@@ -327,8 +396,8 @@ fn drop_hint() -> impl IntoElement {
         .rounded(px(24.0))
         .border_2()
         .border_dashed()
-        .border_color(rgb(ui::SEND.0))
-        .bg(rgba((ui::SEND.0 << 8) | 0x14))
+        .border_color(move || theme().foreground)
+        .bg(move || theme().foreground.opacity(0.05))
         .items_center()
         .justify_center()
         .gap(px(space::M))

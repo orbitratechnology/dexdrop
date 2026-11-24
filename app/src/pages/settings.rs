@@ -86,16 +86,10 @@ fn device() -> impl IntoElement {
                         .absolute()
                         .top(px(-2.0))
                         .right(px(-2.0))
-                        .size(px(28.0))
-                        .rounded(px(14.0))
+                        .size(px(22.0))
                         .items_center()
                         .justify_center()
-                        .bg(move || theme().primary)
-                        .border_2()
-                        .border_color(move || theme().card)
-                        .child(ui::icon(Icon::Pencil, 13.0, move || {
-                            theme().primary_foreground
-                        })),
+                        .child(ui::icon(Icon::Pencil, 22.0, move || theme().foreground)),
                 ),
         )
         .child(
@@ -151,29 +145,62 @@ fn device() -> impl IntoElement {
         }))
 }
 
-/// The name of the folder received files go to (FR-042).
-pub fn save_folder() -> String {
-    model().with(|m| {
-        m.settings
-            .download_dir
-            .clone()
-            .or_else(default_dir)
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_default()
-    })
+/// Where received files go now: the folder chosen in Settings, else the
+/// platform's default (the system's Downloads).
+fn save_dir() -> Option<std::path::PathBuf> {
+    model()
+        .with(|m| m.settings.download_dir.clone())
+        .or_else(default_dir)
+}
+
+/// Where received files go, as the user knows the place: "~/Downloads",
+/// "Downloads" on Android, "Files › On My iPhone › DexDrop" on iOS
+/// (FR-041, FR-042).
+pub fn save_place() -> String {
+    let custom = model().with(|m| m.settings.download_dir.is_some());
+    let dir = save_dir();
+    match os().name() {
+        "ios" if !custom => {
+            let device = if idiom() == nsh_core::platform::Idiom::Pad {
+                "iPad"
+            } else {
+                "iPhone"
+            };
+            format!("Files › On My {device} › DexDrop")
+        }
+        "android" if !custom => {
+            if dir.as_deref() == Some(std::path::Path::new("/storage/emulated/0/Download")) {
+                "Downloads".to_owned()
+            } else {
+                "DexDrop (app storage)".to_owned()
+            }
+        }
+        _ => dir.map(|d| pretty_path(&d)).unwrap_or_default(),
+    }
+}
+
+/// A folder as people read it: the home folder as "~" (macOS, Linux).
+fn pretty_path(dir: &std::path::Path) -> String {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    match home.as_deref().and_then(|h| dir.strip_prefix(h).ok()) {
+        Some(rest) if os().name() != "windows" => {
+            if rest.as_os_str().is_empty() {
+                "~".to_owned()
+            } else {
+                format!("~/{}", rest.display())
+            }
+        }
+        _ => dir.display().to_string(),
+    }
 }
 
 /// Where received files go, in a few words (FR-041, FR-073).
 pub fn saves_to() -> String {
-    if desktop_platform() {
-        format!("Saves to {}", save_folder())
-    } else {
-        "Kept in DexDrop until you share or save them".to_owned()
-    }
+    format!("Saves to {}", save_place())
 }
 
 fn receiving() -> impl IntoElement {
-    let folder = save_folder;
+    let custom = move || settings().download_dir.is_some();
     view()
         .gap(px(space::S))
         .child(ui::section("Receiving"))
@@ -192,36 +219,63 @@ fn receiving() -> impl IntoElement {
                     move || settings().auto_accept_trusted,
                     |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
                 ))
-                // No mobile-data switch: transfers stay on the local network
-                // (P0), so they never use mobile data. It returns with remote
-                // transfers.
-                .child(when(desktop_platform, move || {
-                    view().child(ui::separator(58.0)).child(ui::nav_row(
-                        g(Icon::Folder, ORANGE),
-                        "Save to",
-                        folder,
-                        || {
-                            let picked =
-                                pick_paths(OpenDialog::folders().button_label("Use this folder"));
-                            spawn(async move {
-                                if let Ok(Some(paths)) = picked.await
-                                    && let Some(dir) = paths.into_iter().next()
-                                {
-                                    bridge::send(Command::SetDownloadDir(Some(dir)));
-                                }
-                            });
-                        },
-                    ))
-                })),
+                .child(ui::separator(58.0))
+                // Where received files go: shown everywhere; chosen with
+                // the system's folder dialog on computers (phones' pickers
+                // choose files, not folders).
+                .child(
+                    when(desktop_platform, move || {
+                        ui::nav_row(
+                            g(Icon::Folder, ORANGE),
+                            "Save to",
+                            save_place,
+                            choose_folder,
+                        )
+                        .test_id("save-to")
+                    })
+                    .otherwise(move || {
+                        ui::row(g(Icon::Folder, ORANGE), "Save to", save_place, view())
+                            .test_id("save-to")
+                    }),
+                )
+                .child(when(
+                    move || desktop_platform() && custom(),
+                    move || {
+                        view().child(ui::separator(58.0)).child(
+                            ui::nav_row(
+                                g(Icon::Refresh, GRAY),
+                                "Use the Downloads folder",
+                                "",
+                                || bridge::send(Command::SetDownloadDir(None)),
+                            )
+                            .test_id("save-to-downloads"),
+                        )
+                    },
+                )),
         )
         .child(when(
             move || !desktop_platform(),
             || {
-                muted("Received files are kept in DexDrop until you share or save them.")
-                    .px(px(space::L))
-                    .text_size(px(ui::size::CAPTION))
+                muted(match os().name() {
+                    "ios" => "Find them in the Files app, or share them from DexDrop.",
+                    _ => "Find them in your phone's Downloads, or share them from DexDrop.",
+                })
+                .px(px(space::L))
+                .text_size(px(ui::size::CAPTION))
             },
         ))
+}
+
+/// Computers: the system's folder dialog chooses where files go.
+fn choose_folder() {
+    let picked = pick_paths(OpenDialog::folders().button_label("Use this folder"));
+    spawn(async move {
+        if let Ok(Some(paths)) = picked.await
+            && let Some(dir) = paths.into_iter().next()
+        {
+            bridge::send(Command::SetDownloadDir(Some(dir)));
+        }
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]

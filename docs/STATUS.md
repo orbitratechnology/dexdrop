@@ -146,7 +146,7 @@ names the test or check; "Gap" is what is still missing.
 | FR-037 Clipboard text | P2 | Open | — | Later |
 | FR-040 Consent | P0 | Done | Request sheet; nothing saved before Accept (engine tests) | |
 | FR-041 Details before accepting | P0 | Done | Sender, files, size, verification number, where it is saved | |
-| FR-042 Destination | P0 | Done | Desktop: "Save to" folder; phones: app storage + "Share or save" | |
+| FR-042 Destination | P0 | Done | The system's Downloads by default: `~/Downloads` on computers, Android's shared Download (app storage on Android 10 and older), the app's Documents on iOS (Files › On My iPhone › DexDrop). Settings › Receiving › Save to shows it everywhere; computers choose another folder or go back to Downloads; plus "Share or save" | Phones cannot choose another folder (NSH's pickers choose files) |
 | FR-043 No silent overwrite | P0 | Done | Keep both / Skip / Replace (confirmed) / Decline (engine tests) | |
 | FR-044 Free space | P0 | Done | Checked before and during (RAM-disk test) | |
 | FR-045 Path safety | P0 | Done | Traversal, absolute, reserved names, symlinks (adversarial tests) | One local race noted under Security |
@@ -179,11 +179,11 @@ names the test or check; "Gap" is what is still missing.
 | Requirement | Status | Evidence / gap |
 |---|---|---|
 | 7.1 Structure | Done | Share (home), History, Settings; native stacks; desktop sidebar |
-| 7.2 Mobile home | Done | Device name and visibility, nearby devices, Send / Receive, activity badge on History; code fallback under Send › Choose device |
+| 7.2 Mobile home | Done | Device name and visibility, nearby devices, Send / Receive as two 64 pt buttons floating at the bottom within a thumb's reach (`tests/design.rs`), activity badge on History; code fallback under Send › Choose device |
 | 7.3 Desktop home | Done | Sidebar, drop target, application menu (File, Edit, View; macOS app and Window menus), Cmd/Ctrl shortcuts, notifications |
 | 7.4 Transfer card | Done | Peer and platform, name, size, state, MB/s, time left, Pause/Resume/Retry/Cancel, plain errors |
 | 7.5 States | Done | Pressed, hover, keyboard focus ring (every control), disabled, loading, success, error |
-| 7.6 Visual design | Done | Theme tokens, light and dark, system type; richer visuals than the PRD's "minimal" at the product owner's request |
+| 7.6 Visual design | Done | Black and white: neutral greys, near-black primary on off-white in light, off-white primary on near-black in dark; color only where it means something (file kinds, avatars, OS marks, states). Icons carry their color themselves, with no tile or circle behind them, filling their place. Segmented choices: the system's control on iOS, NSH's toggle group elsewhere |
 | 7.7 Accessibility | Done | Labels and roles (UI tests), focus rings, text follows Dynamic Type / font size (NSH); with large text Home's actions and the transfer controls stack (`tests/device.rs`), 44 pt iOS / 48 dp Android targets (UI test), reduced motion, state announcements; times on the user's 12- or 24-hour clock |
 | 8.3 iOS Bonjour without multicast entitlement | Done | Fixed service type, plist keys |
 | 8.4 Android local network | Partial | NSD; API 37 permission/picker not needed at target 35 |

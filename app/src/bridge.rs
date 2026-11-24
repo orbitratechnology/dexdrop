@@ -32,21 +32,48 @@ mod native {
     }
 
     /// Where the engine keeps its state, and where files are received by
-    /// default: the user's Downloads folder on desktops, app-private storage
-    /// on phones (exported from there with the share sheet).
+    /// default: the system's Downloads folder (computers: `~/Downloads`;
+    /// Android: the shared `Download` folder; iOS: the app's Documents,
+    /// which the Files app shows under On My iPhone › DexDrop). App
+    /// storage only where none of those can be written.
     pub fn dirs(platform: &str) -> (PathBuf, PathBuf) {
         let base = std::env::var_os("DEXDROP_STATE_DIR")
             .map(PathBuf::from)
             .or_else(data_dir)
             .unwrap_or_else(|| std::env::temp_dir().join("dexdrop"));
+        let fallback = base.join("Received");
         let downloads = match (platform, home()) {
-            ("macos" | "windows" | "linux", Some(home)) => home.join("Downloads").join("DexDrop"),
-            _ => base.join("Received"),
+            ("macos" | "windows" | "linux", Some(home)) => home.join("Downloads"),
+            // Only on the device itself: headless tests run as a phone on
+            // a computer, and must not write into its home.
+            ("android", _) if cfg!(target_os = "android") => {
+                android_downloads().unwrap_or(fallback)
+            }
+            ("ios", Some(home)) if cfg!(target_os = "ios") => home.join("Documents"),
+            _ => fallback,
         };
         let downloads = std::env::var_os("DEXDROP_DOWNLOAD_DIR")
             .map(PathBuf::from)
             .unwrap_or(downloads);
         (base.join("state"), downloads)
+    }
+
+    /// Android's shared Download folder, when this app can write there:
+    /// from Android 11 an app may create files in it without a permission
+    /// (they are its own); older versions need one DexDrop does not ask
+    /// for, so received files stay in app storage there. Tried once.
+    fn android_downloads() -> Option<PathBuf> {
+        static WRITABLE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+        WRITABLE
+            .get_or_init(|| {
+                let dir = PathBuf::from("/storage/emulated/0/Download");
+                let probe = dir.join(".dexdrop-write-test");
+                let ok = std::fs::create_dir_all(&dir).is_ok()
+                    && std::fs::write(&probe, b"").is_ok()
+                    && std::fs::remove_file(&probe).is_ok();
+                ok.then_some(dir)
+            })
+            .clone()
     }
 
     pub fn start() -> Result<dexdrop_net::Events, String> {

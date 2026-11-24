@@ -14,6 +14,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay |
 | UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default) |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
+| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~3 s | Send and Receive within a thumb's reach above the tab bar, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
 | UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
@@ -62,7 +63,7 @@ kebab-case:
 | `send-to-all`, `see-progress` | the device list (several devices) |
 | `pause-all`, `resume-all` | a group's progress |
 | `copy-invitation` | Receive |
-| `change-avatar`, `rename` | Settings |
+| `change-avatar`, `rename`, `save-to`, `save-to-downloads` | Settings |
 | `local-network-continue` | the first-launch local-network explanation (macOS, iOS) |
 
 Add an id when a test needs a control; add it to this table.

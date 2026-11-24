@@ -103,7 +103,7 @@ debug key unless `--keystore` is passed.
 ### Command line
 
 ```sh
-dexdrop receive --dir ~/Downloads/DexDrop --invite   # shows a code and an invitation
+dexdrop receive --dir ~/Downloads --invite   # shows a code and an invitation
 dexdrop peers
 dexdrop send "Studio Mac" ./photos ./notes.pdf       # by name, peer-ID prefix,
 dexdrop send K7P2-QX9M ./video.mp4                   # code, invitation (DEXDROP1:…)

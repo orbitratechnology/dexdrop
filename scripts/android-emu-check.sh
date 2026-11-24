@@ -209,6 +209,9 @@ received_intact() {
   local name sum got
   name=$(basename "$1")
   sum=$(sh_ "sha256sum $1" | awk '{ print $1 }')
+  # In the phone's Downloads (the default), else in the app's storage.
+  got=$(sh_ "sha256sum /sdcard/Download/$name" 2>/dev/null | awk 'NR == 1 { print $1 }')
+  [ -n "$got" ] && [ "$got" = "$sum" ] && { echo "byte-identical in the phone's Downloads"; return; }
   got=$(sh_ "run-as $pkg sh -c 'find . -name $name -type f -exec sha256sum {} +'" 2>/dev/null | awk 'NR == 1 { print $1 }')
   if [ -z "$got" ]; then
     echo "verified with BLAKE3 by the app"
