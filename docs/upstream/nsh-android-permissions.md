@@ -69,3 +69,31 @@ from the `JNI_GetCreatedJavaVMs` VM and `ActivityThread.currentApplication()`);
 without a VM (the CLI run from a shell) internet transfers stay off instead
 of panicking. NSH's next release sets the context itself (#2686): remove
 the call then, as initializing it twice panics.
+
+## nshm (NSH modules), checked 2026-11-24
+
+https://nsh.dev/versions/main/docs/nshm/ documents, on `main` (not in
+v0.6.1: its `nsh` has no `nsh add` and does not read crate metadata), what
+the issues above add and more. Mapped to DexDrop:
+
+| DexDrop today (v0.6.1) | With the release that ships nshm | Action then |
+|---|---|---|
+| `scripts/patch-android-manifest.sh` (apktool) adds `<queries>` for launcher apps and `REQUEST_INSTALL_PACKAGES` | `nsh.json` `android.permissions`, `android.queries` (and `android.application` for `<service>`, `<receiver>`, `<provider>`, `<activity>`, `<meta-data>`) | Move both into `nsh.json`; delete the script and its CI step |
+| `jvm.rs` `ensure_ndk_context()` sets `ndk-context` from `ActivityThread` | NSH sets it when the first `NshView` is made; setting it again **panics** | Delete `ensure_ndk_context` and its call in `remote.rs` in the same commit as the upgrade |
+| Java bridges (`NsdBridge`, `AppsBridge`) shipped as an embedded `nsd.dex`, loaded with `InMemoryDexClassLoader` | `android.libraries`: `.jar`, `.aar`, `.dex` packaged with the app (no `d8` run on `.dex`) | Ship the bridges as a library; keep the loader only if it stays simpler |
+| Android background transfers (PRD 8.5 / 10.2): no `<service>` possible | `android.application` declares a `<service>`; its Java code goes in `android.libraries` | A foreground service of type `dataSync` (plus the `FOREGROUND_SERVICE` permissions) keeping transfers alive with a progress notification — the page does not cover foreground services, so prove it on a device first |
+| Share-sheet entry (FR-035) | iOS: prebuilt `.appex` in `ios.extensions`; Android: an `<activity>` with an intent filter in `android.application` (intent filters not stated) | A share extension handing files to the app; needs Swift/Java beyond NSH |
+| Runtime permissions | `nsh::permissions::{request, state}` | Use when a permission is added (camera) |
+
+Not solved by nshm: keeping the device awake, connection type, battery,
+background work on iOS (`UIBackgroundModes` exists, but no mode keeps a
+long transfer going), picking folders on phones, and videos that live only
+in the Photos library (`nsh-extra`'s `photos` returns re-encoded JPEG
+images, not videos or originals).
+
+Usable now: `nsh-extra` 0.6.0 is on crates.io (`camera`, `photos`, `push`,
+`speech` features, against `nsh-core` 0.6). Its `camera::take_photo` returns
+a JPEG that DexDrop's QR import (FR-025) could read: a way to scan another
+device's invitation (FR-024) without a live viewfinder. With v0.6.1 the
+app would declare `NSCameraUsageDescription` itself (`ios.infoPlist`) and
+the Android camera `<queries>` entry in the manifest patch.
