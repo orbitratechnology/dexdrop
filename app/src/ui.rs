@@ -49,6 +49,23 @@ pub fn mobile() -> bool {
     matches!(os().name(), "ios" | "android")
 }
 
+/// The height of the tab bar a narrow window draws (desktops, the web).
+pub const DRAWN_TAB_BAR: f32 = 56.0;
+
+/// How far above the window's bottom edge a bar floating over a page sits:
+/// clear of the tab bar (the system's on phones, about 96 pt with the home
+/// indicator; the drawn one in a narrow window), or at the edge when a
+/// sidebar holds the tabs.
+pub fn above_tab_bar() -> f32 {
+    if crate::state::wide() {
+        0.0
+    } else if mobile() {
+        96.0
+    } else {
+        DRAWN_TAB_BAR
+    }
+}
+
 // ---------------------------------------------------------------- color
 
 pub fn success() -> AdaptiveColor {

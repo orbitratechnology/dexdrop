@@ -6,17 +6,32 @@
 #   apps only if it says which; DexDrop lists them to send their APKs.
 # - REQUEST_INSTALL_PACKAGES: opening a received APK hands it to the
 #   system's installer, which asks the user before installing.
+# - An adaptive launcher icon (Android 8+: the launcher's shape, and
+#   Android 13's themed icons) from app/android/res: NSH packages one flat
+#   192 px icon, which launchers shrink onto a white disc.
 #
-# NSH's next release declares both in nsh.json (android.queries,
-# android.permissions; see docs/upstream/nsh-android-permissions.md); this
-# script goes then.
+# Signed with the release keystore when ANDROID_KEYSTORE is set (alias in
+# ANDROID_KEY_ALIAS, password in NSH_KEYSTORE_PASSWORD, as `nsh package
+# --keystore` takes them), else with NSH's debug key.
+#
+# NSH's next release declares the first two in nsh.json (android.queries,
+# android.permissions; see docs/upstream/nsh-android-permissions.md); the
+# icon stays here until NSH packages adaptive icons (docs/PACKAGING.md).
 #
 #   scripts/patch-android-manifest.sh dist/android/DexDrop.apk
 set -euo pipefail
 apk=$(realpath "${1:?apk}")
 sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}
 tools=$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)
-keystore=${DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}
+keystore=${ANDROID_KEYSTORE:-${DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}}
+if [ -n "${ANDROID_KEYSTORE:-}" ]; then
+  alias=${ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS}
+  pass=${NSH_KEYSTORE_PASSWORD:?NSH_KEYSTORE_PASSWORD}
+else
+  alias=androiddebugkey
+  pass=android
+fi
+res=$(dirname "$(realpath "$0")")/../app/android/res
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/dexdrop-tools
 version=2.10.0
 sum=c0350abbab5314248dfe2ee0c907def4edd14f6faef1f5d372d3d4abd28f0431
@@ -27,7 +42,7 @@ if ! echo "$sum  $jar" | sha256sum -c --status 2>/dev/null; then
   curl -fsSL -o "$jar" "https://github.com/iBotPeaches/Apktool/releases/download/v$version/apktool_$version.jar"
   echo "$sum  $jar" | sha256sum -c --status || { echo "apktool checksum mismatch" >&2; exit 1; }
 fi
-[ -f "$keystore" ] || { echo "no debug keystore at $keystore" >&2; exit 1; }
+[ -f "$keystore" ] || { echo "no keystore at $keystore" >&2; exit 1; }
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -48,11 +63,14 @@ if permission not in s:
     s = s.replace("<application", permission + "<application", 1)
 open(path, "w", encoding="utf-8").write(s)
 EOF
+# The adaptive icon: same name as NSH's flat icon, which stays for Android 7.
+cp -R "$res"/. "$work/src/res/"
 java -jar "$jar" b -o "$work/unsigned.apk" "$work/src" >/dev/null
 "$tools/zipalign" -p -f 4 "$work/unsigned.apk" "$work/aligned.apk"
-"$tools/apksigner" sign --ks "$keystore" --ks-pass pass:android \
-  --ks-key-alias androiddebugkey --key-pass pass:android \
+KS_PASS=$pass "$tools/apksigner" sign --ks "$keystore" --ks-pass env:KS_PASS \
+  --ks-key-alias "$alias" --key-pass env:KS_PASS \
   --out "$apk" "$work/aligned.apk"
 "$tools/apksigner" verify "$apk"
 "$tools/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -q REQUEST_INSTALL_PACKAGES
-echo "patched $(basename "$apk"): queries for launcher apps, REQUEST_INSTALL_PACKAGES"
+"$tools/aapt2" dump xmltree --file res/mipmap-anydpi-v26/ic_launcher.xml "$apk" | grep -q monochrome
+echo "patched $(basename "$apk"): queries for launcher apps, REQUEST_INSTALL_PACKAGES, adaptive icon ($alias)"

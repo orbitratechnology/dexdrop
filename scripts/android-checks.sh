@@ -44,6 +44,15 @@ adb shell cmd statusbar collapse > /dev/null 2>&1 || true
 check=0
 bash "$root/scripts/android-emu-check.sh" "$apk" "$cli" "$out" || check=1
 
+# The launcher's app list, to see the adaptive icon the APK carries
+# (a picture only, nothing checked).
+adb shell input keyevent KEYCODE_HOME > /dev/null 2>&1 || true
+if size=$(adb shell wm size 2>/dev/null | tr -d '\r' | sed -n 's/.*: \([0-9]*\)x\([0-9]*\)$/\1 \2/p' | tail -1) && [ -n "$size" ]; then
+  read -r w h <<< "$size"
+  adb shell input swipe $((w / 2)) $((h * 9 / 10)) $((w / 2)) $((h / 5)) 300 > /dev/null 2>&1 || true
+  adb exec-out screencap -p > "$out/launcher.png" 2>/dev/null || true
+fi
+
 echo "e2e: $([ $e2e = 0 ] && echo passed || echo FAILED); agent-device check: $([ $check = 0 ] && echo passed || echo FAILED)"
 cat "$out/device-storage.txt"
 [ $e2e = 0 ] && [ $check = 0 ]

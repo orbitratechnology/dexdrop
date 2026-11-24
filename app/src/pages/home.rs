@@ -91,14 +91,14 @@ fn status() -> impl IntoElement {
 }
 
 /// Send and Receive, floating at the bottom where a thumb rests: above
-/// the tab bar on phones, at the window's foot on computers. Two big
+/// the tab bar (phones, narrow windows), else at the window's foot. Two big
 /// buttons sharing the width (one above the other with large text).
 fn actions() -> impl IntoElement {
     view()
         .absolute()
         .left_0()
         .right_0()
-        .bottom(px(if ui::mobile() { 96.0 } else { 0.0 }))
+        .bottom(px(ui::above_tab_bar()))
         .px(px(space::L))
         .pb(px(space::L))
         .items_center()

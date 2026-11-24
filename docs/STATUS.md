@@ -10,7 +10,7 @@ Windows, macOS and Linux runners and the iOS Simulator on every CI run.
 | Target | Build | Run / validate | Notes |
 |---|---|---|---|
 | Linux x86_64 | Done (`nsh package --target linux`, 15 MB tarball) | Verified: two app instances discover each other and transfer; CLI ⇄ app; 300 MB byte-identical. In CI (under Xvfb), the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`) | Needs GTK 4.14+ (Ubuntu 24.04+) |
-| Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a + x86_64, debug-signed, targetSdk 35) | Checked end to end in an Android 14 emulator on every CI run by agent-device (`scripts/android-emu-check.sh`, screenshots in `docs/screenshots/android/`): launch and tabs; discovery both ways through the system's NsdManager against the CLI running inside the emulator; 3 MB sent with the pairing code (read through its screen-reader label) and 200 KB with the invitation read from the sheet's QR code, both accepted in the app and verified. Not yet run on a phone | Discovery uses `NsdManager` through a Java bridge embedded as a dex (`crates/dexdrop-net/android/`), because NSH v0.6.1's packaging cannot declare `CHANGE_WIFI_MULTICAST_STATE` for a multicast lock. Needs Android 12+ (older versions fall back to mdns-sd). NSH `main` already adds `android.permissions` and sets `ndk-context` (longbridge/nsh#2500, #2686); adopt on its next release (`docs/upstream/nsh-android-permissions.md`). The emulator is behind its own NAT, so phone ⇄ computer discovery needs a real phone. |
+| Android | Done, here and in CI (APK, arm64-v8a + armeabi-v7a + x86_64, targetSdk 35, versionCode = the CI run, adaptive and themed icon; signed with the release keystore once its secrets are set, else a debug key per run: `docs/PACKAGING.md`) | Checked end to end in an Android 14 emulator on every CI run by agent-device (`scripts/android-emu-check.sh`, screenshots in `docs/screenshots/android/`): launch and tabs; discovery both ways through the system's NsdManager against the CLI running inside the emulator; 3 MB sent with the pairing code (read through its screen-reader label) and 200 KB with the invitation read from the sheet's QR code, both accepted in the app and verified. Not yet run on a phone | Discovery uses `NsdManager` through a Java bridge embedded as a dex (`crates/dexdrop-net/android/`), because NSH v0.6.1's packaging cannot declare `CHANGE_WIFI_MULTICAST_STATE` for a multicast lock. Needs Android 12+ (older versions fall back to mdns-sd). NSH `main` already adds `android.permissions` and sets `ndk-context` (longbridge/nsh#2500, #2686); adopt on its next release (`docs/upstream/nsh-android-permissions.md`). The emulator is behind its own NAT, so phone ⇄ computer discovery needs a real phone. |
 | Web | Done (static site, 7 MB) | Verified in Chromium | Browser preview only: states that browsers cannot discover or connect directly (FR-084) |
 | Windows | Done in CI (`nsh package --target windows`) | Verified in CI: engine tests and throughput bench pass; the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`) | Not yet tried by hand on a Windows PC |
 | macOS | CI on `macos-15` (free for this public repository) | Verified in CI: the packaged app is started on every CI run by `scripts/desktop-check.py`: the CLI on the same machine discovers it, sends a file and a folder (4 files, 5.3 MB, nested, with an empty file) that the app accepts and receives byte-identical, and the app records the transfer as completed (screenshots in `docs/screenshots/desktop/`); the app also lists the CLI as a trusted nearby device | Unsigned, local use only. Uses the system's Bonjour service; macOS 15 asks before an app uses the local network, and the prompt shows `NSLocalNetworkUsageDescription` from `nsh.json` (the CI check answers Allow) |
@@ -97,6 +97,11 @@ every action, and the platform's own controls where NSH has them.
   (computers). On Linux GTK ends the app when GStreamer's `playbin` is
   missing, so the player checks for the plugin first and says what to
   install. Windows builds enable NSH's `media` feature.
+- **App icon:** the project's artwork (a blue rounded square, two white
+  arrows) per platform as NSH's packaging guide asks: transparent on
+  Windows, Linux, Android and the web, on Apple's 824 px grid on macOS,
+  opaque on white for iOS (with a launch screen), and an adaptive, themed
+  icon on Android 8+ (`docs/PACKAGING.md`).
 - **Icons:** devices carry their system's mark (Apple, Windows, Android,
   Linux, the browser's globe); files an icon per kind with their format on
   a colored tag (PDF, XLSX, CSV, HTML, SVG, GIF, APK, DMG, EXE, DEB, …).
@@ -275,7 +280,8 @@ receive journal is a snapshot plus an append-only log of changed files: for
    13.1 matrix, discovery and setup times (11.1), goodput against `iperf3`.
 2. **Android background transfers** (PRD 8.5): a foreground service or
    user-initiated job, once NSH's packaging can declare it, or by embedding
-   NSH in a Gradle project; and a release keystore (P5-002).
+   NSH in a Gradle project; and a release keystore (P5-002): CI signs
+   with it once the repository has its secrets (`docs/PACKAGING.md`).
 3. **Phones: folders and share-sheet entry** (FR-031 on phones, FR-035): need
    NSH picker and packaging support.
 4. **Camera QR** (FR-024): VisionKit on iOS, tested on a device.

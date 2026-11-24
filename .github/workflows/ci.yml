@@ -68,7 +68,7 @@ jobs:
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: nsh -V
-      - run: nsh package app --target linux -o dist/linux
+      - run: nsh package app --target linux --build ${{ github.run_number }} -o dist/linux
       - run: cargo build --release -p dexdrop-cli
       - uses: actions/upload-artifact@v4
         with:
@@ -117,7 +117,7 @@ jobs:
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: nsh package app --target web -o dist/web
+      - run: nsh package app --target web --build ${{ github.run_number }} -o dist/web
       - uses: actions/upload-artifact@v4
         with:
           name: dexdrop-web
@@ -149,12 +149,29 @@ jobs:
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: nsh component add android
-      # Signed with the debug keystore NSH creates; release signing needs the
-      # project keystore (PRD P5-002) as a repository secret. x86_64 is for
-      # emulators (the check below) and x86 Chromebooks.
-      - run: nsh package app --target android --abi arm64-v8a,armeabi-v7a,x86_64 -o dist/android
-      # What nsh.json cannot declare yet: seeing other apps, installing APKs.
-      - run: for apk in dist/android/*.apk; do bash scripts/patch-android-manifest.sh "$apk"; done
+      # Signed with the project's release keystore when the repository has
+      # one (secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS and
+      # NSH_KEYSTORE_PASSWORD; docs/RELEASING.md), so each build installs
+      # over the last; else with the debug key NSH creates, new on every
+      # runner. The build number (versionCode) is the run's, growing with
+      # every build. x86_64 is for emulators (the check below) and x86
+      # Chromebooks. Then what nsh.json cannot declare yet: seeing other
+      # apps, installing APKs, the adaptive icon.
+      - name: Package the APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NSH_KEYSTORE_PASSWORD: ${{ secrets.NSH_KEYSTORE_PASSWORD }}
+        run: |
+          signing=()
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            export ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE"
+            signing=(--keystore "$ANDROID_KEYSTORE" --key-alias "$ANDROID_KEY_ALIAS")
+          fi
+          nsh package app --target android --abi arm64-v8a,armeabi-v7a,x86_64 --build ${{ github.run_number }} "${signing[@]}" -o dist/android
+          for apk in dist/android/*.apk; do bash scripts/patch-android-manifest.sh "$apk"; done
+          rm -f "$RUNNER_TEMP/release.jks"
       - uses: actions/upload-artifact@v4
         with:
           name: dexdrop-android
@@ -209,7 +226,7 @@ jobs:
         run: |
           irm https://nsh.dev/install.ps1 | iex
           "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-      - run: nsh package app --target windows -o dist/windows
+      - run: nsh package app --target windows --build ${{ github.run_number }} -o dist/windows
       - run: cargo build --release -p dexdrop-cli
       - uses: actions/upload-artifact@v4
         with:
@@ -250,8 +267,8 @@ jobs:
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: nsh package app --target macos -o dist/macos
-      - run: nsh package app --target ios-simulator -o dist/ios-simulator
+      - run: nsh package app --target macos --build ${{ github.run_number }} -o dist/macos
+      - run: nsh package app --target ios-simulator --build ${{ github.run_number }} -o dist/ios-simulator
       - run: cargo build --release -p dexdrop-cli
       - uses: actions/upload-artifact@v4
         with:

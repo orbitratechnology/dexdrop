@@ -80,6 +80,32 @@ fn send_and_receive_are_within_a_thumbs_reach() {
     }
 }
 
+/// In a narrow window on a computer (Windows, 600 × 800) the tabs are drawn
+/// along the bottom: Send and Receive sit above them, not under them (CI's
+/// Windows run clicked Receive there and got Settings).
+#[test]
+fn send_and_receive_clear_the_drawn_tab_bar() {
+    let (mut app, _dir) = start(|c| {
+        c.viewport = size(px(600.0), px(800.0));
+        c.environment.window = c.viewport;
+        c.environment.os = Os::Windows;
+        c.environment.platform = Some("windows");
+    });
+    let tabs = frame(&mut app, "label:History");
+    for name in ["id:send", "id:receive"] {
+        let f = frame(&mut app, name);
+        assert!(
+            f.1 + f.3 <= tabs.1,
+            "{name} ends at {} pt, under the tabs at {} pt",
+            f.1 + f.3,
+            tabs.1
+        );
+    }
+    app.press("id:receive").unwrap();
+    app.wait_for_within("text:Ready to receive", Duration::from_secs(5))
+        .unwrap();
+}
+
 /// Settings says where received files go: the Downloads folder by default
 /// on a computer; on an iPhone, where the Files app shows them.
 #[test]

@@ -67,8 +67,11 @@ pub fn body(content: impl IntoElement) -> impl IntoElement {
                 .self_center()
                 .px(px(if ui::mobile() { space::L } else { space::XL }))
                 .pt(px(space::S))
-                // The tab bar floats over the bottom of the page on phones.
-                .pb(px(if ui::mobile() { 120.0 } else { space::XXL }))
+                // The tab bar floats over the bottom of the page (phones,
+                // narrow windows).
+                .pb(px(
+                    ui::above_tab_bar() + if ui::mobile() { 24.0 } else { space::XXL }
+                ))
                 .gap(px(space::XL))
                 .child(content),
         )

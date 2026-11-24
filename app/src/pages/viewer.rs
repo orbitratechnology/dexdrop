@@ -69,8 +69,11 @@ pub fn page(path: PathBuf) -> impl IntoElement {
         .bg(move || theme().background)
         .px(px(if ui::mobile() { 0.0 } else { space::XL }))
         .pt(px(space::S))
-        // The tab bar floats over the bottom of the page on phones.
-        .pb(px(if ui::mobile() { 104.0 } else { space::XL }))
+        // The tab bar floats over the bottom of the page (phones, narrow
+        // windows).
+        .pb(px(
+            ui::above_tab_bar() + if ui::mobile() { 8.0 } else { space::XL }
+        ))
         .gap(px(space::L))
         .child(
             view()

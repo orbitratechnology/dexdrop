@@ -3,12 +3,26 @@
   "id": "dev.dexdrop.app",
   "version": "0.1.0",
   "build": 1,
-  "icon": "icon.png",
+  "icon": {
+    "ios": "icon-ios.png",
+    "macos": "icon-macos.png",
+    "android": "icon.png",
+    "windows": "icon.png",
+    "linux": "icon.png",
+    "web": "icon.png"
+  },
   "rust": ".",
   "root": "App",
   "theme": "theme.json",
   "appearance": "system",
   "ios": {
+    "launchScreen": {
+      "background": {
+        "light": "#fbfaf8",
+        "dark": "#070707"
+      },
+      "image": "launch.png"
+    },
     "infoPlist": {
       "NSLocalNetworkUsageDescription": "DexDrop finds your other devices on this network and sends files to them directly.",
       "NSBonjourServices": [
@@ -23,7 +37,8 @@
       "NSLocalNetworkUsageDescription": "DexDrop finds your other devices on this network and sends files to them directly.",
       "NSBonjourServices": [
         "_dexdrop._tcp"
-      ]
+      ],
+      "LSApplicationCategoryType": "public.app-category.utilities"
     }
   },
   "android": {

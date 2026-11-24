@@ -16,7 +16,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
 | UI headless, toasts | `cargo test -p dexdrop-app --test toasts` | ~2 s | NSH's toast stack: an alert, timed out by the manager on the manual clock, Escape dismisses the newest before going back |
 | UI headless, keyboard and long presses | `cargo test -p dexdrop-app --test keys` | ~3 s | Home's S / R / arrows, Escape back; a past transfer removed and a device forgotten by a long press, through the system's alert (`answer_dialogs_myself`) |
-| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~3 s | Send and Receive within a thumb's reach above the tab bar, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
+| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~3 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
 | UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
@@ -123,7 +123,7 @@ Add an id when a test needs a control; add it to this table.
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
 | Package macOS and iOS | `nsh test … --target macos`, `--target ios`, after the checks (the e2e first launch starts discovery in NSH's host; its system prompt must not be the one the checks answer) | desktop check, agent-device macOS and iOS checks (run first) |
-| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`) | agent-device emulator check |
+| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon) | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
 (`desktop-check-*`, `e2e-apple`, `android-check`).

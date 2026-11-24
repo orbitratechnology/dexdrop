@@ -361,6 +361,7 @@ fn drawn_tab_bar() -> impl IntoElement {
         .left_0()
         .right_0()
         .bottom_0()
+        .h(px(ui::DRAWN_TAB_BAR))
         .flex_row()
         .bg(move || theme().card)
         .border_t_1()
@@ -381,8 +382,8 @@ fn drawn_tab_bar() -> impl IntoElement {
                 .on_press(move || set_tab(t))
                 .flex_1()
                 .items_center()
+                .justify_center()
                 .gap(px(2.0))
-                .py(px(space::S))
                 .child(ui::icon(sidebar_icon(t), 22.0, color))
                 .child(
                     text(t.title())

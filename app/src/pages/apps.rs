@@ -326,7 +326,7 @@ fn add_bar(apps: Signal<Apps>, chosen: Signal<Vec<String>>) -> impl IntoElement 
         .absolute()
         .left_0()
         .right_0()
-        .bottom(px(if ui::mobile() { 96.0 } else { 0.0 }))
+        .bottom(px(ui::above_tab_bar()))
         .px(px(space::L))
         .pb(px(space::L))
         .items_center()
