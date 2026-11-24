@@ -219,39 +219,35 @@ pub fn sheet() -> Signal<Sheet> {
     global::<Sheet>()
 }
 
-/// Short-lived messages (PRD 7.5).
+/// Short-lived messages (PRD 7.5): what [`toast`] asked to show, waiting
+/// for the shell's toast stack (NSH's `ToastManager` and `ToastStack`),
+/// which takes them in, times them out and lays them out.
 #[derive(Clone, Default, PartialEq)]
 pub struct Toasts {
     pub next: u64,
+    /// Asked for, not yet in the stack.
     pub items: Vec<(u64, NoticeKind, String)>,
+    /// How many the stack shows now (Escape dismisses the newest first).
+    pub showing: usize,
 }
 
 pub fn toasts() -> Signal<Toasts> {
     global::<Toasts>()
 }
 
+/// Shows a short message: an error 8 s, anything else 4 s (longer while
+/// the pointer or a finger is on the stack; swiped away at once).
 pub fn toast(kind: NoticeKind, text: impl Into<String>) {
     let text = text.into();
-    let id = {
-        let mut id = 0;
-        toasts().update(|t| {
-            id = t.next;
-            t.next += 1;
-            t.items.retain(|(_, _, old)| !supersedes(&text, old));
-            t.items.push((id, kind, text));
-            if t.items.len() > 3 {
-                t.items.remove(0);
-            }
-        });
-        id
-    };
-    set_timeout(std::time::Duration::from_secs(4), move || {
-        toasts().update(|t| t.items.retain(|(i, ..)| *i != id));
+    toasts().update(|t| {
+        let id = t.next;
+        t.next += 1;
+        t.items.push((id, kind, text));
     });
 }
 
 /// "Received X from Y." replaces a "Receiving X from Y." still on screen.
-fn supersedes(new: &str, old: &str) -> bool {
+pub fn supersedes(new: &str, old: &str) -> bool {
     new.strip_prefix("Received ")
         .is_some_and(|rest| old.strip_prefix("Receiving ") == Some(rest))
 }

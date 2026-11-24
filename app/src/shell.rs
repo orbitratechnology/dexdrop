@@ -47,8 +47,11 @@ fn shortcuts() {
         });
     }
     on_key("escape", |_| {
-        // A request on screen answers Escape itself (Decline).
-        if model().with_untracked(|m| !m.requests.is_empty()) {
+        // A request on screen answers Escape itself (Decline); toasts on
+        // screen go first (their stack dismisses the newest).
+        if model().with_untracked(|m| !m.requests.is_empty())
+            || toasts().with_untracked(|t| t.showing > 0)
+        {
             return;
         }
         if sheet().with_untracked(|s| *s != Sheet::None) {
@@ -668,46 +671,168 @@ fn diagnostics(report: String) -> impl IntoElement {
 
 /// Notices drop in at the top, where they never cover a sheet's buttons,
 /// the tab bar or the controls at the bottom of a page.
+/// The toasts, as NSH recommends (https://nsh.dev/elements/toast.md): a
+/// `ToastManager` owns their lifecycle (enter, timeout, exit; paused while
+/// the stack is expanded under the pointer or a finger), a `ToastStack`
+/// lays the newest three out, each a `Toast` (the alert role, read by
+/// screen readers as it shows, swiped away), in an overlay at the edge
+/// inside the safe area: the top on phones (clear of the tab bar and of
+/// Send and Receive), the bottom right on computers. Escape and Android's
+/// back dismiss the newest while there are any.
 fn toast_stack() -> impl IntoElement {
-    view()
-        .absolute()
-        .top(move || {
-            px(nsh_core::element::safe_area().top.0 + if ui::mobile() { 8.0 } else { 20.0 })
-        })
-        .left(px(16.0))
-        .right(px(16.0))
-        .items_center()
-        .gap(px(space::S))
-        .pointer_events(PointerEvents::BoxNone)
-        .child(each(
-            move || toasts().with(|t| t.items.clone()),
-            |(id, ..): &(u64, NoticeKind, String)| *id,
-            |item, _| {
-                let kind = item.with_untracked(|i| i.1);
-                let (i, tone) = match kind {
-                    NoticeKind::Error => (Icon::Alert, Tone::Danger),
-                    NoticeKind::Success => (Icon::Check, Tone::Success),
-                    NoticeKind::Info => (Icon::Info, Tone::Accent),
+    use nsh_base::{
+        Anchor, SwipeDirection, ToastManager, ToastMotion, ToastOptions, ToastStackState,
+        ToastTransitionStatus, toast, toast_stack,
+    };
+    use nsh_core::time::now;
+    type Item = (u64, (NoticeKind, String), ToastTransitionStatus);
+
+    let manager = stored(ToastManager::<u64, (NoticeKind, String)>::new(
+        ToastMotion::sonner(),
+    ));
+    let shown = signal(Vec::<Item>::new());
+    let state = ToastStackState::new();
+    let sync = move || {
+        let visible: Vec<Item> =
+            manager.with(|m| m.visible(3).map(|(id, t, s)| (*id, t.clone(), s)).collect());
+        let showing = visible
+            .iter()
+            .filter(|(.., s)| *s != ToastTransitionStatus::Ending)
+            .count();
+        shown.set(visible);
+        toasts().update(|t| t.showing = showing);
+    };
+    // What `state::toast` asked for enters the manager.
+    effect(move || {
+        let asked = toasts().with(|t| t.items.clone());
+        if asked.is_empty() {
+            return;
+        }
+        toasts().update(|t| t.items.clear());
+        manager.with(|m| {
+            for (id, kind, text) in asked {
+                // "Received …" takes the place of its "Receiving …".
+                let old: Vec<u64> = m
+                    .iter()
+                    .filter(|(_, (_, t), s)| {
+                        *s != ToastTransitionStatus::Ending && crate::state::supersedes(&text, t)
+                    })
+                    .map(|(i, ..)| *i)
+                    .collect();
+                for o in old {
+                    m.dismiss(&o, now());
+                }
+                let timeout = match kind {
+                    NoticeKind::Error => 8,
+                    _ => 4,
                 };
-                let enter = motion().entering(MotionPreset::FadeInDown);
-                view()
-                    .bind_motion(&enter)
-                    .flex_row()
-                    .items_center()
-                    .gap(px(space::S))
-                    .max_w(px(440.0))
-                    .px(px(space::L))
-                    .py(px(space::M))
-                    .rounded(px(999.0))
-                    .bg(move || theme().popover)
-                    .shadow_lg()
-                    .role(AccessibilityRole::Alert)
-                    .child(ui::icon(i, 18.0, move || ui::tone_color(tone)))
-                    .child(
-                        ui::body(move || item.with(|i| i.2.clone()))
-                            .text_size(px(ui::size::SMALL))
-                            .font_weight(FontWeight::MEDIUM),
-                    )
-            },
-        ))
+                m.push(
+                    id,
+                    (kind, text),
+                    ToastOptions::timeout(Some(std::time::Duration::from_secs(timeout))),
+                    now(),
+                );
+            }
+        });
+        sync();
+    });
+    // The lifecycle moves on while toasts are mounted, paused while the
+    // stack is expanded.
+    set_interval(std::time::Duration::from_millis(50), move || {
+        if manager.with(|m| !m.is_empty() && m.advance(now(), state.is_expanded()).changed) {
+            sync();
+        }
+    });
+    let phone = ui::mobile();
+    let (anchor, swipe) = if phone {
+        (Anchor::TopCenter, SwipeDirection::Up)
+    } else {
+        (Anchor::BottomRight, SwipeDirection::Right)
+    };
+    let edge = move || {
+        if phone {
+            px(nsh_core::element::safe_area().top.0 + space::S)
+        } else {
+            px(space::XL)
+        }
+    };
+    let placed = overlay().absolute().pointer_events(PointerEvents::BoxNone);
+    let placed = if phone {
+        placed
+            .top(edge)
+            .left(px(space::L))
+            .right(px(space::L))
+            .items_center()
+    } else {
+        placed
+            .bottom(edge)
+            .right(px(space::XL))
+            .w(px(360.0))
+            .items_end()
+    };
+    placed.child(
+        toast_stack()
+            .placement(anchor)
+            .state(state)
+            .on_cancel(move || {
+                let newest = manager.with(|m| {
+                    m.iter()
+                        .rev()
+                        .find(|(.., s)| *s != ToastTransitionStatus::Ending)
+                        .map(|(id, ..)| *id)
+                });
+                if let Some(id) = newest {
+                    manager.with(|m| m.dismiss(&id, now()));
+                    sync();
+                }
+            })
+            // Phones: the width between the margins, at most 440 pt.
+            .w_full()
+            .max_w(px(if phone { 440.0 } else { 360.0 }))
+            .child(each(
+                shown,
+                |(id, ..): &Item| *id,
+                move |item, _| {
+                    let kind = item.with_untracked(|i| i.1.0);
+                    let (i, tone) = match kind {
+                        NoticeKind::Error => (Icon::Alert, Tone::Danger),
+                        NoticeKind::Success => (Icon::Check, Tone::Success),
+                        NoticeKind::Info => (Icon::Info, Tone::Neutral),
+                    };
+                    toast()
+                        .transition_status(move || item.get().2)
+                        .accessibility_label(move || Some(SharedString::from(item.get().1.1)))
+                        .swipe_direction(Some(swipe))
+                        .on_dismiss_request(move || {
+                            manager.with(|m| m.dismiss(&item.get_untracked().0, now()));
+                            sync();
+                        })
+                        .flex_row()
+                        .items_center()
+                        .gap(px(space::S))
+                        .px(px(space::L))
+                        .py(px(space::M))
+                        .rounded(px(16.0))
+                        .bg(move || theme().popover)
+                        .border(px(1.0))
+                        .border_color(move || theme().border)
+                        .shadow_lg()
+                        .transition_all()
+                        .duration(200.0)
+                        .starting_class(if phone {
+                            "opacity-0 -translate-y-4"
+                        } else {
+                            "opacity-0 translate-y-4"
+                        })
+                        .ending_class("opacity-0 scale-95")
+                        .child(ui::icon(i, 18.0, move || ui::tone_color(tone)))
+                        .child(
+                            ui::body(move || item.with(|i| i.1.1.clone()))
+                                .flex_1()
+                                .text_size(px(ui::size::SMALL))
+                                .font_weight(FontWeight::MEDIUM),
+                        )
+                },
+            )),
+    )
 }

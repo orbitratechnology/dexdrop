@@ -14,6 +14,7 @@ current whenever tests, selectors, CI jobs or timings change.
 | Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay |
 | UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default) |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
+| UI headless, toasts | `cargo test -p dexdrop-app --test toasts` | ~2 s | NSH's toast stack: an alert, timed out by the manager on the manual clock, Escape dismisses the newest before going back |
 | UI headless, keyboard and long presses | `cargo test -p dexdrop-app --test keys` | ~3 s | Home's S / R / arrows, Escape back; a past transfer removed and a device forgotten by a long press, through the system's alert (`answer_dialogs_myself`) |
 | UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~3 s | Send and Receive within a thumb's reach above the tab bar, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
 | UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
