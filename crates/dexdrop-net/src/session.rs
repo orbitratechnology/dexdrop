@@ -1479,6 +1479,27 @@ fn is_no_space(err: &std::io::Error) -> bool {
         || matches!(err.raw_os_error(), Some(28) | Some(112) | Some(39))
 }
 
+/// How long a receiver that paused or cancelled waits for the sender to
+/// hang up.
+const DRAIN: Duration = Duration::from_secs(3);
+
+/// After telling the sender to stop: keep reading (and dropping) what it
+/// still had in flight until it closes, or [`DRAIN`]. Closing with unread
+/// data makes TCP reset the connection, and Windows then discards what the
+/// sender had not read yet, our Pause or Cancel with it: the sender saw a
+/// dropped link and reconnected instead of stopping.
+async fn drain_until_closed<R: AsyncRead + Unpin>(rd: &mut R) {
+    let mut sink = vec![0u8; 64 * 1024];
+    let _ = tokio::time::timeout(DRAIN, async {
+        while let Ok(n) = rd.read(&mut sink).await {
+            if n == 0 {
+                break;
+            }
+        }
+    })
+    .await;
+}
+
 impl Receiver<'_> {
     async fn read_loop<R: AsyncRead + Unpin>(
         &mut self,
@@ -1501,10 +1522,12 @@ impl Receiver<'_> {
                         Control::Pause => {
                             self.save_progress().await;
                             let _ = self.shared.writer.send(Message::Pause);
+                            drain_until_closed(&mut rd).await;
                             return Ok(SessionEnd::Paused { by_peer: false });
                         }
                         Control::Cancel => {
                             let _ = self.shared.writer.send(Message::Cancel(CancelReason::User));
+                            drain_until_closed(&mut rd).await;
                             return Ok(SessionEnd::Cancelled { by_peer: false });
                         }
                     }
