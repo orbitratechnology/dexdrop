@@ -209,16 +209,34 @@ fn session_row(t: impl Fn() -> Option<TransferSnapshot> + Copy + 'static) -> imp
 
 /// A past transfer: a tap shows its details. Reads `entry` in every
 /// binding, so a recycled list cell shows its new row.
+/// Asks, then removes a past transfer from the history (its files stay).
+fn ask_remove(entry: Option<HistoryEntry>) {
+    let Some(e) = entry else { return };
+    crate::device::buzz(crate::device::Buzz::Tap);
+    let id = e.transfer_id.clone();
+    ui::confirm(
+        format!("Remove {} from History?", e.label),
+        "The files stay where they are.",
+        "Remove",
+        move || crate::bridge::send(dexdrop_core::api::Command::RemoveHistory(id)),
+    );
+}
+
 pub fn row(entry: impl Fn() -> Option<HistoryEntry> + Copy + 'static) -> impl IntoElement {
     let field =
         move |f: fn(&HistoryEntry) -> String| move || entry().map(|e| f(&e)).unwrap_or_default();
-    ui::pressable()
-        .accessibility_label(move || entry().map(|e| SharedString::from(e.label)))
+    // A view, not a button: views take long presses (NSH's buttons do not).
+    view()
+        .role(nsh_core::element::AccessibilityRole::Button)
+        .optional_label(move || entry().map(|e| SharedString::from(e.label)))
         .on_press(move || {
             if let Some(e) = entry() {
                 push(Route::Past(e.transfer_id));
             }
         })
+        // Held (phones) or right-clicked (computers): remove it.
+        .on_long_press(move || ask_remove(entry()))
+        .on_context_menu(move |_: &ContextMenuEvent| ask_remove(entry()))
         .active(move |s| s.bg(move || theme().muted))
         .hover(move |s| s.bg(move || theme().muted.opacity(0.6)))
         .child(

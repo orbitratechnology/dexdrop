@@ -27,7 +27,30 @@ fn shortcuts() {
     on_key("mod+2", |_| set_tab(Tab::History));
     on_key("mod+3", |_| set_tab(Tab::Settings));
     on_key("mod+,", |_| set_tab(Tab::Settings));
+    // Home: S or ← for Send, R or → for Receive (where the buttons are).
+    let home = || {
+        crate::state::showing(Tab::Share, |r| *r == Route::Root)
+            && sheet().with_untracked(|s| *s == Sheet::None)
+    };
+    for key in ["s", "left"] {
+        on_key(key, move |_| {
+            if home() {
+                crate::state::push(Route::Send)
+            }
+        });
+    }
+    for key in ["r", "right"] {
+        on_key(key, move |_| {
+            if home() {
+                crate::state::push(Route::Receive)
+            }
+        });
+    }
     on_key("escape", |_| {
+        // A request on screen answers Escape itself (Decline).
+        if model().with_untracked(|m| !m.requests.is_empty()) {
+            return;
+        }
         if sheet().with_untracked(|s| *s != Sheet::None) {
             sheet().set(Sheet::None);
         } else {

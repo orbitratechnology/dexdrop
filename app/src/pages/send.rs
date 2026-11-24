@@ -804,8 +804,18 @@ fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
 }
 
 /// The action at the foot of the send page: straight to the device picked
-/// first, else to the device list.
+/// first, else to the device list. Return does the same.
 fn next_bar() -> impl IntoElement {
+    let mine = crate::state::tab_untracked();
+    on_key("enter", move |_| {
+        if !crate::state::showing(mine, |r| *r == Route::Send) || !has_selection() {
+            return;
+        }
+        match picked_peer() {
+            Some(p) => send_to(Target::Peer(p.peer_id)),
+            None => push(Route::Devices),
+        }
+    });
     view()
         .absolute()
         .left_0()
@@ -872,6 +882,57 @@ pub fn devices_page() -> impl IntoElement {
         })
     };
     let sent_any = move || model().with(|m| m.transfers.iter().any(|t| t.group == Some(group)));
+    // The keyboard: Up and Down move a highlight through the devices,
+    // Return sends to the highlighted one (else the first), A to all nearby.
+    let focus = signal(None::<usize>);
+    let mine = crate::state::tab_untracked();
+    let here = move || crate::state::showing(mine, |r| *r == Route::Devices);
+    let count = move || model().with_untracked(|m| m.peers.len());
+    on_key_with(
+        "down",
+        KeyOptions {
+            repeat: true,
+            ..Default::default()
+        },
+        move |_| {
+            if here() && count() > 0 {
+                focus.set(Some(
+                    focus
+                        .get_untracked()
+                        .map_or(0, |i| (i + 1).min(count() - 1)),
+                ));
+            }
+        },
+    );
+    on_key_with(
+        "up",
+        KeyOptions {
+            repeat: true,
+            ..Default::default()
+        },
+        move |_| {
+            if here() && count() > 0 {
+                focus.set(Some(
+                    focus.get_untracked().map_or(0, |i| i.saturating_sub(1)),
+                ));
+            }
+        },
+    );
+    on_key("enter", move |_| {
+        if !here() {
+            return;
+        }
+        let i = focus.get_untracked().unwrap_or(0);
+        if let Some(p) = model().with_untracked(|m| m.peers.get(i).cloned()) {
+            tap_device(group, p.peer_id);
+        }
+    });
+    on_key("a", move |_| {
+        if here() {
+            let targets: Vec<Target> = unsent().into_iter().map(Target::Peer).collect();
+            send_group(group, targets);
+        }
+    });
     view()
         .flex_1()
         .child(body(
@@ -912,7 +973,9 @@ pub fn devices_page() -> impl IntoElement {
                             move |p, i| {
                                 view()
                                     .child(when(move || i.get() > 0, || ui::separator(76.0)))
-                                    .child(device_row(p, group))
+                                    .child(device_row(p, group, move || {
+                                        focus.get() == Some(i.get())
+                                    }))
                             },
                         ))
                     },
@@ -1029,7 +1092,20 @@ fn progress_bar(group: TransferId) -> impl IntoElement {
         )
 }
 
-fn device_row(peer: ReadSignal<PeerInfo>, group: TransferId) -> impl IntoElement {
+/// A device tapped (or chosen with Return): sends to it, or opens its
+/// transfer while that one is still going.
+fn tap_device(group: TransferId, peer: dexdrop_core::identity::PeerId) {
+    match sent_to(group, peer) {
+        Some(t) if !t.state.is_finished() => push(Route::Transfer(Some(t.id))),
+        _ => send_group(group, vec![Target::Peer(peer)]),
+    }
+}
+
+fn device_row(
+    peer: ReadSignal<PeerInfo>,
+    group: TransferId,
+    highlighted: impl Fn() -> bool + Copy + 'static,
+) -> impl IntoElement {
     let name = move || peer.with(|p| p.name.clone());
     let platform = move || peer.with(|p| p.platform.clone());
     let id = move || peer.with_untracked(|p| p.peer_id);
@@ -1077,11 +1153,15 @@ fn device_row(peer: ReadSignal<PeerInfo>, group: TransferId) -> impl IntoElement
                 None => format!("Send to {name}"),
             }))
         })
-        .on_press(move || match sent.get_untracked() {
-            // Sent to already and still going: its progress, to pause or
-            // cancel; once over, a tap sends again.
-            Some((id, state, _)) if !state.is_finished() => push(Route::Transfer(Some(id))),
-            _ => send_group(group, vec![Target::Peer(id())]),
+        // Sent to already and still going: its progress, to pause or
+        // cancel; once over, a tap sends again.
+        .on_press(move || tap_device(group, id()))
+        .bg(move || {
+            if highlighted() {
+                theme().muted
+            } else {
+                theme().muted.opacity(0.0)
+            }
         })
         .flex_row()
         .items_center()

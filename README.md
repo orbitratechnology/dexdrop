@@ -57,6 +57,20 @@ On loopback the full pipeline (TLS + hashing + disk) runs at roughly
 `dexdrop bench --files 20000`), several times what gigabit Ethernet
 carries. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#measured-performance).
 
+## Keyboard
+
+| Where | Keys |
+|---|---|
+| Home | `S` or `←` Send, `R` or `→` Receive |
+| Send | `Return` on to the devices (or to the device picked); `⌘/Ctrl+O` choose files, `⌘/Ctrl+Shift+O` a folder |
+| Choose device | `↑` `↓` move, `Return` send to it, `A` send to all nearby |
+| A request | `Return` accept, `Esc` decline |
+| A transfer | `Space` pause or resume, `O` open what came in |
+| Anywhere | `⌘/Ctrl+1` `2` `3` Share, History, Settings; `Esc` back |
+
+Hold (or right-click) a past transfer to remove it from History, or a
+device under *Your devices* to forget it; both ask first.
+
 ## Repository layout
 
 ```text

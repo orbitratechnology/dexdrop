@@ -287,8 +287,10 @@ fn far_devices() -> impl IntoElement {
 fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
     let name = move || peer.with(|p| p.name.clone());
     let platform = move || peer.with(|p| p.platform.clone());
-    ui::pressable()
-        .accessibility_label(format!(
+    // A view, not a button: views take long presses (NSH's buttons do not).
+    view()
+        .role(nsh_core::element::AccessibilityRole::Button)
+        .label(format!(
             "Send to {}",
             peer.with_untracked(|p| p.name.clone())
         ))
@@ -301,6 +303,10 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
                 push(Route::Send);
             }
         })
+        // A device known from before (Your devices): held or right-clicked,
+        // forget it, after asking.
+        .on_long_press(move || ask_forget(peer.get_untracked()))
+        .on_context_menu(move |_: &ContextMenuEvent| ask_forget(peer.get_untracked()))
         .w(px(84.0))
         .items_center()
         .gap(px(space::S))
@@ -320,6 +326,22 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
                 .text_center()
                 .text_color(move || theme().foreground),
         )
+}
+
+/// Asks, then forgets a device known from before: it leaves Your devices
+/// and the trusted ones. Nearby devices show while they are there, so
+/// there is nothing to forget.
+fn ask_forget(peer: PeerInfo) {
+    if peer.nearby {
+        return;
+    }
+    crate::device::buzz(crate::device::Buzz::Tap);
+    ui::confirm(
+        format!("Forget {}?", peer.name),
+        "It leaves Your devices and is no longer trusted. You can send to it again when it is nearby, or with its code or invitation.",
+        "Forget",
+        move || bridge::send(Command::ForgetPeer(peer.peer_id)),
+    );
 }
 
 /// No device yet: a small radar while discovery looks.

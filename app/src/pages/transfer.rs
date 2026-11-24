@@ -57,6 +57,51 @@ pub fn short_state(state: &TransferState) -> &'static str {
     }
 }
 
+/// The keyboard on a transfer's page, while it is the page showing:
+/// Space pauses or resumes, O opens what came in (the file, or the folder
+/// of several on a computer).
+fn keys(id: TransferId, s: impl Fn() -> TransferSnapshot + Copy + 'static) {
+    let mine = crate::state::tab_untracked();
+    let here = move || {
+        crate::state::showing(mine, |r| match r {
+            Route::Transfer(Some(x)) => *x == id,
+            Route::Transfer(None) => find(None).is_some_and(|t| t.id == id),
+            _ => false,
+        })
+    };
+    on_key("space", move |_| {
+        if !here() {
+            return;
+        }
+        let t = s();
+        if t.can_pause() {
+            bridge::send(Command::Pause(id));
+        } else if t.can_resume() && !t.state.is_finished() {
+            bridge::send(Command::Resume(id));
+        }
+    });
+    on_key("o", move |_| {
+        if !here() {
+            return;
+        }
+        let t = s();
+        if t.direction != Direction::Incoming || !t.state.is_finished() {
+            return;
+        }
+        match (t.saved_files.as_slice(), t.saved_to) {
+            ([one], _) => crate::files::open(one.clone()),
+            (_, Some(dir)) if desktop_platform() => {
+                let shown = reveal_path(dir);
+                spawn(async move {
+                    let _ = shown.await;
+                });
+            }
+            ([first, ..], _) => crate::files::open(first.clone()),
+            _ => {}
+        }
+    });
+}
+
 /// One line about a transfer: progress and speed, or how it ended.
 pub fn one_line(t: &TransferSnapshot) -> String {
     match &t.state {
@@ -277,6 +322,7 @@ fn group_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
 
 fn progress(id: TransferId) -> impl IntoElement {
     let s = move || find(Some(id)).unwrap_or_default();
+    keys(id, s);
     let done = move || s().state == TransferState::Completed;
     let finished = move || s().state.is_finished();
     // Screen readers hear each change of state (paused, reconnecting, done,
@@ -659,6 +705,15 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
             respond(true);
         }
     };
+    let enough_space = r.enough_space();
+    // The keyboard, while this request shows: Return accepts, Escape
+    // declines.
+    on_key("enter", move |_| {
+        if enough_space {
+            accept()
+        }
+    });
+    on_key("escape", move |_| respond(false));
     let rise = motion().entering(MotionPreset::SlideInUp);
     let name = r.peer_name.clone();
     let field = move |f: fn(&IncomingRequest) -> String| {

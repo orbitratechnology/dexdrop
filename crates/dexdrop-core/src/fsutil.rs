@@ -190,3 +190,69 @@ mod tests {
         assert_eq!(file_uri_to_path("file:"), None);
     }
 }
+
+/// Moves every file under `from` into `to`, keeping their folders: a
+/// rename where both are on one volume, else a copy then a removal. Never
+/// overwrites (a taken name gets the next free one, `name (1).ext`); skips
+/// links and hidden files (partial transfers resume from those). Folders
+/// left empty go. Returns how many files moved.
+pub fn move_tree(from: &Path, to: &Path) -> io::Result<usize> {
+    fn walk(dir: &Path, root: &Path, to: &Path, moved: &mut usize) -> io::Result<()> {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let kind = entry.file_type()?;
+            let name = entry.file_name();
+            if kind.is_symlink() || name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if kind.is_dir() {
+                walk(&path, root, to, moved)?;
+                let _ = std::fs::remove_dir(&path);
+                continue;
+            }
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            let parent = to.join(rel.parent().unwrap_or(Path::new("")));
+            std::fs::create_dir_all(&parent)?;
+            let target = crate::naming::first_free(&parent, &name.to_string_lossy());
+            if std::fs::rename(&path, &target).is_err() {
+                std::fs::copy(&path, &target)?;
+                std::fs::remove_file(&path)?;
+            }
+            *moved += 1;
+        }
+        Ok(())
+    }
+    let mut moved = 0;
+    walk(from, from, to, &mut moved)?;
+    let _ = std::fs::remove_dir(from);
+    Ok(moved)
+}
+
+#[cfg(test)]
+mod move_tests {
+    use super::*;
+
+    #[test]
+    fn moves_files_and_folders_without_overwriting() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(a.path().join("Album")).unwrap();
+        std::fs::write(a.path().join("talk.mp4"), b"new").unwrap();
+        std::fs::write(a.path().join("Album/1.jpg"), b"one").unwrap();
+        std::fs::write(a.path().join(".talk.mp4.abc.dexdrop-part"), b"partial").unwrap();
+        std::fs::write(b.path().join("talk.mp4"), b"already there").unwrap();
+        assert_eq!(move_tree(a.path(), b.path()).unwrap(), 2);
+        assert_eq!(
+            std::fs::read(b.path().join("talk.mp4")).unwrap(),
+            b"already there"
+        );
+        assert_eq!(
+            std::fs::read(b.path().join("talk (1).mp4")).unwrap(),
+            b"new"
+        );
+        assert_eq!(std::fs::read(b.path().join("Album/1.jpg")).unwrap(), b"one");
+        // A partial transfer stays where its journal finds it.
+        assert!(a.path().join(".talk.mp4.abc.dexdrop-part").exists());
+    }
+}

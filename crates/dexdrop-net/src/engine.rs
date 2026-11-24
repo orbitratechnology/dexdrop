@@ -715,18 +715,35 @@ impl Actor {
         self.purge_staging();
     }
 
-    /// Phones copy picked files into `staging` before sending them. Copies
-    /// no unfinished transfer needs go after a week (small ones stay that
-    /// long so history can still preview them; large ones go as soon as
-    /// their transfer ends, [`Self::release_staged`]).
+    /// Copies of picked files no transfer needs any more go: DexDrop's
+    /// `staging`, and NSH's picker copies (`nsh-picker`, `nsh-picked-*` in
+    /// the app's cache). Anything an unfinished transfer or the open send
+    /// group needs stays; small photos stay a week (History shows them);
+    /// the rest goes after an hour (picked but never sent).
     fn purge_staging(&self) {
-        let staging = self.ctx.state.staging();
-        let Ok(dirs) = std::fs::read_dir(&staging) else {
-            return;
-        };
-        let needed: Vec<std::path::PathBuf> = self
+        let needed = self.needed_sources();
+        let mut roots = vec![self.ctx.state.staging()];
+        roots.extend(picker_dirs(&self.ctx.state.staging()));
+        for root in roots {
+            // What is inside each root: the roots stay (NSH writes into
+            // its own; staging is made again when needed anyway).
+            match std::fs::read_dir(&root) {
+                Ok(entries) => {
+                    for e in entries.flatten() {
+                        purge_tree(&e.path(), &needed, Duration::from_secs(3600));
+                    }
+                }
+                Err(_) => purge_tree(&root, &needed, Duration::from_secs(3600)),
+            }
+        }
+    }
+
+    /// The source files unfinished transfers and the open send group read.
+    fn needed_sources(&self) -> Vec<std::path::PathBuf> {
+        let mut needed: Vec<std::path::PathBuf> = self
             .transfers
             .values()
+            .filter(|t| !t.snap.state.is_finished())
             .filter_map(|t| t.outgoing.as_ref()?.manifest.clone())
             .flat_map(|m| {
                 m.entries
@@ -735,29 +752,17 @@ impl Actor {
                     .collect::<Vec<_>>()
             })
             .collect();
-        let week = Duration::from_secs(7 * 24 * 3600);
-        for dir in dirs.flatten() {
-            let path = dir.path();
-            let old = dir
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .is_some_and(|age| age > week);
-            if old && !needed.iter().any(|n| n.starts_with(&path)) {
-                let _ = if path.is_dir() {
-                    std::fs::remove_dir_all(&path)
-                } else {
-                    std::fs::remove_file(&path)
-                };
-            }
+        if let Some((_, paths, _)) = &self.group_manifest {
+            needed.extend(paths.iter().cloned());
         }
+        needed
     }
 
-    /// A finished outgoing transfer's large staged copies go at once: a
-    /// 5 GB video copied off a phone's gallery should not stay twice.
+    /// A finished outgoing transfer's copies of picked files go at once (a
+    /// 5 GB video copied off a phone's gallery must not stay twice), unless
+    /// another transfer or the open send group still reads them; small
+    /// photos stay for History's previews (purged after a week).
     fn release_staged(&self, id: &TransferId) {
-        const LARGE: u64 = 50 * 1024 * 1024;
         let staging = self.ctx.state.staging();
         let Some(manifest) = self
             .transfers
@@ -766,10 +771,12 @@ impl Actor {
         else {
             return;
         };
+        let needed = self.needed_sources();
         for entry in &manifest.entries {
             if let Some(source) = &entry.source
-                && entry.wire.size >= LARGE
-                && source.starts_with(&staging)
+                && is_copy(source, &staging)
+                && !needed.iter().any(|n| source.starts_with(n))
+                && !small_photo(source, entry.wire.size)
             {
                 let _ = std::fs::remove_file(source);
             }
@@ -957,6 +964,14 @@ impl Actor {
                 self.emit_peers();
             }
             Command::ClearHistory => self.clear_history(),
+            Command::RemoveHistory(id) => {
+                let before = self.history.entries.len();
+                self.history.entries.retain(|e| e.transfer_id != id);
+                if self.history.entries.len() != before {
+                    let _ = self.history.save(&self.ctx.state.history());
+                    self.emit(Event::History(self.history.entries.clone()));
+                }
+            }
             Command::SetInternet(on) => self.update_settings(|s| s.internet = on),
             Command::LocalNetworkExplained => {
                 self.update_settings(|s| s.local_network_explained = true);
@@ -1357,7 +1372,25 @@ impl Actor {
                     }
                     let manifest = Arc::new(manifest);
                     if let Some(group) = group {
-                        self.group_manifest = Some((group, paths, manifest.clone()));
+                        let previous =
+                            self.group_manifest
+                                .replace((group, paths, manifest.clone()));
+                        // The group before is closed: its copies go unless
+                        // its transfers still read them.
+                        if let Some((_, old_paths, _)) = previous {
+                            let staging = self.ctx.state.staging();
+                            let needed = self.needed_sources();
+                            for p in old_paths {
+                                if is_copy(&p, &staging) && !needed.iter().any(|n| p.starts_with(n))
+                                {
+                                    let _ = if p.is_dir() {
+                                        std::fs::remove_dir_all(&p)
+                                    } else {
+                                        std::fs::remove_file(&p)
+                                    };
+                                }
+                            }
+                        }
                     }
                     for id in ids {
                         self.manifest_ready(id, manifest.clone());
@@ -2087,4 +2120,95 @@ pub fn summary(files: u64, folders: u64, bytes: u64) -> String {
         format::item_count(files, folders),
         format::bytes(bytes)
     )
+}
+
+/// A copy made of a picked file: in DexDrop's staging, or one of NSH's
+/// picker copies (`nsh-picker/…`, `nsh-picked-…`), never a user's file.
+fn is_copy(path: &std::path::Path, staging: &std::path::Path) -> bool {
+    path.starts_with(staging)
+        || path.components().any(|c| c.as_os_str() == "nsh-picker")
+        || path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("nsh-picked-"))
+}
+
+/// A photo small enough to keep a week for History's preview.
+fn small_photo(path: &std::path::Path, size: u64) -> bool {
+    const SMALL: u64 = 8 * 1024 * 1024;
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    size <= SMALL
+        && matches!(
+            ext.as_str(),
+            "jpg" | "jpeg" | "png" | "heic" | "heif" | "webp" | "gif" | "avif"
+        )
+}
+
+/// Where NSH's pickers may have left copies: `nsh-picker` in the app's
+/// cache (beside its files on Android), found from the state folder.
+fn picker_dirs(staging: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut dirs = vec![std::env::temp_dir()];
+    for up in staging.ancestors().skip(1).take(4) {
+        dirs.push(up.join("cache"));
+        dirs.push(up.to_path_buf());
+    }
+    let mut found: Vec<std::path::PathBuf> = Vec::new();
+    for dir in dirs {
+        let picker = dir.join("nsh-picker");
+        if picker.is_dir() && !found.contains(&picker) {
+            found.push(picker);
+        }
+        // Loose copies (`nsh-picked-…`) beside it.
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if e.file_name().to_string_lossy().starts_with("nsh-picked-") && !found.contains(&p)
+                {
+                    found.push(p);
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Removes what under `root` nothing needs: files older than `after`
+/// (small photos: a week), then the folders left empty.
+fn purge_tree(root: &std::path::Path, needed: &[std::path::PathBuf], after: Duration) {
+    let week = Duration::from_secs(7 * 24 * 3600);
+    let age = |p: &std::path::Path| {
+        std::fs::symlink_metadata(p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .unwrap_or_default()
+    };
+    let Ok(meta) = std::fs::symlink_metadata(root) else {
+        return;
+    };
+    if meta.is_file() {
+        if !needed.iter().any(|n| root.starts_with(n) || n == root)
+            && age(root)
+                > if small_photo(root, meta.len()) {
+                    week
+                } else {
+                    after
+                }
+        {
+            let _ = std::fs::remove_file(root);
+        }
+        return;
+    }
+    if !meta.is_dir() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            purge_tree(&e.path(), needed, after);
+        }
+    }
+    // Left empty: gone too (a staging folder of a pick).
+    let _ = std::fs::remove_dir(root);
 }

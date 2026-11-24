@@ -77,6 +77,9 @@ pub enum Command {
     },
     ForgetPeer(PeerId),
     ClearHistory,
+    /// Removes one past transfer (its `transfer_id`) from the history; its
+    /// files stay where they are.
+    RemoveHistory(String),
     RefreshDiscovery,
     /// The user read why the local network is used (FR-004): discovery
     /// starts, and with it the system's permission prompt where there is one.

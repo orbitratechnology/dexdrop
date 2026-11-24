@@ -79,6 +79,15 @@ pub fn tab() -> Tab {
 }
 
 /// The tab shown now, without subscribing.
+/// Whether `route` is the page showing on `tab` and `tab` is the one
+/// shown: keyboard shortcuts of a page act only then (visited tabs stay
+/// mounted behind the one shown).
+pub fn showing(tab: Tab, route: impl Fn(&Route) -> bool) -> bool {
+    tab_untracked() == tab
+        && global::<Stacks>().with_untracked(|s| s.0[tab.index()].last().is_some_and(&route))
+        && model().with_untracked(|m| m.requests.is_empty())
+}
+
 pub fn tab_untracked() -> Tab {
     global::<CurrentTab>().get_untracked().0
 }

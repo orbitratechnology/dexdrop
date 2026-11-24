@@ -162,11 +162,11 @@ names the test or check; "Gap" is what is still missing.
 | FR-057 Many files | P0 | Done | 250k cap, paged manifest; 20,000 files at 40 MB peak | |
 | FR-058 Concurrency | P1 | Done (adapted) | 64 pipelined requests on one stream | |
 | FR-059 Duplicates | P1 | Done | Name and size, then hash, receiver side | |
-| FR-060 History | P1 | Done | Local, capped, Clear, Keep-history switch | |
+| FR-060 History | P1 | Done | Local, capped, Clear, Keep-history switch; hold or right-click one to remove it, after asking (`tests/keys.rs`) | |
 | FR-070 Device name | P0 | Done | | |
 | FR-071 Visibility | P0 | Done | Switch; hidden devices still receive by code | |
 | FR-072 Network data policy | P0 | Partial | Local transfers never use a relay; internet transfers have their own switch (on by default) | No mobile-data check yet: an internet transfer may use mobile data while the switch is on |
-| FR-073 Privacy and storage | P0 | Done | Settings says what stays on the device and where files go | |
+| FR-073 Privacy and storage | P0 | Done | Settings says what stays on the device and where files go. Phones' copies of picked files (DexDrop's staging and NSH's `nsh-picker` copies) go when their transfer ends, unless another transfer or the open send group still reads them; small photos stay a week for History; copies picked but never sent go after an hour. Received files are in Downloads, not the app's storage; earlier versions' are moved there once | |
 | FR-074 Trusted devices | P1 | Done | | |
 | FR-075 Diagnostics export | P1 | Done | No names, paths, contents or keys | |
 | FR-080 Remote connection | P1 | Done | Iroh 1.5: direct path with hole punching, the route shown (direct / through a relay) and followed live; engine test over a local relay | Real NATs and carrier networks not measured |
@@ -180,7 +180,7 @@ names the test or check; "Gap" is what is still missing.
 |---|---|---|
 | 7.1 Structure | Done | Share (home), History, Settings; native stacks; desktop sidebar |
 | 7.2 Mobile home | Done | Device name and visibility, nearby devices, Send / Receive as two 64 pt buttons floating at the bottom within a thumb's reach (`tests/design.rs`), activity badge on History; code fallback under Send › Choose device |
-| 7.3 Desktop home | Done | Sidebar, drop target, application menu (File, Edit, View; macOS app and Window menus), Cmd/Ctrl shortcuts, notifications |
+| 7.3 Desktop home | Done | Sidebar, drop target, application menu (File, Edit, View; macOS app and Window menus), Cmd/Ctrl shortcuts and single keys for the common actions (README "Keyboard": S / R, arrows and Return through devices, Return / Esc on a request, Space and O on a transfer), notifications |
 | 7.4 Transfer card | Done | Peer and platform, name, size, state, MB/s, time left, Pause/Resume/Retry/Cancel, plain errors |
 | 7.5 States | Done | Pressed, hover, keyboard focus ring (every control), disabled, loading, success, error |
 | 7.6 Visual design | Done | Black and white: neutral greys, near-black primary on off-white in light, off-white primary on near-black in dark; color only where it means something (file kinds, avatars, OS marks, states). Icons carry their color themselves, with no tile or circle behind them, filling their place. Segmented choices: the system's control on iOS, NSH's toggle group elsewhere |

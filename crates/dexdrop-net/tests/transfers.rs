@@ -1439,3 +1439,44 @@ async fn sends_to_several_devices_at_once() {
         .count();
     assert_eq!((sent, declined), (3, 1));
 }
+
+/// Copies of picked files (a phone's staging) go once their transfer is
+/// done: a video at once, a small photo kept for History's preview; a
+/// file picked from the user's own folders is never touched.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn copies_of_picked_files_go_once_sent() {
+    let mut a = Node::start("Alice").await;
+    let mut b = Node::start("Bob").await;
+    let staged = a.dir.path().join("state/staging/abc123");
+    std::fs::create_dir_all(&staged).unwrap();
+    write_file(&staged.join("clip.mp4"), 9_000_000, 21);
+    write_file(&staged.join("photo.jpg"), 300_000, 22);
+    let own = tempfile::tempdir().unwrap();
+    write_file(&own.path().join("notes.txt"), 1000, 23);
+    a.send(Command::SendFiles {
+        target: b.target(),
+        paths: vec![
+            staged.join("clip.mp4"),
+            staged.join("photo.jpg"),
+            own.path().join("notes.txt"),
+        ],
+    });
+    let request = b.wait_request().await;
+    b.send(accept(request.id));
+    a.wait_state("sent", |s| *s == TransferState::Completed)
+        .await;
+    // The engine releases the copies as it records the end.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while staged.join("clip.mp4").exists() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(!staged.join("clip.mp4").exists(), "the video's copy stayed");
+    assert!(
+        staged.join("photo.jpg").exists(),
+        "the photo's copy went too soon"
+    );
+    assert!(
+        own.path().join("notes.txt").exists(),
+        "a user's own file was removed"
+    );
+}

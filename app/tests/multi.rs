@@ -151,3 +151,29 @@ fn devices_clear_the_tab_bar_on_a_small_phone() {
         "the row ends at {bottom} pt, under the tab bar"
     );
 }
+
+/// The device list from the keyboard: Down highlights a device, Return
+/// sends to it.
+#[test]
+fn arrows_and_return_send_to_a_device() {
+    let (mut app, dir) = start();
+    let file = dir.path().join("talk.pdf");
+    std::fs::write(&file, vec![7u8; 4096]).unwrap();
+    app.press("id:send").unwrap();
+    app.wait_for("id:pick-files").unwrap();
+    app.drop_files("id:pick-files", vec![format!("file://{}", file.display())])
+        .unwrap();
+    app.wait_for_within("id:next", Duration::from_secs(5))
+        .unwrap();
+    // Return on Send goes on to the devices.
+    app.press_key("enter").unwrap();
+    app.wait_for_within("label:Send to Laptop", Duration::from_secs(5))
+        .unwrap();
+    app.press_key("down").unwrap();
+    app.press_key("down").unwrap();
+    app.press_key("enter").unwrap();
+    // Desk and Laptop, in that order: the second is Laptop.
+    app.wait_for_within("label:/^Laptop, /", Duration::from_secs(5))
+        .unwrap();
+    assert!(app.screen().id("label:Send to Desk").is_ok());
+}

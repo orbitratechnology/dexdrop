@@ -103,7 +103,45 @@ mod native {
         }
         let (engine, events) = Engine::start(config).map_err(|e| e.to_string())?;
         global::<Slot>().set(Slot(Some(Rc::new(engine))));
+        if matches!(platform, "android" | "ios") {
+            move_old_received(platform);
+        }
         Ok(events)
+    }
+
+    /// Earlier versions kept received files in the app's own storage on
+    /// phones (counted as the app's data). Now they go to the system's
+    /// Downloads: move what is still there, once, in the background.
+    fn move_old_received(platform: &'static str) {
+        let base = std::env::var_os("DEXDROP_STATE_DIR")
+            .map(PathBuf::from)
+            .or_else(data_dir)
+            .unwrap_or_else(|| std::env::temp_dir().join("dexdrop"));
+        let old = base.join("Received");
+        let new = dirs(platform).1;
+        if new == old || !old.is_dir() {
+            return;
+        }
+        let moving = blocking(move || dexdrop_core::fsutil::move_tree(&old, &new));
+        spawn(async move {
+            if let Ok(Ok(n)) = moving.await
+                && n > 0
+            {
+                let place = if platform == "ios" {
+                    "the Files app"
+                } else {
+                    "Downloads"
+                };
+                crate::state::toast(
+                    dexdrop_core::api::NoticeKind::Info,
+                    if n == 1 {
+                        format!("Moved 1 received file to {place}.")
+                    } else {
+                        format!("Moved {n} received files to {place}.")
+                    },
+                );
+            }
+        });
     }
 }
 

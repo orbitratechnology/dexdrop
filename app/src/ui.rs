@@ -1007,3 +1007,28 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
         .self_stretch()
         .into_element()
 }
+
+/// Asks before something is removed, with the system's alert: `title`,
+/// what happens (`description`), Cancel and a destructive `action`; runs
+/// `then` when the user confirms.
+pub fn confirm(
+    title: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    action: impl Into<SharedString>,
+    then: impl FnOnce() + 'static,
+) {
+    let answer = nsh_base::alert_dialog()
+        .title(title)
+        .description(description)
+        .cancel("cancel", "Cancel")
+        .destructive("go", action)
+        .show();
+    spawn(async move {
+        if answer
+            .await
+            .is_ok_and(|a| a.action.as_deref() == Some("go"))
+        {
+            then();
+        }
+    });
+}
