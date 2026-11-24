@@ -307,3 +307,31 @@ longer shows previews of sent photos (their copies are gone). Tests:
 `a_groups_copies_go_when_the_selection_is_cleared`,
 `copies_nothing_selects_go`, `copies_of_picked_files_go_once_sent`
 (engine), `a_picked_copy_goes_when_taken_out_of_the_selection` (app).
+
+## ADR-005: Send's Recent — the system's media library, sent in place
+
+**Context.** Picking a photo through the system's picker on a phone takes
+several taps, and the picker hands over a copy (ADR-004). A user asked for
+the latest photos, videos and files right on Send.
+
+**Decision.** Android: a Java bridge (`MediaBridge`, in the same in-memory
+dex as the discovery and apps bridges) asks `MediaStore` for the newest
+photos and videos and writes small JPEG thumbnails (256 px, kept only for
+the items listed). Reading them needs `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`
+(Android 13+; Android 14's "limited access" works too, with a button to
+choose more) or `READ_EXTERNAL_STORAGE` before; the manifest patch declares
+them, and Send asks only when the user taps "Show recent photos". Items are
+sent from their own files (`MediaStore`'s path, readable with that
+permission): nothing is copied, nothing is cleaned up. Computers list the
+newest files directly in Downloads, Pictures and Movies (plus Desktop and
+Documents on Windows and Linux; not on macOS, which asks before an app
+reads them). iOS has no photo library API in NSH 0.6.1 (`PHPhotoLibrary`
+would need native code NSH cannot add yet): no Recent there.
+
+**Consequences.** One tap to send a recent photo on Android, with no copy.
+The permission dialog is asked for from the bridge (`requestPermissions` on
+the activity in front, found through `ActivityThread`); the answer is read
+again when the app is back in front. Tests: `media` unit tests (the
+bridge's lines, folder listing, thumbnails kept), `app/tests/recent.rs`,
+and the emulator check's `13-recent` (a photo added to the camera folder
+shows).

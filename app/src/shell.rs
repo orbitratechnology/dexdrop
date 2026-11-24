@@ -301,13 +301,13 @@ fn page(title: pages::Title, root: bool, home: bool, content: AnyElement) -> Scr
     let ios = nsh_core::element::os() == nsh_core::platform::Os::Ios;
     let screen = nav_page()
         .title(move || t())
-        // iOS: the system's large, transparent header that the content
-        // scrolls under (Home's, a centered brand, stays standard). Android:
-        // a standard header in the theme's colours (its large title would
-        // lay the page out under the header).
-        .header_large_title(root && ios && !home);
-    let screen = if home && ui::mobile() {
-        screen.header_title(brand(title.clone()))
+        // A tab's root has its title centered and bold (Home: the app's
+        // icon and name), in the system's standard header (iOS's large
+        // title cannot be centered). Android: a standard header in the
+        // theme's colours.
+        .header_large_title(false);
+    let screen = if root && ui::mobile() {
+        screen.header_title(centered_title(title.clone(), home))
     } else {
         screen
     };
@@ -321,17 +321,19 @@ fn page(title: pages::Title, root: bool, home: bool, content: AnyElement) -> Scr
                     .tint_color(move || theme().primary)
             }
         })
-        // (Phones show the system's header; Home's brand is its title view.)
-        .header(desktop_header(title, root, home && !ui::mobile()))
+        // (Phones show the system's header, a root's title its title view.)
+        .header(desktop_header(title, root, home))
         .child(content)
 }
 
-/// The app's icon and its name side by side, centered in the header.
-fn brand(title: pages::Title) -> impl IntoElement {
+/// A tab's title, bold and centered in the header; Home's is the app's icon
+/// and name.
+fn centered_title(title: pages::Title, home: bool) -> impl IntoElement {
     // Android's bar lays a title view out from its start (16 pt in), as
     // wide as its content: as wide as the window less that inset on both
     // sides, its content is centered on the window. (iOS centers it.)
     let android = os() == nsh_core::platform::Os::Android;
+    let words = title.clone();
     view()
         .w_full()
         .style_when(move || android, |s| s.w(window().width - px(32.0)))
@@ -345,10 +347,10 @@ fn brand(title: pages::Title) -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .gap(px(space::S))
-                .test_id("brand")
-                .child(image(asset!("brand/icon.png")).size(px(28.0)))
+                .test_id(if home { "brand" } else { "header-title" })
+                .children(home.then(|| image(asset!("brand/icon.png")).size(px(28.0))))
                 .child(
-                    text("DexDrop")
+                    text(move || words())
                         .text_size(px(ui::size::HEADING + 2.0))
                         .font_weight(FontWeight::BOLD)
                         .text_color(move || theme().foreground),
@@ -356,16 +358,16 @@ fn brand(title: pages::Title) -> impl IntoElement {
         )
 }
 
-/// The header desktops and the web draw: a back button and the title
-/// (Home: the app's icon and name, centered).
+/// The header desktops and the web draw: a back button and the title (a
+/// tab's root: its title centered and bold, Home's the app's icon and name).
 fn desktop_header(title: pages::Title, root: bool, home: bool) -> AnyElement {
-    if home {
+    if root && !ui::mobile() {
         return view()
             .bg(move || theme().background)
             .px(px(space::XL))
             .pt(px(space::XL))
             .pb(px(space::S))
-            .child(brand(title))
+            .child(centered_title(title, home))
             .into_element();
     }
     view()

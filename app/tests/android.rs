@@ -44,26 +44,33 @@ fn frame(app: &mut Headless, selector: &str) -> (f32, f32, f32, f32) {
     (b.origin.x.0, b.origin.y.0, b.size.width.0, b.size.height.0)
 }
 
-/// Android sends apps too: four kinds of things, two by two even on a
-/// 320 pt phone, so what is picked shows below them (CI's emulator once
-/// found them stacked one per row, the selection out of view).
+/// Android sends apps too: four kinds of things, square, side by side in
+/// one row even on a 320 pt phone, so what is picked and the recent
+/// photos show below them.
 #[test]
-fn send_offers_four_kinds_two_by_two_on_a_small_phone() {
+fn send_offers_four_square_kinds_in_a_row_on_a_small_phone() {
     let (mut app, _dir) = android(320.0, 640.0);
     app.press("id:send").unwrap();
     app.wait_for_within("id:pick-apps", Duration::from_secs(5))
         .unwrap();
-    let photos = frame(&mut app, "id:pick-photos");
-    let videos = frame(&mut app, "id:pick-videos");
-    let files = frame(&mut app, "id:pick-files");
-    let apps = frame(&mut app, "id:pick-apps");
-    assert_eq!(photos.1, videos.1, "Photos and Videos share a row");
-    assert_eq!(files.1, apps.1, "Files and Apps share a row");
-    assert!(files.1 > photos.1, "two rows");
-    // Both rows end well above the middle of the screen.
+    let tiles = [
+        "id:pick-photos",
+        "id:pick-videos",
+        "id:pick-files",
+        "id:pick-apps",
+    ]
+    .map(|t| frame(&mut app, t));
+    for (i, t) in tiles.iter().enumerate() {
+        assert_eq!(t.1, tiles[0].1, "tile {i} is not in the row");
+        assert!((t.2 - t.3).abs() < 0.5, "tile {i} is {} × {}", t.2, t.3);
+        assert!(
+            t.0 >= 0.0 && t.0 + t.2 <= 320.0,
+            "tile {i} is off the screen"
+        );
+    }
     assert!(
-        files.1 + files.3 < 400.0,
-        "the tiles take {} pt of a 640 pt screen",
-        files.1 + files.3
+        tiles[0].1 + tiles[0].3 < 250.0,
+        "the tiles end at {} pt of a 640 pt screen",
+        tiles[0].1 + tiles[0].3
     );
 }

@@ -16,7 +16,8 @@ current whenever tests, selectors, CI jobs or timings change.
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640 |
 | UI headless, toasts | `cargo test -p dexdrop-app --test toasts` | ~2 s | NSH's toast stack: an alert, timed out by the manager on the manual clock, Escape dismisses the newest before going back |
 | UI headless, keyboard and long presses | `cargo test -p dexdrop-app --test keys` | ~3 s | Home's S / R / arrows, Escape back; a past transfer removed and a device forgotten by a long press, through the system's alert (`answer_dialogs_myself`) |
-| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~4 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), Home's header (icon and name), "Nearby" and the radar centered on iPhone, Android and Mac, the radar's still circles with less motion, Android's drawn white tabs (Settings opens), headings and the status pill taking their rows' width, a picked copy deleted when taken out of the selection, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
+| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~4 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), Home's header (icon and name), "Nearby" and the radar centered on iPhone, Android and Mac, the radar's still circles with less motion, History's and Settings' titles centered, Android's drawn white tabs (Settings opens), headings and the status pill taking their rows' width, a picked copy deleted when taken out of the selection, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
+| UI headless, Send's Recent | `cargo test -p dexdrop-app --test recent` | ~4 s | a computer's newest files as rows (a tap adds, another takes out), Android's newest photos and videos as squares four across (from `DEXDROP_RECENT_DIRS` headless), none on an iPhone |
 | UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
@@ -65,6 +66,8 @@ kebab-case:
 | `send-to-all`, `see-progress` | the device list (several devices) |
 | `brand`, `radar` | Home's centered header (the app's icon and name) and the radar looking for devices |
 | `tab-bar` | the tabs the app draws (Android, narrow windows) |
+| `header-title` | a tab's centered title (History, Settings) |
+| `kinds`, `recent`, `allow-recent` | Send's row of choices, its Recent section, and Android's "Show recent photos" |
 | `pause-all`, `resume-all` | a group's progress |
 | `copy-invitation` | Receive |
 | `change-avatar`, `rename`, `save-to`, `save-to-downloads` | Settings |
@@ -125,7 +128,7 @@ Add an id when a test needs a control; add it to this table.
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
 | Package macOS and iOS | `nsh test … --target macos`, `--target ios`, after the checks (the e2e first launch starts discovery in NSH's host; its system prompt must not be the one the checks answer) | desktop check, agent-device macOS and iOS checks (run first) |
-| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon) | agent-device emulator check |
+| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon; `13-recent.png`: a photo added to the camera folder shows in Send's Recent) | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
 (`desktop-check-*`, `e2e-apple`, `android-check`).

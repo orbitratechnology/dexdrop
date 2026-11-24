@@ -116,7 +116,7 @@ fn recount() {
 
 /// Takes one path out: the rest stays as it is on screen (nothing is
 /// built again) and is counted anew.
-fn remove(path: PathBuf) {
+pub fn remove(path: PathBuf) {
     selection().update(|s| {
         s.paths.retain(|p| *p != path);
         s.stats.remove(&path);
@@ -442,14 +442,33 @@ pub fn page() -> impl IntoElement {
                 .child(when(
                     move || desktop_platform() && !has(),
                     move || drop_zone(dropping),
-                )),
+                ))
+                // The newest photos, videos or files, a tap away.
+                .child(crate::pages::recent::section())
+                // Room for the bar floating over the bottom.
+                .child(when(has, || view().h(px(72.0)))),
         ))
         .child(when(has, next_bar))
 }
 
-/// The kinds of things to send, as big tiles.
+/// The kinds of things to send: squares in one row, on the page's own
+/// color with a soft shadow (no fill, no border), each kind's icon in its
+/// color over its name.
 fn kinds() -> impl IntoElement {
-    let tile = |i: Icon, label: &'static str, colors: (u32, u32), pick: fn()| {
+    let android = os() == nsh_core::platform::Os::Android;
+    let count = if desktop_platform() {
+        2.0
+    } else if android {
+        4.0
+    } else {
+        3.0
+    };
+    // As wide as the row allows, square, at most 150 pt.
+    let page = window().width.0.min(ui::content_width())
+        - 2.0 * if ui::mobile() { space::L } else { space::XL };
+    let side = ((page - (count - 1.0) * space::M) / count).clamp(64.0, 150.0);
+    let small = side < 90.0;
+    let tile = move |i: Icon, label: &'static str, color: u32, pick: fn()| {
         ui::pressable()
             .accessibility_label(label)
             // The same id everywhere ("Choose files" on computers is
@@ -459,64 +478,65 @@ fn kinds() -> impl IntoElement {
                 label.trim_start_matches("Choose ").to_ascii_lowercase()
             ))
             .on_press(pick)
-            .flex_1()
-            // Three across on an iPhone; two by two on Android, with Apps,
-            // down to 320 pt wide screens; two (or more) on wider windows.
-            // Compact on phones, so what is selected shows below them.
-            .min_w(px(match os() {
-                nsh_core::platform::Os::Ios => 96.0,
-                nsh_core::platform::Os::Android => 120.0,
-                _ => 140.0,
-            }))
+            .size(px(side))
             .items_center()
-            .gap(px(if ui::mobile() { space::S } else { space::M }))
-            .py(px(if ui::mobile() { space::L } else { space::XL }))
-            .rounded(px(20.0))
-            .bg(ui::surface)
+            .justify_center()
+            .gap(px(if small { space::XS } else { space::S }))
+            .rounded(px(if small { 18.0 } else { 22.0 }))
+            .bg(move || theme().background)
             .shadow_md()
-            .active(|s| s.scale(0.97).opacity(0.85))
-            .hover(move |s| s.bg(move || theme().muted))
-            // A kind of file: its icon in its color, filling its place.
+            .active(|s| s.scale(0.96).shadow_sm())
+            .hover(|s| s.shadow_lg())
             .child(ui::soft_glyph(
                 i,
-                move || AdaptiveColor::from(rgb(colors.0)),
-                if ui::mobile() { 40.0 } else { 48.0 },
+                move || AdaptiveColor::from(rgb(color)),
+                (side * 0.36).clamp(26.0, 48.0),
             ))
-            .child(ui::strong(label))
+            .child(
+                text(label)
+                    .w_full()
+                    .text_center()
+                    .number_of_lines(1)
+                    .text_size(px(if small {
+                        ui::size::CAPTION + 1.0
+                    } else {
+                        ui::size::BODY
+                    }))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(move || theme().foreground),
+            )
     };
-    let mut grid = view().flex_row().flex_wrap().gap(px(space::M));
+    let mut row = view()
+        .test_id("kinds")
+        .flex_row()
+        .justify_center()
+        .gap(px(space::M))
+        // Room for the shadows.
+        .py(px(space::XS));
     if desktop_platform() {
-        grid = grid
-            .child(tile(
-                Icon::File,
-                "Choose files",
-                (0x3b82f6, 0x6366f1),
-                || choose(OpenDialog::files()),
-            ))
-            .child(tile(
-                Icon::Folder,
-                "Choose folder",
-                (0xf59e0b, 0xf97316),
-                || choose(OpenDialog::folders()),
-            ));
+        row = row
+            .child(tile(Icon::File, "Choose files", 0x3b82f6, || {
+                choose(OpenDialog::files())
+            }))
+            .child(tile(Icon::Folder, "Choose folder", 0xf59e0b, || {
+                choose(OpenDialog::folders())
+            }));
     } else {
-        grid = grid
-            .child(tile(Icon::Photo, "Photos", (0xec4899, 0xf43f5e), || {
+        row = row
+            .child(tile(Icon::Photo, "Photos", 0xec4899, || {
                 choose_staged(Kind::Photos)
             }))
-            .child(tile(Icon::Video, "Videos", (0x8b5cf6, 0xd946ef), || {
+            .child(tile(Icon::Video, "Videos", 0x8b5cf6, || {
                 choose_staged(Kind::Videos)
             }))
-            .child(tile(Icon::File, "Files", (0x3b82f6, 0x6366f1), || {
+            .child(tile(Icon::File, "Files", 0x3b82f6, || {
                 choose_staged(Kind::Files)
             }));
-        if os() == nsh_core::platform::Os::Android {
-            grid = grid.child(tile(Icon::Android, "Apps", (0x22c55e, 0x059669), || {
-                push(Route::Apps)
-            }));
+        if android {
+            row = row.child(tile(Icon::Android, "Apps", 0x22c55e, || push(Route::Apps)));
         }
     }
-    grid
+    row
 }
 
 /// Computers: a place to drop files and folders, lit while they hover.

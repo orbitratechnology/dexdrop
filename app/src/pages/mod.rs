@@ -5,6 +5,7 @@ pub mod history;
 pub mod home;
 pub mod profile;
 pub mod receive;
+pub mod recent;
 pub mod send;
 pub mod settings;
 pub mod transfer;

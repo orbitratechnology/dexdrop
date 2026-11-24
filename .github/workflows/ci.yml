@@ -263,6 +263,18 @@ jobs:
         with:
           targets: aarch64-apple-ios-sim,aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
+      # Xcode 26 (the iOS 26 SDK): NSH links the app with the Xcode it
+      # finds, and an app built with an older SDK runs on iOS 26 in
+      # compatibility mode, without Liquid Glass (the tab bar, headers).
+      - name: Use Xcode 26
+        run: |
+          x=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$x" ]; then
+            sudo xcode-select -s "$x/Contents/Developer"
+          else
+            echo "::warning::no Xcode 26 on this runner: the iOS app keeps the look from before iOS 26"
+          fi
+          xcodebuild -version
       - name: Install NSH
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh

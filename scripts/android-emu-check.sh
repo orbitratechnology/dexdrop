@@ -379,6 +379,29 @@ else
   warn "the Apps page did not list apps"
 fi
 
+# 5. Recent: with the media permission (what "Show recent photos" asks
+#    for), a photo just added to the camera folder shows under Send's
+#    choices, from the system's media library.
+sh_ pm grant "$pkg" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 || true
+sh_ pm grant "$pkg" android.permission.READ_MEDIA_VIDEO >/dev/null 2>&1 || true
+recent_photo=/sdcard/DCIM/Camera/dexdrop-recent.png
+sh_ "mkdir -p /sdcard/DCIM/Camera" >/dev/null 2>&1 || true
+adb -s "$serial" push "$(dirname "$0")/../app/icon.png" "$recent_photo" >/dev/null 2>&1 || true
+sh_ "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://$recent_photo" >/dev/null 2>&1 || true
+front
+tap_only Share || true
+tap_only "Navigate up" || true
+if tap_only Send; then
+  ad scroll down >/dev/null 2>&1 || true
+  if ad wait 'label="Photo dexdrop-recent.png"' 20000 >/dev/null 2>&1; then
+    step 13-recent
+    note "- Send's Recent shows the photo just added to the camera folder (MediaStore)"
+  else
+    step 13-no-recent
+    warn "Send's Recent did not show the photo added to the camera folder"
+  fi
+fi
+
 collect_logs
 ad close >/dev/null 2>&1 || true
 note ""

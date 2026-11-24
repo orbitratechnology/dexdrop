@@ -283,3 +283,38 @@ fn find(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
     }
     None
 }
+
+/// History's and Settings' titles are centered in their headers, bold
+/// (as Home's), on an iPhone, an Android phone and a Mac.
+#[test]
+fn history_and_settings_titles_are_centered() {
+    type Setup = (&'static str, fn(&mut EngineConfig), f32);
+    let setups: [Setup; 3] = [
+        ("iPhone", |_| {}, 390.0),
+        ("Android", as_android, 360.0),
+        ("Mac", as_mac, 1100.0),
+    ];
+    for (name, env, width) in setups {
+        let (mut app, _dir) = start(env);
+        // The page's middle: where Home's brand is centered (right of the
+        // Mac's sidebar).
+        let brand = frame(&mut app, "id:brand");
+        let page_middle = brand.0 + brand.2 / 2.0;
+        for (key, title) in [("mod+2", "History"), ("mod+3", "Settings")] {
+            app.press_key(key).unwrap();
+            app.wait_for_within("id:header-title", Duration::from_secs(5))
+                .unwrap();
+            let f = frame(&mut app, "id:header-title");
+            let middle = if name == "Mac" {
+                page_middle
+            } else {
+                width / 2.0
+            };
+            let centre = f.0 + f.2 / 2.0;
+            assert!(
+                (centre - middle).abs() <= 2.0,
+                "{name}: {title} is centered at {centre} pt, not {middle} pt"
+            );
+        }
+    }
+}

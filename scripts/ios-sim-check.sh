@@ -57,7 +57,8 @@ note "- App: \`$(basename "$app")\` ($bundle)"
 
 t0=$(date +%s)
 # Boot with simctl (about a minute on a fresh runner): a simulator already
-# booted, else an iPhone 16, else any iPhone, on the newest iOS runtime.
+# booted, else an iPhone on the newest iOS runtime (iOS 26 with Xcode 26:
+# the Liquid Glass look), an iPhone 16 if there is one.
 udid=$(xcrun simctl list devices available -j | python3 -c '
 import json, sys
 found = []
@@ -67,12 +68,12 @@ for runtime, devices in json.load(sys.stdin)["devices"].items():
     version = tuple(int(p) for p in runtime.rsplit("iOS-", 1)[1].split("-") if p.isdigit())
     for d in devices:
         if "iPhone" in d["name"]:
-            found.append((d["state"] == "Booted", d["name"] == "iPhone 16", version, d["udid"]))
+            found.append((d["state"] == "Booted", version, d["name"] == "iPhone 16", d["udid"]))
 print(max(found)[3] if found else "")
 ')
 [ -n "$udid" ] || fail "no iPhone simulator available"
 xcrun simctl bootstatus "$udid" -b >/dev/null || fail "the simulator did not boot"
-note "- Simulator: $(xcrun simctl list devices -j | python3 -c "import json,sys; print(next(d['name'] for v in json.load(sys.stdin)['devices'].values() for d in v if d['udid']=='$udid'))") ($udid), booted in $(($(date +%s) - t0)) s"
+note "- Simulator: $(xcrun simctl list devices -j | python3 -c "import json,sys; print(next(d['name'] + ', ' + r.rsplit('.', 1)[-1] for r, v in json.load(sys.stdin)['devices'].items() for d in v if d['udid']=='$udid'))") ($udid), booted in $(($(date +%s) - t0)) s"
 # agent-device's daemon can stall while a CI host is busy: one retry.
 ad install "$bundle" "$app" || { sleep 20; ad install "$bundle" "$app"; } ||
   fail "the app did not install"

@@ -20,6 +20,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # Xcode 26: its simulator runs iOS 26, to see the app's iOS 26 look.
+      - name: Use Xcode 26
+        run: |
+          x=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$x" ]; then
+            sudo xcode-select -s "$x/Contents/Developer"
+          else
+            echo "::warning::no Xcode 26 on this runner"
+          fi
+          xcodebuild -version
       - name: Find the latest builds
         id: find
         env:
