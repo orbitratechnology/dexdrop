@@ -78,30 +78,27 @@ fn status() -> impl IntoElement {
         .accessibility_label("This device")
         .on_press(|| set_tab(Tab::Settings))
         .self_center()
-        // As wide as it may be, the words centered in it: a pill hugging
-        // its words was cut short on phones whose system font is wider
-        // than the one measured.
+        // As wide as it may be, one centered line with the dot beside the
+        // words (a span of the same text): a pill hugging its words was cut
+        // short on phones whose system font is wider than the one measured.
         .w_full()
         .max_w(px(360.0))
-        .flex_row()
-        .items_center()
-        .gap(px(space::S))
         .px(px(space::M))
         .py(px(6.0))
         .rounded(px(999.0))
         .bg(ui::surface)
-        .shadow_md()
         .active(|s| s.opacity(0.7))
-        .child(ui::dot(tone))
         .child(
-            muted(line)
-                .font_weight(FontWeight::MEDIUM)
-                .flex_1()
+            text("")
+                .w_full()
                 .text_center()
-                .number_of_lines(1),
+                .number_of_lines(1)
+                .text_size(px(ui::size::SMALL))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(move || theme().muted_foreground)
+                .child(text("● ").text_color(move || ui::tone_color(tone())))
+                .child(text(line)),
         )
-        // Balances the dot, so the words sit in the middle.
-        .child(view().size(px(8.0)))
 }
 
 /// Send and Receive, floating at the bottom where a thumb rests: above
@@ -130,7 +127,7 @@ fn actions() -> impl IntoElement {
         )
 }
 
-/// One of the two actions, pill-shaped: filled with the primary color
+/// One of the two actions, pill-shaped: filled with the app icon's blue
 /// (Send) or the card color (Receive), both on a shadow, their icon and
 /// label in the foreground of that fill.
 fn action(
@@ -164,6 +161,15 @@ fn action(
                 theme().card
             }
         })
+        // Send in the app icon's blue, light to deep.
+        .style_when(
+            move || filled,
+            |s| {
+                s.bg_linear(deg(135.0))
+                    .gradient_from(rgb(ui::BRAND.0))
+                    .gradient_to(rgb(ui::BRAND.1))
+            },
+        )
         .shadow_lg()
         .active(|s| s.scale(0.97))
         .child(ui::icon(i, 24.0, fg))
@@ -379,8 +385,10 @@ fn looking() -> impl IntoElement {
             _ => "Looking for devices on this Wi‑Fi…".to_owned(),
         })
     };
-    // The radar centered, the Wi‑Fi mark large in it, the words below.
+    // The radar centered, the Wi‑Fi mark large in it, the words below; a
+    // plain white card, no shadow.
     ui::tile()
+        .shadow_none()
         .items_center()
         .gap(px(space::M))
         .py(px(space::XL))

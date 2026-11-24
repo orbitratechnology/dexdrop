@@ -104,6 +104,9 @@ pub const SEND: (u32, u32) = (0x6366f1, 0x8b5cf6);
 pub const RECEIVE: (u32, u32) = (0x10b981, 0x0d9488);
 
 /// A gradient-filled view.
+/// The app icon's blue, light to deep: the fill of the main buttons.
+pub const BRAND: (u32, u32) = (0x1a8cff, 0x0039e6);
+
 pub fn gradient(colors: (u32, u32)) -> View {
     view()
         .bg(rgb(colors.0))
@@ -510,6 +513,15 @@ fn labelled(label: impl Into<SharedString>, i: Option<Icon>, variant: Variant) -
         .gap(px(space::S))
         .rounded(px(999.0))
         .bg(bg)
+        // Filled buttons in the app icon's blue, light to deep.
+        .style_when(
+            move || variant == Variant::Primary,
+            |s| {
+                s.bg_linear(deg(135.0))
+                    .gradient_from(rgb(BRAND.0))
+                    .gradient_to(rgb(BRAND.1))
+            },
+        )
         .disabled_style(|s| s.opacity(0.4))
         .active(|s| s.opacity(0.7).scale(0.98))
         .hover(|s| s.opacity(0.88))
@@ -545,6 +557,14 @@ pub fn round_btn(
         .items_center()
         .justify_center()
         .bg(bg)
+        .style_when(
+            move || variant == Variant::Primary,
+            |s| {
+                s.bg_linear(deg(135.0))
+                    .gradient_from(rgb(BRAND.0))
+                    .gradient_to(rgb(BRAND.1))
+            },
+        )
         .active(|s| s.opacity(0.7).scale(0.94))
         .hover(|s| s.opacity(0.88))
         .accessibility_label(label.into())
@@ -553,8 +573,9 @@ pub fn round_btn(
 
 // ---------------------------------------------------------------- surfaces
 
-/// The fill of cards and groups: white in light, on the white page with a
-/// soft shadow (`edged`); one step above the page's background in dark.
+/// The fill of cards and groups: white in light, on the off-white page
+/// with a soft shadow (`edged`); one step above the page's background in
+/// dark.
 pub fn surface() -> AdaptiveColor {
     theme().card
 }
@@ -1055,7 +1076,7 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
             view()
                 .flex_row()
                 .p(px(3.0))
-                .rounded(px(12.0))
+                .rounded(px(999.0))
                 .bg(move || theme().muted)
                 .children(items.iter().map(|(label, v)| {
                     let v = *v;
@@ -1068,7 +1089,7 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
                         .px(px(space::M))
                         .items_center()
                         .justify_center()
-                        .rounded(px(9.0))
+                        .rounded(px(999.0))
                         .bg(move || {
                             if on() {
                                 theme().card

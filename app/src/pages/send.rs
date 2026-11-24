@@ -628,9 +628,7 @@ fn selected() -> impl IntoElement {
                 .collect::<Vec<_>>()
         })
     });
-    // Photos as a grid of previews, the rest as a list; both virtualized
-    // (NSH lists): only what is near the screen exists, so a selection of
-    // thousands costs what one of thirty does.
+    // Photos as a grid of previews, the rest as a list.
     let photos = computed(move || {
         picks.with(|p| p.iter().filter(|p| p.photo()).cloned().collect::<Vec<_>>())
     });
@@ -646,9 +644,6 @@ fn selected() -> impl IntoElement {
         ui::content_width() - 2.0 * space::XL
     };
     let side = ((inner - (columns - 1) as f32 * space::S) / columns as f32).floor();
-    let paths = |list: Memo<Vec<Pick>>| {
-        move || list.with(|l| l.iter().map(|p| p.path.clone()).collect::<Vec<_>>())
-    };
     view()
         .gap(px(space::M))
         .child(
@@ -666,46 +661,68 @@ fn selected() -> impl IntoElement {
                         .child(muted(summary)),
                 ),
         )
+        // Plain rows in the page's own scroll: a list virtualized against
+        // the page (NSH's `ListViewport::Parent`) took the swipe on Android
+        // and the page did not scroll. The first ones show; the rest are
+        // counted (a selection of thousands stays light).
         .child(when(
             move || !photos.with(Vec::is_empty),
             move || {
-                virtual_list(
-                    move || photos.with(Vec::len),
-                    move |at| {
-                        dynamic(move || {
+                view()
+                    .gap(px(space::S))
+                    .child(view().flex_row().flex_wrap().gap(px(space::S)).child(each(
+                        move || {
                             photos
-                                .with(|p| p.get(at.index()).cloned())
-                                .map(|p| photo_tile(p, side))
-                        })
-                    },
-                )
-                .keys(paths(photos))
-                .columns(columns)
-                .row_gap(px(space::S))
-                .column_gap(px(space::S))
-                .estimated_item_size(px(side))
-                .viewport(ListViewport::Parent)
+                                .with(|p| p.iter().take(SHOWN_PHOTOS).cloned().collect::<Vec<_>>())
+                        },
+                        |p: &Pick| p.path.clone(),
+                        move |p, _| photo_tile(p.get_untracked(), side),
+                    )))
+                    .child(more(move || photos.with(Vec::len), SHOWN_PHOTOS, "photo"))
             },
         ))
         .child(when(
             move || !others.with(Vec::is_empty),
             move || {
-                ui::group().child(
-                    virtual_list(
-                        move || others.with(Vec::len),
-                        move |at| {
-                            dynamic(move || {
-                                others.with(|o| o.get(at.index()).cloned()).map(pick_row)
-                            })
+                view()
+                    .gap(px(space::S))
+                    .child(ui::group().child(each(
+                        move || {
+                            others.with(|o| o.iter().take(SHOWN_ROWS).cloned().collect::<Vec<_>>())
                         },
-                    )
-                    .keys(paths(others))
-                    .separator(|| ui::separator(72.0))
-                    .estimated_item_size(px(64.0))
-                    .viewport(ListViewport::Parent),
-                )
+                        |p: &Pick| p.path.clone(),
+                        |p, index| {
+                            view()
+                                .child(when(move || index.get() > 0, || ui::separator(72.0)))
+                                .child(pick_row(p.get_untracked()))
+                        },
+                    )))
+                    .child(more(move || others.with(Vec::len), SHOWN_ROWS, "file"))
             },
         ))
+}
+
+/// How many picked photos and other files show; the rest are counted.
+const SHOWN_PHOTOS: usize = 60;
+const SHOWN_ROWS: usize = 120;
+
+/// "And 380 more files", under a list cut at `shown`.
+fn more(
+    total: impl Fn() -> usize + Copy + 'static,
+    shown: usize,
+    what: &'static str,
+) -> impl IntoElement {
+    when(
+        move || total() > shown,
+        move || {
+            muted(move || {
+                let n = total() - shown;
+                format!("And {n} more {what}{}", if n == 1 { "" } else { "s" })
+            })
+            .w_full()
+            .text_center()
+        },
+    )
 }
 
 /// A picked file or folder that is not a photo: its kind (or the app an
