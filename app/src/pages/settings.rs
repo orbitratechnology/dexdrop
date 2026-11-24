@@ -115,7 +115,7 @@ fn device() -> impl IntoElement {
                                 .text_size(px(ui::size::BODY))
                                 .text_color(move || theme().foreground),
                         )
-                        .child(ui::btn("Save", Variant::Primary).on_press(save))
+                        .child(ui::icon_btn(Icon::Check, "Save", Variant::Primary).on_press(save))
                 },
             )
             .otherwise(move || {
@@ -426,7 +426,7 @@ pub fn trusted_page() -> impl IntoElement {
     body(
         when(empty, || {
             ui::empty(
-                Icon::Devices,
+                ui::Art::Trusted,
                 "Devices you trust when accepting a transfer show up here.",
             )
         })

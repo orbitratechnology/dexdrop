@@ -423,8 +423,7 @@ fn recent() -> impl IntoElement {
                         .justify_between()
                         .child(ui::section("Recent").flex_1())
                         .child(
-                            ui::btn("See all", Variant::Plain)
-                                .on_press(|| open(Tab::History, Route::Root)),
+                            ui::link_btn("See all").on_press(|| open(Tab::History, Route::Root)),
                         ),
                 )
                 .child(ui::group().child(each(
@@ -455,7 +454,7 @@ fn drop_hint() -> impl IntoElement {
         .justify_center()
         .gap(px(space::M))
         .pointer_events(PointerEvents::None)
-        .child(ui::glyph(Icon::Plus, ui::SEND, 64.0))
+        .child(ui::art(ui::Art::Drop, 180.0))
         .child(ui::strong("Drop to send"))
 }
 

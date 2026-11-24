@@ -141,13 +141,20 @@ pub fn section() -> impl IntoElement {
             if st.access == Some(Access::None) {
                 return allow_card().into_element();
             }
+            // Squares (phones) or rows (computers) in the shape of what
+            // is coming, while it is read.
             if !st.loaded {
-                return view()
-                    .h(px(80.0))
-                    .items_center()
-                    .justify_center()
-                    .child(ui::spinner(24.0))
-                    .into_element();
+                return if phone() {
+                    let side = cell_side();
+                    view()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(4.0))
+                        .children((0..8).map(move |_| ui::skeleton(Some(side), side, 10.0)))
+                        .into_element()
+                } else {
+                    ui::skeleton_rows(3).into_element()
+                };
             }
             if st.items.is_empty() {
                 return muted(if phone() {
@@ -158,7 +165,7 @@ pub fn section() -> impl IntoElement {
                 .into_element();
             }
             let more = (st.access == Some(Access::Some)).then(|| {
-                ui::btn("Choose more photos", Variant::Plain)
+                ui::icon_btn(Icon::Plus, "Choose more photos", Variant::Plain)
                     .on_press(ask)
                     .into_element()
             });
@@ -191,14 +198,14 @@ fn allow_card() -> impl IntoElement {
         .items_center()
         .gap(px(space::M))
         .py(px(space::XL))
-        .child(ui::soft_glyph(Icon::Photo, || rgb(0xec4899).into(), 40.0))
+        .child(ui::art(ui::Art::Photos, 160.0))
         .child(
             muted("See your latest photos and videos here and send them in one tap.")
                 .w_full()
                 .text_center(),
         )
         .child(
-            ui::btn("Show recent photos", Variant::Primary)
+            ui::icon_btn(Icon::Photo, "Show recent photos", Variant::Primary)
                 .test_id("allow-recent")
                 .on_press(ask),
         )

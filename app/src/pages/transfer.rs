@@ -171,7 +171,7 @@ pub fn page(id: Option<TransferId>) -> impl IntoElement {
         })
     });
     body(dynamic(move || match shown.get() {
-        None => ui::empty(Icon::Paperplane, "Getting ready…").into_element(),
+        None => ui::empty(ui::Art::Waiting, "Getting ready…").into_element(),
         Some(Shown::One(id)) => progress(id).into_element(),
         Some(Shown::Group(g)) => group_progress(g).into_element(),
     }))
@@ -356,16 +356,22 @@ fn progress(id: TransferId) -> impl IntoElement {
                         .absolute(),
                 )
                 .child(dynamic(move || {
-                    if done() {
+                    let failed = matches!(s().state, TransferState::Failed(_));
+                    if done() || failed {
                         let pop_in = motion().entering(MotionPreset::ZoomIn);
                         view()
                             .bind_motion(&pop_in)
-                            .size(px(96.0))
                             .items_center()
                             .justify_center()
-                            .child(ui::icon(Icon::Check, 96.0, move || {
-                                ui::tone_color(Tone::Success)
-                            }))
+                            // The outcome's illustration, filling the ring.
+                            .child(ui::art(
+                                if failed {
+                                    ui::Art::Failed
+                                } else {
+                                    ui::Art::Done
+                                },
+                                ring * 0.92,
+                            ))
                             .into_element()
                     } else {
                         view()
@@ -640,7 +646,7 @@ fn after(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElement 
             },
         ))
         .child(
-            ui::btn("Done", Variant::Secondary)
+            ui::icon_btn(Icon::Check, "Done", Variant::Secondary)
                 .test_id("done")
                 .on_press(|| crate::state::reset_to(Route::Root)),
         )
@@ -847,7 +853,7 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
         .child(when(
             move || !options.get(),
             move || {
-                ui::btn("Options", Variant::Plain)
+                ui::icon_btn(Icon::Sliders, "Options", Variant::Plain)
                     .self_center()
                     .on_press(move || options.set(true))
             },
@@ -857,13 +863,13 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                 .flex_row()
                 .gap(px(space::M))
                 .child(
-                    ui::btn("Decline", Variant::Secondary)
+                    ui::icon_btn(Icon::X, "Decline", Variant::Secondary)
                         .test_id("decline")
                         .flex_1()
                         .on_press(move || respond(false)),
                 )
                 .child(
-                    ui::btn("Accept", Variant::Primary)
+                    ui::icon_btn(Icon::Receive, "Accept", Variant::Primary)
                         .test_id("accept")
                         .flex_1()
                         .disabled(move || !enough)

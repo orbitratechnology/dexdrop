@@ -15,7 +15,7 @@ use nsh_core::{
 use crate::{
     bridge, pages,
     state::{Route, Sheet, Tab, model, pop, set_tab, sheet, stack, tab, toasts, truncate, wide},
-    ui::{self, Icon, Tone, Variant, btn, muted, space},
+    ui::{self, Icon, Tone, Variant, muted, space},
 };
 
 /// Desktop keyboard shortcuts (PRD 7.3); `mod` is Cmd on Apple platforms
@@ -211,11 +211,7 @@ fn local_network_intro() -> impl IntoElement {
                 .max_w(px(420.0))
                 .items_center()
                 .gap(px(space::L))
-                .child(ui::radar(
-                    ui::SEND,
-                    200.0,
-                    ui::glyph(Icon::Wifi, ui::SEND, 84.0),
-                ))
+                .child(ui::art(ui::Art::Devices, 240.0))
                 .child(ui::title("Find your devices").text_center().w_full())
                 .child(
                     ui::muted(
@@ -225,7 +221,7 @@ fn local_network_intro() -> impl IntoElement {
                     .text_center().w_full(),
                 )
                 .child(
-                    ui::btn("Continue", Variant::Primary)
+                    ui::btn_then("Continue", Icon::ArrowRight, Variant::Primary)
                         .test_id("local-network-continue")
                         .self_stretch()
                         .on_press(|| bridge::send(Command::LocalNetworkExplained)),
@@ -783,7 +779,10 @@ fn diagnostics(report: String) -> impl IntoElement {
                         crate::state::toast(NoticeKind::Success, "Diagnostics copied.");
                     }),
                 )
-                .child(btn("Close", Variant::Primary).on_press(|| sheet().set(Sheet::None))),
+                .child(
+                    ui::icon_btn(Icon::Check, "Close", Variant::Primary)
+                        .on_press(|| sheet().set(Sheet::None)),
+                ),
         )
 }
 

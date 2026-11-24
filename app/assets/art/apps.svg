@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150" fill="none">
+  <ellipse cx="100" cy="78" rx="78" ry="60" fill="#22C55E" fill-opacity=".08"/>
+  <ellipse cx="100" cy="134" rx="50" ry="5" fill="#0039E6" fill-opacity=".07"/>
+  <rect x="60" y="30" width="36" height="36" rx="11" fill="#22C55E"/>
+  <rect x="104" y="30" width="36" height="36" rx="11" fill="#1A8CFF"/>
+  <rect x="60" y="74" width="36" height="36" rx="11" fill="#F59E0B"/>
+  <rect x="104" y="74" width="36" height="36" rx="11" fill="#EC4899"/>
+  <!-- android head -->
+  <path d="M68 56a10 10 0 0 1 20 0z" fill="#fff"/>
+  <circle cx="74.5" cy="51.5" r="1.6" fill="#22C55E"/>
+  <circle cx="81.5" cy="51.5" r="1.6" fill="#22C55E"/>
+  <path d="M71 43.5l2.5 3.5M85 43.5l-2.5 3.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- play -->
+  <path d="M117 40.5v15l12.5-7.5z" fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  <!-- star -->
+  <path d="M78 82l3.1 6.4 7 1-5.1 4.9 1.2 7-6.2-3.3-6.2 3.3 1.2-7-5.1-4.9 7-1z" fill="#fff" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
+  <!-- heart -->
+  <path d="M122 101s-10-6-10-12.5a5.5 5.5 0 0 1 10-3.2 5.5 5.5 0 0 1 10 3.2C132 95 122 101 122 101z" fill="#fff"/>
+  <path d="M158 36l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#22C55E" fill-opacity=".6"/>
+  <circle cx="42" cy="100" r="3" fill="#1A8CFF" fill-opacity=".4"/>
+  <circle cx="160" cy="104" r="2.5" fill="#EC4899" fill-opacity=".45"/>
+</svg>

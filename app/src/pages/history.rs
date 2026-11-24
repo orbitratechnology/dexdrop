@@ -116,10 +116,14 @@ pub fn page() -> impl IntoElement {
                                 .items_center()
                                 .justify_between()
                                 .child(ui::section("Earlier").flex_1())
-                                .child(ui::btn("Clear", Variant::Plain).on_press(|| {
-                                    bridge::send(Command::ClearHistory);
-                                    bridge::send(Command::ClearFinished);
-                                })),
+                                .child(
+                                    ui::icon_btn(Icon::Trash, "Clear", Variant::Plain).on_press(
+                                        || {
+                                            bridge::send(Command::ClearHistory);
+                                            bridge::send(Command::ClearFinished);
+                                        },
+                                    ),
+                                ),
                         )
                         .child(
                             ui::group().child(
@@ -142,7 +146,7 @@ pub fn page() -> impl IntoElement {
                 },
             ))
             .child(when(nothing, || {
-                ui::empty(Icon::Clock, "Files you send and receive show up here.")
+                ui::empty(ui::Art::History, "Files you send and receive show up here.")
             })),
     )
 }
@@ -307,7 +311,11 @@ pub fn past_page(id: String) -> impl IntoElement {
     let entry = crate::state::history()
         .with_untracked(|h| h.0.iter().find(|h| h.transfer_id == id).cloned());
     body(match entry {
-        None => ui::empty(Icon::Clock, "This transfer is no longer in the history.").into_element(),
+        None => ui::empty(
+            ui::Art::History,
+            "This transfer is no longer in the history.",
+        )
+        .into_element(),
         Some(e) => details(e).into_element(),
     })
 }

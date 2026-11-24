@@ -167,8 +167,9 @@ fn small_changes_send_small_updates() {
     app.wait(Duration::from_millis(300)).unwrap();
     let rename = taken(&seen);
     eprintln!("rename field opened: {rename} mount items");
+    // 37 before Save had an icon, 42 with it.
     assert!(
-        rename <= 40,
+        rename <= 45,
         "opening the rename field sent {rename} mount items"
     );
 }

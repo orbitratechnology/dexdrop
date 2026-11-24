@@ -5,7 +5,18 @@ pub mod history;
 pub mod home;
 pub mod profile;
 pub mod receive;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod recent;
+/// The browser preview reads no device folders and has no media library:
+/// no Recent there.
+#[cfg(target_arch = "wasm32")]
+pub mod recent {
+    use nsh_core::prelude::*;
+
+    pub fn section() -> impl IntoElement {
+        view()
+    }
+}
 pub mod send;
 pub mod settings;
 pub mod transfer;

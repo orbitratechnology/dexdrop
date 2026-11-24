@@ -172,10 +172,11 @@ pub enum Icon {
     Trash,
     Info,
     Alert,
-    Devices,
     Share,
     UserCheck,
     Lock,
+    ArrowRight,
+    Sliders,
     Apple,
     Windows,
     Android,
@@ -233,10 +234,11 @@ impl Icon {
             Icon::Trash => asset!("icons/trash.svg"),
             Icon::Info => asset!("icons/info.svg"),
             Icon::Alert => asset!("icons/alert.svg"),
-            Icon::Devices => asset!("icons/devices.svg"),
             Icon::Share => asset!("icons/share.svg"),
             Icon::UserCheck => asset!("icons/user-check.svg"),
             Icon::Lock => asset!("icons/lock.svg"),
+            Icon::ArrowRight => asset!("icons/arrow-right.svg"),
+            Icon::Sliders => asset!("icons/sliders.svg"),
             Icon::Apple => asset!("icons/os-apple.svg"),
             Icon::Windows => asset!("icons/os-windows.svg"),
             Icon::Android => asset!("icons/os-android.svg"),
@@ -974,29 +976,129 @@ pub fn radar(_colors: (u32, u32), side: f32, center: impl IntoElement) -> View {
         .child(center)
 }
 
-/// A small turning indicator: work in progress without a known end
-/// (pulsing instead with reduced motion).
+/// A small turning indicator: work in progress without a known end. A
+/// faint ring with a bright arc going round it (pulsing instead with
+/// reduced motion).
 pub fn spinner(side: f32) -> View {
     let animation = if reduce_motion() {
         KeyframeAnimation::new(Keyframes::Pulse).duration(1200.0)
     } else {
-        KeyframeAnimation::new(Keyframes::Spin).duration(900.0)
+        KeyframeAnimation::new(Keyframes::Spin).duration(800.0)
     };
-    view()
-        .size(px(side))
-        .items_center()
-        .justify_center()
-        .animation(animation)
-        .child(icon(Icon::Refresh, side, move || theme().primary))
+    let stroke = (side * 0.13).max(2.0);
+    let r = (side - stroke) / 2.0;
+    view().size(px(side)).animation(animation).child(
+        canvas(move || {
+            let c = side / 2.0;
+            let top = -std::f32::consts::FRAC_PI_2;
+            Painter::new()
+                .stroke_color(pick(theme().primary.opacity(0.16)))
+                .line_width(stroke)
+                .begin_path()
+                .arc(c, c, r, 0.0, std::f32::consts::TAU)
+                .stroke()
+                .stroke_color(pick(theme().primary))
+                .line_cap(nsh_core::canvas::LineCap::Round)
+                .begin_path()
+                .arc(c, c, r, top, top + std::f32::consts::PI * 0.62)
+                .stroke()
+        })
+        .size_full(),
+    )
+}
+
+/// A placeholder in the shape of what is loading, gently pulsing (still
+/// with reduced motion).
+pub fn skeleton(width: Option<f32>, height: f32, radius: f32) -> View {
+    let v = view()
+        .h(px(height))
+        .rounded(px(radius))
+        .bg(move || theme().muted);
+    let v = match width {
+        Some(w) => v.w(px(w)),
+        None => v.flex_1(),
+    };
+    if reduce_motion() {
+        v
+    } else {
+        v.animation(KeyframeAnimation::new(Keyframes::Pulse).duration(1400.0))
+    }
+}
+
+/// `n` rows of skeletons: a rounded square and two lines, as a list of
+/// apps or files shows while it loads.
+pub fn skeleton_rows(n: usize) -> View {
+    group().children((0..n).map(|_| {
+        view()
+            .flex_row()
+            .items_center()
+            .gap(px(space::M))
+            .px(px(space::L))
+            .py(px(space::M))
+            .child(skeleton(Some(40.0), 40.0, 10.0))
+            .child(
+                view()
+                    .flex_1()
+                    .gap(px(6.0))
+                    .child(
+                        view()
+                            .flex_row()
+                            .child(skeleton(None, 12.0, 6.0))
+                            .child(view().w(px(60.0))),
+                    )
+                    .child(skeleton(Some(90.0), 10.0, 5.0)),
+            )
+    }))
+}
+
+/// The app's illustrations: clean vector pictures in the icon's blues for
+/// empty states, waits and outcomes (`app/assets/art`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Art {
+    History,
+    Devices,
+    Done,
+    Failed,
+    Waiting,
+    Trusted,
+    Apps,
+    Photos,
+    Drop,
+}
+
+impl Art {
+    fn asset(self) -> nsh_core::element::ImageAsset {
+        match self {
+            Art::History => asset!("art/history.svg"),
+            Art::Devices => asset!("art/devices.svg"),
+            Art::Done => asset!("art/done.svg"),
+            Art::Failed => asset!("art/failed.svg"),
+            Art::Waiting => asset!("art/waiting.svg"),
+            Art::Trusted => asset!("art/trusted.svg"),
+            Art::Apps => asset!("art/apps.svg"),
+            Art::Photos => asset!("art/photos.svg"),
+            Art::Drop => asset!("art/drop.svg"),
+        }
+    }
+}
+
+/// An illustration `width` wide (4:3), decorative: the words beside it
+/// say what it means.
+pub fn art(a: Art, width: f32) -> nsh_core::element::Image {
+    image(a.asset())
+        .test_id(&format!("art-{}", format!("{a:?}").to_ascii_lowercase()))
+        .w(px(width))
+        .h(px(width * 0.75))
+        .accessible(false)
 }
 
 /// An illustration and one line for an empty state.
-pub fn empty(i: Icon, line: impl IntoReactive<SharedString> + 'static) -> View {
+pub fn empty(a: Art, line: impl IntoReactive<SharedString> + 'static) -> View {
     view()
         .items_center()
         .gap(px(space::M))
-        .py(px(space::XXL))
-        .child(soft_glyph(i, || theme().muted_foreground, 64.0))
+        .py(px(space::XL))
+        .child(art(a, 200.0))
         .child(
             muted(line)
                 .text_center()
@@ -1004,6 +1106,37 @@ pub fn empty(i: Icon, line: impl IntoReactive<SharedString> + 'static) -> View {
                 .max_w(px(280.0))
                 .self_center(),
         )
+}
+
+/// A button whose icon follows its words ("Continue →").
+pub fn btn_then(label: impl Into<SharedString>, i: Icon, variant: Variant) -> ButtonElement {
+    let fg: fn() -> AdaptiveColor = match variant {
+        Variant::Primary => || theme().primary_foreground,
+        Variant::Danger => || theme().destructive,
+        _ => || theme().primary,
+    };
+    btn(label, variant).child(icon(i, 18.0, fg))
+}
+
+/// A quiet button that leads somewhere: its words, then a chevron.
+pub fn link_btn(label: impl Into<SharedString>) -> ButtonElement {
+    let label: SharedString = label.into();
+    pressable()
+        .accessibility_label(label.clone())
+        .min_h(px(hit()))
+        .px(px(8.0))
+        .flex_row()
+        .items_center()
+        .gap(px(2.0))
+        .rounded(px(999.0))
+        .active(|s| s.opacity(0.6))
+        .child(
+            text(label)
+                .text_size(px(size::BODY))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(move || theme().primary),
+        )
+        .child(icon(Icon::ChevronRight, 16.0, move || theme().primary))
 }
 
 /// A QR code drawn black on white, whatever the appearance.

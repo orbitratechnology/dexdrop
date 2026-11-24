@@ -319,3 +319,35 @@ fn history_and_settings_titles_are_centered() {
         }
     }
 }
+
+/// Empty states and the first launch show the app's illustrations: an
+/// empty History, no trusted devices, a computer's drop area on Send, and
+/// on first launch the picture of devices finding each other.
+#[test]
+fn empty_states_show_illustrations() {
+    let (mut app, _dir) = start(as_mac);
+    app.press_key("mod+2").unwrap();
+    app.wait_for_within("id:art-history", Duration::from_secs(5))
+        .unwrap();
+    app.press_key("mod+3").unwrap();
+    app.wait_for_within("text:Trusted devices", Duration::from_secs(5))
+        .unwrap();
+    app.press("text:Trusted devices").unwrap();
+    app.wait_for_within("id:art-trusted", Duration::from_secs(5))
+        .unwrap();
+    app.press_key("mod+1").unwrap();
+    app.press("id:send").unwrap();
+    app.wait_for_within("id:art-drop", Duration::from_secs(5))
+        .unwrap();
+
+    // First launch on a Mac: the local network explained, with its picture.
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = EngineConfig::new(Root::of::<dexdrop_app::App>());
+    config.data_dir = Some(dir.path().to_path_buf());
+    as_mac(&mut config);
+    let mut first = Headless::start(config).unwrap();
+    first
+        .wait_for_within("id:art-devices", Duration::from_secs(10))
+        .unwrap();
+    assert!(first.screen().id("id:local-network-continue").is_ok());
+}

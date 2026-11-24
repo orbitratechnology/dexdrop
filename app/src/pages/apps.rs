@@ -63,14 +63,21 @@ pub fn page() -> impl IntoElement {
                 .child(apk_files())
                 .child(search(query))
                 .child(dynamic(move || match apps.get() {
+                    // Rows in the shape of the list to come, while it
+                    // is read.
                     Apps::Loading => view()
-                        .items_center()
                         .gap(px(space::M))
-                        .py(px(space::XXL))
-                        .child(ui::spinner(28.0))
-                        .child(muted("Finding your apps…"))
+                        .child(
+                            view()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(space::S))
+                                .child(ui::spinner(16.0))
+                                .child(muted("Finding your apps…")),
+                        )
+                        .child(ui::skeleton_rows(6))
                         .into_element(),
-                    Apps::Failed(why) => ui::empty(Icon::Android, why).into_element(),
+                    Apps::Failed(why) => ui::empty(ui::Art::Apps, why).into_element(),
                     Apps::Ready(_) => view()
                         .gap(px(space::L))
                         .child(section("Your apps", move || shown(false), chosen))

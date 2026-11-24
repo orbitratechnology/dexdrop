@@ -555,7 +555,7 @@ fn drop_zone(dropping: Signal<bool>) -> impl IntoElement {
             }
         })
         .style_when(move || dropping.get(), |s| s.shadow_lg())
-        .child(ui::soft_glyph(Icon::Plus, move || theme().primary, 56.0))
+        .child(ui::art(ui::Art::Drop, 150.0))
         .child(ui::strong("Drop files or folders here"))
         .child(muted("Or choose them above. Photos show as previews."))
 }
