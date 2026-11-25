@@ -977,21 +977,23 @@ fn more(
 /// APK installs, or a play button for a video), name, size, and a button
 /// to remove it.
 fn pick_row(pick: Pick) -> View {
-    let fallback = if pick.folder {
-        "Folder".to_owned()
-    } else {
-        format::bytes(pick.size)
-    };
-    let (size, folder) = (pick.size, pick.folder);
     let name = pick.name.clone();
     let path = pick.path.clone();
     // An APK shows the app it installs, once read.
     let at = signal(pick.path.clone());
     let label = signal(pick.name.clone());
-    let fallback = signal(fallback);
+    // Its kind and size as the selection reads them: the row is made at
+    // once, before the size is known (it showed "0 B" beside a summary
+    // that had it).
+    let stat = move || {
+        selection().with(|s| {
+            at.with(|p| s.stats.get(p).copied())
+                .unwrap_or((pick.folder, pick.size))
+        })
+    };
     let card = move || crate::files::app_card(&at.get());
     let glyph = dynamic(move || {
-        if folder {
+        if stat().0 {
             ui::kind_glyph(Icon::Folder, 44.0)
         } else if let Some(app) = card() {
             crate::files::app_icon(app.icon.as_deref(), 44.0)
@@ -1005,9 +1007,12 @@ fn pick_row(pick: Pick) -> View {
         glyph,
         move || card().map(|a| a.label).unwrap_or_else(|| label.get()),
         move || {
-            card()
-                .map(|a| crate::files::app_detail(&a, size))
-                .unwrap_or_else(|| fallback.get())
+            let (folder, size) = stat();
+            match card() {
+                Some(a) => crate::files::app_detail(&a, size),
+                None if folder => "Folder".to_owned(),
+                None => format::bytes(size),
+            }
         },
         ui::round_btn(Icon::X, format!("Remove {name}"), Variant::Secondary, 28.0)
             .on_press(move || remove(path.clone())),

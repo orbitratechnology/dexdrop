@@ -104,6 +104,10 @@ fn send_offers_its_choices_in_thumb_reach() {
     app.press("id:pick-files").unwrap();
     app.wait_for_within("id:next", Duration::from_secs(5))
         .unwrap();
+    // Its row shows its size once read (it said "0 B" while the summary
+    // had the size).
+    app.wait_for_within("text:5 B", Duration::from_secs(5))
+        .unwrap();
     let strip = ids.map(|t| frame(&mut app, t));
     let next = frame(&mut app, "id:next");
     for (i, t) in strip.iter().enumerate() {
