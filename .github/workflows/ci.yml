@@ -364,23 +364,43 @@ jobs:
         with:
           name: ios-simulator-screens
           path: dist/ios-screens
-      # NSH's runner (app/e2e) on the Mac and in the iOS simulator: the same
-      # file as on every platform. After the agent-device checks: its first
-      # launch goes through the local-network explanation, which starts
-      # discovery in NSH's development host, and the system's prompt for it
-      # must not be the one those checks answer.
+
+  # NSH's runner (app/e2e) on the Mac and in the iOS simulator: the same file
+  # as on every platform. A job of its own, beside packaging: `nsh test`
+  # builds the app again (a debug build for NSH's development host), which
+  # since NSH 0.7.0 takes longer than the steps' limits once packaging has
+  # used the runner for an hour (run 91: still compiling after 25 and 30
+  # minutes). Its own runner also keeps its local-network prompt away from
+  # the agent-device checks, and its own cache keeps its debug builds.
+  e2e-apple:
+    name: App e2e (macOS, iOS simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - name: Use Xcode 26
+        run: |
+          x=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -z "$x" ] || sudo xcode-select -s "$x/Contents/Developer"
+          xcodebuild -version
+      - name: Install NSH
+        run: |
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: App e2e (nsh test, macOS)
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
-        timeout-minutes: 25
-        if: ${{ !cancelled() }}
+        timeout-minutes: 45
         run: |
           mkdir -p dist/e2e-apple
           cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/e2e-apple/e2e-macos.xml
       - name: App e2e (nsh test, iOS simulator)
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
-        timeout-minutes: 30
+        timeout-minutes: 45
         if: ${{ !cancelled() }}
         run: |
           mkdir -p dist/e2e-apple
