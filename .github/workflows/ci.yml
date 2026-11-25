@@ -310,8 +310,11 @@ jobs:
       # workflow on main, mode=app, app_release_asset=DexDrop.app.tar.gz):
       # `DexDrop.app` in a .tar.gz on the native-sim-build release, replaced
       # on every push.
+      # A convenience for native-sim sessions, not a check: GitHub's API
+      # failing here (an HTTP 503 in run 92) must not skip the checks below.
       - name: Publish the simulator build for native-sim
         if: github.event_name == 'push'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -320,8 +323,13 @@ jobs:
           gh release view native-sim-build >/dev/null 2>&1 ||
             gh release create native-sim-build --title "native-sim builds" \
               --notes "DexDrop simulator builds for native-sim sessions, published by CI from the development branch. Safe to delete."
-          gh release upload native-sim-build DexDrop.app.tar.gz --clobber
+          for try in 1 2 3; do
+            gh release upload native-sim-build DexDrop.app.tar.gz --clobber && exit 0
+            sleep $((try * 20))
+          done
+          exit 1
       - name: Desktop app check (macOS)
+        if: ${{ !cancelled() }}
         run: python3 scripts/desktop-check.py --require-discovery --app dist/macos/DexDrop.app --cli target/release/dexdrop --out dist/desktop-check
       - uses: actions/upload-artifact@v4
         if: always()

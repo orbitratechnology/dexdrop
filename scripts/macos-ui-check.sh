@@ -177,6 +177,11 @@ inbox=$!
 tap Share || true # re-selecting the tab leaves the finished transfer for home
 ad wait text "CI Mac Inbox" 30000 >/dev/null 2>&1 || { step 07-no-inbox; fail "discovery: the app does not list the receiving CLI"; }
 tap Send || { step 07-no-send-page; fail "could not open Send"; }
+# The runner's own process (it starts the CLI) can get its local-network
+# prompt now, over the app, and keystrokes meant for the Open panel then go
+# nowhere (run 92, where the desktop check that answers it first was
+# skipped). Answer it before opening the panel.
+allow_local_network 3
 tap "Choose files" || fail "could not open the Open panel"
 sleep 2
 osascript >/dev/null 2>&1 <<EOF || true

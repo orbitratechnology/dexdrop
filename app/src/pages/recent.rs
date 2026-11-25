@@ -85,12 +85,19 @@ fn folders() -> Vec<PathBuf> {
     names.iter().map(|n| home.join(n)).collect()
 }
 
+/// Which [`reload`] started last: only its answer is shown, so an older
+/// one that ends later (read before the user allowed access, say) cannot
+/// put back what was there before.
+static RELOADS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Reads what to show, off the UI thread (a media library query and its
 /// thumbnails, or a few folders).
 pub fn reload() {
     if !offered() {
         return;
     }
+    use std::sync::atomic::Ordering;
+    let this = RELOADS.fetch_add(1, Ordering::Relaxed) + 1;
     let android = phone() && cfg!(target_os = "android");
     let ios = ios();
     let thumbs = crate::bridge::state_dir("recent-thumbs");
@@ -123,7 +130,9 @@ pub fn reload() {
     });
     Owner::detached().run(|| {
         spawn(async move {
-            if let Ok((access, items)) = reading.await {
+            if let Ok((access, items)) = reading.await
+                && RELOADS.load(Ordering::Relaxed) == this
+            {
                 state().set(State {
                     loaded: true,
                     access,
@@ -251,8 +260,11 @@ fn ask() {
 
 /// Android: NSH's `nsh::permissions`, asked from Rust.
 fn ask_android() {
+    // Detached, as `reload`: the card that asked goes once access changes,
+    // and must not take the answer with it.
     #[cfg(target_os = "android")]
-    spawn(async {
+    Owner::detached().run(|| {
+        spawn(async {
         use dexdrop_core::api::NoticeKind;
         if !crate::android::can_ask_photos() {
             crate::state::toast(
@@ -270,6 +282,7 @@ fn ask_android() {
                 format!("Could not ask for your photos: {why}"),
             ),
         }
+        });
     });
 }
 
@@ -291,12 +304,16 @@ fn ask_library() {
         return;
     }
     let asking = blocking(library::ask);
-    spawn(async move {
-        if let Ok(access) = asking.await
-            && access != Access::None
-        {
-            reload();
-        }
+    // Detached, as `reload`: the card that asked goes once access changes,
+    // and must not take the answer with it.
+    Owner::detached().run(|| {
+        spawn(async move {
+            if let Ok(access) = asking.await
+                && access != Access::None
+            {
+                reload();
+            }
+        });
     });
 }
 

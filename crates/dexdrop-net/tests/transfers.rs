@@ -355,15 +355,18 @@ async fn pauses_and_resumes_without_starting_over() {
         })
         .await;
     assert_eq!(end.state, TransferState::Completed, "{end:?}");
-    // The measured average counts the time spent moving, not the paused
-    // time: at least the size over everything since accepting (pause
-    // included), at most the 24 MB/s cap. No fixed floor: a busy runner
-    // (CI run 85's macOS, 7 MB/s) is slow without being wrong.
+    // The measured average is a real rate: about the size over the time
+    // since accepting or more (it leaves the pause out), at most the
+    // 24 MB/s cap. The pause here lasts milliseconds, so the two clocks'
+    // different starts (the engine's starts at its own accept) count as
+    // much: a fifth of margin (a fast machine measured 21.5 against 21.8
+    // MB/s). No fixed floor: a busy runner (CI run 85's macOS, 7 MB/s) is
+    // slow without being wrong.
     let elapsed = accepted.elapsed().as_secs_f64();
     let average = end.average_rate.expect("a measured average");
     let with_pause = size as f64 / elapsed;
     assert!(
-        average >= with_pause && average < 30e6,
+        average >= with_pause * 0.8 && average < 30e6,
         "average {average}, {with_pause} counting the pause"
     );
     assert!(

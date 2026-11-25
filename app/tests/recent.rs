@@ -143,6 +143,39 @@ fn an_iphone_offers_its_photo_library() {
         .unwrap();
 }
 
+/// Access asked from Recent's card: the system's prompt makes the app
+/// inactive, and the app is active again before the library reports the
+/// grant (CI run 92), so the read on return still finds no access. The
+/// answer to the prompt then shows the photos; the card that asked, gone
+/// by then, does not take that answer with it.
+#[test]
+fn an_iphone_shows_its_photos_once_allowed() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let grant = tempfile::tempdir().unwrap();
+    let granted = grant.path().join("granted");
+    // SAFETY: under ONE, and removed before the lock is released.
+    unsafe { std::env::set_var("DEXDROP_RECENT_GRANT", &granted) };
+    let (mut app, _dir) = start(|_| {});
+    app.press("id:send").unwrap();
+    app.wait_for_within("id:allow-recent", Duration::from_secs(5))
+        .unwrap();
+    app.press("id:allow-recent").unwrap();
+    // The prompt is up, then gone before the library has the answer.
+    app.set_environment("prompt shown", |e| {
+        e.lifecycle = nsh_core::platform::Lifecycle::Inactive
+    })
+    .unwrap();
+    app.set_environment("prompt answered", |e| {
+        e.lifecycle = nsh_core::platform::Lifecycle::Active
+    })
+    .unwrap();
+    std::fs::write(&granted, b"").unwrap();
+    let shown = app.wait_for_within("label:Photo beach.jpg", Duration::from_secs(10));
+    unsafe { std::env::remove_var("DEXDROP_RECENT_GRANT") };
+    shown.unwrap();
+    assert!(app.screen().id("id:allow-recent").is_err());
+}
+
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {

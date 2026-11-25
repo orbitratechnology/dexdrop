@@ -18,8 +18,8 @@ use objc2_foundation::{NSArray, NSData, NSDictionary, NSError, NSSortDescriptor,
 use objc2_photos::{
     PHAccessLevel, PHAsset, PHAssetMediaType, PHAssetResource, PHAssetResourceManager,
     PHAssetResourceRequestOptions, PHAssetResourceType, PHAuthorizationStatus, PHFetchOptions,
-    PHImageContentMode, PHImageManager, PHImageRequestOptions, PHImageRequestOptionsDeliveryMode,
-    PHImageRequestOptionsResizeMode, PHPhotoLibrary,
+    PHImageContentMode, PHImageManager, PHImageRequestID, PHImageRequestOptions,
+    PHImageRequestOptionsDeliveryMode, PHImageRequestOptionsResizeMode, PHPhotoLibrary,
 };
 
 use super::{Access, Asset, thumb_name};
@@ -222,8 +222,16 @@ unsafe fn original(asset: &PHAsset) -> Option<Retained<PHAssetResource>> {
     }
 }
 
+/// How long a thumbnail may take: past it the photo is listed without one.
+const THUMB_WAIT: Duration = Duration::from_secs(5);
+
 /// Writes a JPEG of about [`THUMB_PX`] of `asset` to `path`; `false` when
-/// none could be made (only in iCloud: thumbnails are not downloaded).
+/// none could be made (only in iCloud: thumbnails are not downloaded) or it
+/// took longer than [`THUMB_WAIT`].
+///
+/// Asked asynchronously, with a deadline: a synchronous request blocks this
+/// thread until PhotoKit answers, and once it did not (CI run 92, right after
+/// access was granted), so Recent never showed what it had found.
 unsafe fn write_thumb(asset: &PHAsset, path: &Path) -> bool {
     let (tx, rx) = mpsc::channel::<Option<Vec<u8>>>();
     let tx = Mutex::new(Some(tx));
@@ -242,17 +250,18 @@ unsafe fn write_thumb(asset: &PHAsset, path: &Path) -> bool {
             let _ = tx.send(jpeg);
         }
     });
-    // SAFETY: documented PhotoKit calls; synchronous, so the handler runs
-    // on this thread before the call returns.
-    unsafe {
+    // SAFETY: documented PhotoKit calls; PhotoKit copies the handler and
+    // calls it once (high quality only) on the main queue, which this
+    // thread never blocks.
+    let (manager, request) = unsafe {
         let options = PHImageRequestOptions::new();
-        options.setSynchronous(true);
+        options.setSynchronous(false);
         options.setDeliveryMode(PHImageRequestOptionsDeliveryMode::HighQualityFormat);
         options.setResizeMode(PHImageRequestOptionsResizeMode::Fast);
         options.setNetworkAccessAllowed(false);
         let manager = PHImageManager::defaultManager();
         // Bound for macOS only by objc2-photos (UIImage on iOS): sent as is.
-        let _: i32 = msg_send![
+        let request: PHImageRequestID = msg_send![
             &*manager,
             requestImageForAsset: asset,
             targetSize: CGSize::new(THUMB_PX, THUMB_PX),
@@ -260,10 +269,16 @@ unsafe fn write_thumb(asset: &PHAsset, path: &Path) -> bool {
             options: &*options,
             resultHandler: &*handler
         ];
-    }
-    match rx.recv_timeout(Duration::from_secs(10)) {
+        (manager, request)
+    };
+    match rx.recv_timeout(THUMB_WAIT) {
         Ok(Some(jpeg)) => std::fs::write(path, jpeg).is_ok(),
-        _ => false,
+        Ok(None) => false,
+        Err(_) => {
+            // SAFETY: the ID PhotoKit returned for this request.
+            unsafe { manager.cancelImageRequest(request) };
+            false
+        }
     }
 }
 

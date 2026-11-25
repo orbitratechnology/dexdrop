@@ -5,7 +5,10 @@
 //! holds (the engine deletes it once nothing selects or sends it, ADR-004).
 //!
 //! Headless runs have no library: the folders of `DEXDROP_RECENT_DIRS`
-//! stand in for it, their files "exported" as copies.
+//! stand in for it, their files "exported" as copies. With
+//! `DEXDROP_RECENT_GRANT` (a file's path) access is not given until that
+//! file exists, and asking waits for it, as the system's prompt waits for
+//! the user.
 
 use std::path::{Path, PathBuf};
 
@@ -29,10 +32,18 @@ fn stand_in() -> Option<Vec<PathBuf>> {
     std::env::var_os("DEXDROP_RECENT_DIRS").map(|dirs| std::env::split_paths(&dirs).collect())
 }
 
+/// The stand-in's grant: `None` without `DEXDROP_RECENT_GRANT`.
+fn stand_in_granted() -> Option<bool> {
+    std::env::var_os("DEXDROP_RECENT_GRANT").map(|file| Path::new(&file).exists())
+}
+
 /// What the user lets DexDrop read, as Recent shows it.
 pub fn access() -> Access {
     if stand_in().is_some() {
-        return Access::All;
+        return match stand_in_granted() {
+            Some(false) => Access::None,
+            _ => Access::All,
+        };
     }
     map(dexdrop_photos::access())
 }
@@ -48,13 +59,21 @@ fn map(access: dexdrop_photos::Access) -> Access {
 
 /// Whether asking shows the system's prompt (not refused before).
 pub fn can_ask() -> bool {
-    stand_in().is_none() && dexdrop_photos::access() == dexdrop_photos::Access::NotDetermined
+    if stand_in().is_some() {
+        return stand_in_granted() == Some(false);
+    }
+    dexdrop_photos::access() == dexdrop_photos::Access::NotDetermined
 }
 
 /// Asks with the system's prompt; blocks until the user answers.
 pub fn ask() -> Access {
     if stand_in().is_some() {
-        return Access::All;
+        // The "user" answers when the test creates the file.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while stand_in_granted() == Some(false) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        return access();
     }
     map(dexdrop_photos::request_access())
 }
