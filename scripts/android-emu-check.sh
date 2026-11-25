@@ -97,7 +97,8 @@ app_sh() { sh_ "su 0 sh -c '$1'" 2>/dev/null || sh_ "run-as $pkg sh -c '$1'" 2>/
 if [ -z "$(app_sh "ls /data/data/$pkg")" ]; then
   warn "the app's storage is not readable here (no su, not debuggable): the Keystore is not checked"
 else
-  ident=$(app_sh "cat \$(find /data/data/$pkg -name identity.json | head -1)" | tr -d '\r')
+  # Pretty-printed JSON: compare without whitespace.
+  ident=$(app_sh "cat \$(find /data/data/$pkg -name identity.json | head -1)" | tr -d ' \t\r\n')
   case "$ident" in
     *'"key_in_system_store":true'*) ;;
     *) fail "the identity key is not in the Android Keystore (identity.json: ${ident:0:120})" ;;
