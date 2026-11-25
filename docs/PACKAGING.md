@@ -20,12 +20,21 @@ it runs.
 | `macos.infoPlist.LSApplicationCategoryType` | `public.app-category.utilities` | The App Store's and Finder's category |
 | `android.targetSdk` | `35` | |
 | `android.permissions` | `REQUEST_INSTALL_PACKAGES` | Opening a received APK hands it to the system's installer |
+| `ios.infoPlist.NSCameraUsageDescription` | why DexDrop uses the camera | Scan QR (FR-024); `nsh-extra`'s `camera` feature would add a generic text |
 
 The engine's own Android needs are in `crates/dexdrop-net/Cargo.toml`
 (`[package.metadata.nsh.android]`), which `nsh` adds to every package of
 an app that links it: the Java bridges (`libraries`: `android/nsd.dex`),
-the `<queries>` entry for launcher apps (Send › Apps) and the permissions
-to read photos and videos (Send's Recent). Check a package's with
+the `<queries>` entry for launcher apps (Send › Apps), the permissions to
+read photos and videos (Send's Recent), and the foreground service that
+keeps transfers going (`application`: `TransferService`, type `dataSync`,
+with `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC`). Likewise
+`nsh-extra`'s `camera` adds the camera apps' `<queries>`, and
+`crates/dexdrop-photos` adds iOS's `NSPhotoLibraryUsageDescription`.
+Google Play asks apps that declare `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`
+why they need the whole library (a file-transfer app's Recent) and those
+with a `dataSync` foreground service what it does; both go in the Play
+Console's declarations. Check a package's with
 `aapt2 dump xmltree --file AndroidManifest.xml DexDrop.apk`; CI does.
 
 ## Icons

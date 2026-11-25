@@ -178,12 +178,14 @@ jobs:
           apk=$(ls dist/android/*.apk | head -1)
           aapt2=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2
           manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")
-          for want in REQUEST_INSTALL_PACKAGES READ_MEDIA_VISUAL_USER_SELECTED android.intent.action.MAIN android.intent.action.SEND_MULTIPLE; do
+          for want in REQUEST_INSTALL_PACKAGES READ_MEDIA_VISUAL_USER_SELECTED android.intent.action.MAIN android.intent.action.SEND_MULTIPLE android.media.action.IMAGE_CAPTURE FOREGROUND_SERVICE_DATA_SYNC dev.dexdrop.TransferService; do
             grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
           done
           "$aapt2" dump resources "$apk" | grep -q "ic_launcher" || { echo "::error::no launcher icon"; exit 1; }
           unzip -o -q "$apk" 'classes*.dex' -d "$RUNNER_TEMP/dex"
-          grep -qa "Ldev/dexdrop/NsdBridge;" "$RUNNER_TEMP"/dex/classes*.dex || { echo "::error::the Java bridges (dexdrop-net's nsd.dex) are not in the APK"; exit 1; }
+          for class in NsdBridge TransferService; do
+            grep -qa "Ldev/dexdrop/$class;" "$RUNNER_TEMP"/dex/classes*.dex || { echo "::error::dev.dexdrop.$class (dexdrop-net's nsd.dex) is not in the APK"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: dexdrop-android

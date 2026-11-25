@@ -25,6 +25,10 @@ devices, with no account and no cloud.
   icon).
 - Asks before sending to a device over the internet while on mobile data
   or with Data Saver / Low Data Mode on.
+- Phones: scan the other device's QR code with the camera.
+- Android: transfers keep going when you switch apps, with their progress
+  in a notification; the device key is kept in the Android Keystore.
+- iPhone: your latest photos and videos on *Send*, sent as their originals.
 - Measured transfer speed per device; local history; anonymized diagnostics.
 - `dexdrop` command-line tool for sending, receiving and benchmarking.
 

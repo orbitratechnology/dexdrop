@@ -23,6 +23,7 @@ use crate::{bridge, state::model};
 pub fn watch() {
     reconnect_on_return();
     taskbar_progress();
+    transfer_service();
     badge();
     keep_picked();
 }
@@ -97,10 +98,97 @@ fn reconnect() {
 
 const BACKGROUND_NOTICE: &str = "dexdrop-background";
 
+/// What the foreground service's notification says while transfers move:
+/// a title, a line of progress, the whole percent done (`None` while no
+/// size is known) and whether anything is being sent; `None` when nothing
+/// moves.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServiceStatus {
+    pub title: String,
+    pub text: String,
+    pub percent: Option<u8>,
+    pub upload: bool,
+}
+
+/// [`ServiceStatus`] of `transfers`: those moving (preparing, connecting,
+/// waiting for an answer, transferring, reconnecting).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn service_status(transfers: &[TransferSnapshot]) -> Option<ServiceStatus> {
+    let active: Vec<_> = transfers.iter().filter(|t| moving(&t.state)).collect();
+    let upload = active
+        .iter()
+        .any(|t| t.direction == dexdrop_core::store::Direction::Outgoing);
+    let download = active
+        .iter()
+        .any(|t| t.direction == dexdrop_core::store::Direction::Incoming);
+    let title = match active.as_slice() {
+        [] => return None,
+        [one] if upload => format!("Sending {} to {}", one.label, one.peer_name),
+        [one] => format!("Receiving {} from {}", one.label, one.peer_name),
+        many if upload && download => format!("{} transfers", many.len()),
+        many if upload => format!("Sending to {} devices", many.len()),
+        many => format!("Receiving {} transfers", many.len()),
+    };
+    let total: u64 = active.iter().map(|t| t.total_bytes).sum();
+    let done: u64 = active.iter().map(|t| t.bytes_done.min(t.total_bytes)).sum();
+    let percent = (total > 0).then(|| (done as f64 / total as f64 * 100.0).floor() as u8);
+    let text = match percent {
+        Some(p) => format!(
+            "{p}% · {} of {}",
+            dexdrop_core::format::bytes(done),
+            dexdrop_core::format::bytes(total)
+        ),
+        None => "Getting ready…".to_owned(),
+    };
+    Some(ServiceStatus {
+        title,
+        text,
+        percent,
+        upload,
+    })
+}
+
+/// Android: a foreground service keeps DexDrop running while files move
+/// (PRD 8.5), its notification showing their progress; it stops once none
+/// moves. Android starts one only while the app is in front, so a transfer
+/// started in the background keeps the older notice instead.
+fn transfer_service() {
+    #[cfg(target_os = "android")]
+    {
+        let shown = computed(|| model().with(|m| service_status(&m.transfers)));
+        effect(move || match shown.get() {
+            Some(status) => {
+                let status = dexdrop_net::android_service::Status {
+                    title: status.title,
+                    text: status.text,
+                    percent: status.percent,
+                    upload: status.upload,
+                };
+                match dexdrop_net::android_service::show(&status) {
+                    Ok(()) => SERVICE_RUNNING.set(true),
+                    Err(why) => log::info!("transfer service: {why}"),
+                }
+            }
+            None => {
+                if SERVICE_RUNNING.replace(false) {
+                    dexdrop_net::android_service::hide();
+                }
+            }
+        });
+    }
+}
+
+thread_local! {
+    /// Whether the transfer service runs (Android), set on the UI thread.
+    static SERVICE_RUNNING: Cell<bool> = const { Cell::new(false) };
+}
+
 /// Phones suspend apps in the background within seconds: when a transfer
 /// is moving, a notification says so (and goes when the app is back).
+/// Android's foreground service keeps it running instead, when it started.
 fn warn_backgrounded() {
-    if !crate::ui::mobile() {
+    if !crate::ui::mobile() || SERVICE_RUNNING.get() {
         return;
     }
     let moving: Vec<String> = model().with_untracked(|m| {
@@ -242,6 +330,37 @@ mod tests {
             total_bytes: total,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_service_says_what_moves() {
+        assert_eq!(service_status(&[]), None);
+        // Paused and finished transfers keep nothing running.
+        assert_eq!(
+            service_status(&[
+                snap(TransferState::Paused { by_peer: false }, 1, 2),
+                snap(TransferState::Completed, 2, 2),
+            ]),
+            None
+        );
+        let mut send = snap(TransferState::Transferring, 512 * 1024, 2 * 1024 * 1024);
+        send.direction = dexdrop_core::store::Direction::Outgoing;
+        send.label = "Talk.pdf".into();
+        send.peer_name = "Desk".into();
+        let one = service_status(std::slice::from_ref(&send)).unwrap();
+        assert_eq!(one.title, "Sending Talk.pdf to Desk");
+        assert_eq!(one.percent, Some(25));
+        assert!(one.upload);
+        assert!(one.text.starts_with("25% · "), "{}", one.text);
+
+        let mut receive = snap(TransferState::Connecting, 0, 0);
+        receive.direction = dexdrop_core::store::Direction::Incoming;
+        let both = service_status(&[send, receive.clone()]).unwrap();
+        assert_eq!(both.title, "2 transfers");
+        let waiting = service_status(&[receive]).unwrap();
+        assert_eq!(waiting.percent, None);
+        assert_eq!(waiting.text, "Getting ready…");
+        assert!(!waiting.upload);
     }
 
     #[test]

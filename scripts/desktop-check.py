@@ -132,18 +132,24 @@ return ""
 def allow_local_network(timeout: float = 25) -> str:
     """Answers macOS's "Allow … to find devices on local networks?" prompt,
     as a person would the first time. Returns the process that showed it, or
-    "" when it could not be answered (no prompt, or UI scripting refused)."""
+    "" when it could not be answered (no prompt, or UI scripting refused).
+    A click can land while the prompt is still animating in and do nothing
+    (CI run 84: the prompt stayed and discovery failed), so it clicks until
+    no "Allow" button is left."""
     deadline = time.time() + timeout
+    shown_by = ""
     while time.time() < deadline:
         try:
             res = run(["osascript", "-e", ALLOW_SCRIPT], timeout=30)
-            shown_by = res.stdout.strip()
-            if shown_by:
-                return shown_by
+            clicked = res.stdout.strip()
         except Exception:
-            pass
+            clicked = ""
+        if clicked:
+            shown_by = clicked
+        elif shown_by:
+            return shown_by  # answered: no prompt left
         time.sleep(2)
-    return ""
+    return shown_by
 
 
 def write_payload(src: Path) -> dict:

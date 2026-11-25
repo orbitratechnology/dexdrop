@@ -1,0 +1,45 @@
+[package]
+name = "dexdrop-photos"
+description = "iOS photo library (PhotoKit) for Send's Recent: the newest photos and videos, their thumbnails, and their original files exported to send."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# PhotoKit through objc2 (no C build step, so it type-checks for iOS on any
+# host: `cargo check -p dexdrop-photos --target aarch64-apple-ios`).
+[target.'cfg(target_os = "ios")'.dependencies]
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "block2", "objc2"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSData",
+  "NSDate",
+  "NSError",
+  "NSSortDescriptor",
+  "NSString",
+  "NSURL",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-photos = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "objc2-core-foundation",
+  "PHAsset",
+  "PHAssetResource",
+  "PHAssetResourceManager",
+  "PHFetchOptions",
+  "PHFetchResult",
+  "PHImageManager",
+  "PHObject",
+  "PHPhotoLibrary",
+  "PhotosTypes",
+] }
+
+# The usage text iOS shows when DexDrop asks for the library: `nsh` adds it
+# to the packaged app of every app that links this crate (the app's own
+# nsh.json may word it differently).
+[package.metadata.nsh.ios.infoPlist]
+NSPhotoLibraryUsageDescription = "DexDrop shows your latest photos and videos on Send, so you can send them in one tap."

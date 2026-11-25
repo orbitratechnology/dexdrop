@@ -46,6 +46,7 @@
       "NSBonjourServices": [
         "_dexdrop._tcp"
       ],
+      "NSCameraUsageDescription": "DexDrop reads the QR code on your other device's screen to connect to it.",
       "UIFileSharingEnabled": true,
       "LSSupportsOpeningDocumentsInPlace": true
     }

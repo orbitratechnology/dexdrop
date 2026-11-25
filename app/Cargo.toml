@@ -16,6 +16,10 @@ path = "src/main.rs"
 [dependencies]
 nsh-core = { version = "=0.7.0", features = ["svg"] }
 nsh-base = "=0.7.0"
+# NSH's official modules (an nshm): `camera` scans another device's QR code
+# (FR-024). Its feature's [package.metadata.nsh] adds the camera's usage text
+# (iOS) and the camera apps' <queries> (Android) to the packages.
+nsh-extra = { version = "=0.7.0", features = ["camera"] }
 dexdrop-core = { path = "../crates/dexdrop-core" }
 log = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -23,6 +27,15 @@ env_logger = "0.11"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dexdrop-net = { path = "../crates/dexdrop-net" }
+# iOS's photo library for Send's Recent (PhotoKit; nothing elsewhere).
+dexdrop-photos = { path = "../crates/dexdrop-photos" }
+
+# Android's runtime permissions from Rust (`nsh::permissions`): the library
+# of NSH's Android backend, which every Android build of the app links.
+[target.'cfg(target_os = "android")'.dependencies]
+# No features: the packaged app's runner chooses them (a Rust app has no
+# QuickJS), as nsh-extra depends on it.
+nsh-platform-android = { version = "=0.7.0", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nsh-platform-linux = { version = "=0.7.0", default-features = false, features = ["svg"] }
@@ -37,3 +50,5 @@ nsh-platform-windows = { version = "=0.7.0", default-features = false, features 
 nsh-engine = "=0.7.0"
 nsh-testing = "=0.7.0"
 tempfile = "3"
+# Pictures of QR codes for the camera's fake (tests/camera.rs).
+image = { version = "0.25", default-features = false, features = ["png"] }

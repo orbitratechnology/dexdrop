@@ -17,7 +17,7 @@ Each install has one Ed25519 key. Its certificate (public) is in
 | Linux without one (servers, minimal desktops) | `identity.json`, mode 0600 | other users | root; the same user; reading the disk offline unless the disk is encrypted |
 | iOS | Keychain, data-protection store, readable by DexDrop only | other apps; reading a locked device | a jailbroken device |
 | macOS | `identity.json`, mode 0600 | other users | the same user; reading the disk offline unless FileVault is on (the default) |
-| Android | `identity.json` in the app's private storage | other apps (the Android sandbox); reading a locked device (file-based encryption) | a rooted device |
+| Android | the Android Keystore: encrypted in the app's SharedPreferences (`keyring-dexdrop`) under a Keystore key that never leaves it (`android-native-keyring-store`) | other apps; copying the app's files elsewhere (the key that decrypts them stays in the Keystore, hardware-backed where the phone has it) | a rooted device; code running as DexDrop |
 
 Why not everywhere yet:
 
@@ -26,12 +26,11 @@ Why not everywhere yet:
   gate), so every update would get a new signature and macOS would ask the
   user to allow access to the key after each one. The Keychain comes with
   signed releases.
-- **Android**: the Android Keystore store (`android-native-keyring-store`)
-  finds the Java VM through `ndk-context`, which NSH sets from its next
-  release (longbridge/nsh#2686). Until then the key stays in the app's
-  private storage, which Android already keeps from other apps and encrypts
-  at rest. "Encrypting" that file with a key stored beside it would add
-  nothing.
+- **Android** reaches the Keystore with the Java VM and `Context` NSH sets
+  in `ndk-context` (since NSH 0.7.0). The `dexdrop` CLI run from a shell
+  has neither and keeps its key in its `identity.json`. A key from before
+  (in the app's `identity.json`) moves to the Keystore as described below;
+  CI's emulator check reads the app's files to confirm it.
 
 Behaviour:
 

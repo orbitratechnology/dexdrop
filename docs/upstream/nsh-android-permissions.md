@@ -7,8 +7,11 @@
 > `crates/dexdrop-net/Cargo.toml`, the bridges ship as an Android library,
 > and the engine reads the VM from `ndk-context` (ADR-006 in
 > `docs/ARCHITECTURE.md`). DexDrop kept `NsdManager` over mdns-sd with a
-> multicast lock (no battery cost, one less permission). The rest of this
-> page is the history that led there.
+> multicast lock (no battery cost, one less permission). Since then
+> (ADR-007) the identity key is in the Android Keystore, the photo
+> permission is asked with `nsh::permissions`, and a `dataSync` foreground
+> service declared through `android.application` keeps transfers going.
+> The rest of this page is the history that led there.
 
 We drafted a request to NSH (`longbridge/nsh`) for Rust apps on Android to
 declare manifest permissions and reach Android APIs. Searching its issues

@@ -44,6 +44,62 @@ pub enum Access {
     NotNeeded,
 }
 
+const READ_MEDIA_IMAGES: &str = "android.permission.READ_MEDIA_IMAGES";
+const READ_MEDIA_VIDEO: &str = "android.permission.READ_MEDIA_VIDEO";
+const READ_MEDIA_VISUAL_USER_SELECTED: &str = "android.permission.READ_MEDIA_VISUAL_USER_SELECTED";
+const READ_EXTERNAL_STORAGE: &str = "android.permission.READ_EXTERNAL_STORAGE";
+
+/// Android's permissions to read photos and videos on API level `api`:
+/// `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` from Android 13 (33), with
+/// `READ_MEDIA_VISUAL_USER_SELECTED` from 14 (34: the user may allow only
+/// some), `READ_EXTERNAL_STORAGE` before. The app asks with NSH's
+/// `nsh::permissions`; dexdrop-net's `Cargo.toml` declares them all.
+pub fn android_permissions(api: u32) -> &'static [&'static str] {
+    if api >= 34 {
+        &[
+            READ_MEDIA_IMAGES,
+            READ_MEDIA_VIDEO,
+            READ_MEDIA_VISUAL_USER_SELECTED,
+        ]
+    } else if api >= 33 {
+        &[READ_MEDIA_IMAGES, READ_MEDIA_VIDEO]
+    } else {
+        &[READ_EXTERNAL_STORAGE]
+    }
+}
+
+/// What `permissions` allow, from whether each is granted (same order).
+pub fn android_access(permissions: &[&str], granted: &[bool]) -> Access {
+    let mut some = false;
+    for (name, granted) in permissions.iter().zip(granted) {
+        if *granted {
+            if *name == READ_MEDIA_VISUAL_USER_SELECTED {
+                some = true;
+            } else {
+                return Access::All;
+            }
+        }
+    }
+    if some { Access::Some } else { Access::None }
+}
+
+/// The device's Android API level (`ro.build.version.sdk`); 0 when unknown.
+#[cfg(target_os = "android")]
+pub fn android_api_level() -> u32 {
+    let mut value = [0 as libc::c_char; 92]; // PROP_VALUE_MAX
+    // SAFETY: a NUL-terminated name and a buffer of PROP_VALUE_MAX bytes,
+    // as `__system_property_get` requires.
+    let len = unsafe {
+        libc::__system_property_get(c"ro.build.version.sdk".as_ptr(), value.as_mut_ptr())
+    };
+    if len <= 0 {
+        return 0;
+    }
+    // SAFETY: the call wrote a NUL-terminated value into the buffer.
+    let value = unsafe { std::ffi::CStr::from_ptr(value.as_ptr()) };
+    value.to_string_lossy().trim().parse().unwrap_or(0)
+}
+
 /// Separates an item's fields (see `MediaBridge.java`).
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 const SEP: char = '\u{1}';
@@ -202,36 +258,6 @@ mod system {
     }
 }
 
-/// Whether the app may read the device's photos and videos.
-#[cfg(target_os = "android")]
-pub fn access() -> Access {
-    match system::call("access", &[]).as_deref() {
-        Ok("all") => Access::All,
-        Ok("some") => Access::Some,
-        _ => Access::None,
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-pub fn access() -> Access {
-    Access::NotNeeded
-}
-
-/// Asks the user for the photos and videos, with the system's dialog; the
-/// answer shows in [`access`] once the app is in front again.
-#[cfg(target_os = "android")]
-pub fn ask() -> Result<(), String> {
-    match system::call("ask", &[])?.as_str() {
-        "asked" => Ok(()),
-        why => Err(why.to_owned()),
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-pub fn ask() -> Result<(), String> {
-    Ok(())
-}
-
 /// The newest photos and videos on this phone (Android), at most `limit`,
 /// with thumbnails in `thumb_dir`; empty without access.
 #[cfg(target_os = "android")]
@@ -254,6 +280,22 @@ pub fn recent_media(_limit: usize, _thumb_dir: &Path) -> Vec<Recent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_access_follows_the_grants() {
+        let names = android_permissions(34);
+        assert_eq!(names.len(), 3);
+        assert_eq!(android_access(names, &[true, false, false]), Access::All);
+        assert_eq!(android_access(names, &[false, true, false]), Access::All);
+        // Android 14's "allow limited access".
+        assert_eq!(android_access(names, &[false, false, true]), Access::Some);
+        assert_eq!(android_access(names, &[false; 3]), Access::None);
+        assert_eq!(android_permissions(33).len(), 2);
+        // Before Android 13: storage.
+        let old = android_permissions(30);
+        assert_eq!(old, &[READ_EXTERNAL_STORAGE]);
+        assert_eq!(android_access(old, &[true]), Access::All);
+    }
 
     #[test]
     fn reads_the_bridges_lines() {

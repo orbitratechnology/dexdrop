@@ -1,19 +1,18 @@
 //! Send's "Recent": what was added to the device lately, a tap away from
 //! the selection. On Android the newest photos and videos (the system's
-//! media library, once the user allows it); on computers the newest files
-//! in Downloads, Pictures, Movies (and Desktop and Documents on Windows and
-//! Linux). Items are sent from their own files: nothing is copied. Nothing
-//! shows on iOS: NSH 0.7.0's photo library (`nsh-extra` `photos`) hands
-//! over re-encoded JPEGs, not the originals or videos (ADR-005).
+//! media library, once the user allows it), sent from their own files; on
+//! iOS those of the photo library (PhotoKit, `library.rs`), whose original
+//! is exported when picked; on computers the newest files in Downloads,
+//! Pictures, Movies (and Desktop and Documents on Windows and Linux).
 
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use dexdrop_net::media::{self, Access, Kind, Recent};
 use nsh_base::theme;
 use nsh_core::{platform::Lifecycle, prelude::*};
 
 use crate::{
-    pages::send,
+    pages::{library, send},
     state::selection,
     ui::{self, Icon, Variant, muted, space},
 };
@@ -30,13 +29,37 @@ fn state() -> Signal<State> {
     global::<State>()
 }
 
-/// Whether this platform has a Recent section.
+/// iOS: the files exported for library items picked ([`library`]), by the
+/// item's path.
+#[derive(Clone, Default, PartialEq)]
+struct Exported(HashMap<PathBuf, PathBuf>);
+
+/// Records that the library item `item` was exported to `file`.
+pub fn remember_export(item: PathBuf, file: PathBuf) {
+    global::<Exported>().update(|e| {
+        e.0.insert(item, file);
+    });
+}
+
+fn exported(item: &std::path::Path) -> Option<PathBuf> {
+    global::<Exported>().with(|e| e.0.get(item).cloned())
+}
+
+/// Whether this platform has a Recent section (every one but the web,
+/// which has its own module).
 pub fn offered() -> bool {
-    os() != nsh_core::platform::Os::Ios
+    true
 }
 
 fn phone() -> bool {
-    os() == nsh_core::platform::Os::Android
+    matches!(
+        os(),
+        nsh_core::platform::Os::Android | nsh_core::platform::Os::Ios
+    )
+}
+
+fn ios() -> bool {
+    os() == nsh_core::platform::Os::Ios
 }
 
 /// The folders whose newest files a computer shows (`DEXDROP_RECENT_DIRS`,
@@ -69,12 +92,25 @@ pub fn reload() {
         return;
     }
     let android = phone() && cfg!(target_os = "android");
+    let ios = ios();
     let thumbs = crate::bridge::state_dir("recent-thumbs");
     let dirs = folders();
     let limit = if phone() { 24 } else { 8 };
     let reading = blocking(move || {
-        if android {
-            let access = media::access();
+        if ios {
+            let access = library::access();
+            let items = if matches!(access, Access::All | Access::Some) {
+                library::recent(limit, &thumbs)
+            } else {
+                Vec::new()
+            };
+            media::prune_thumbs(&thumbs, &items);
+            (Some(access), items)
+        } else if android {
+            #[cfg(target_os = "android")]
+            let access = crate::android::photo_access();
+            #[cfg(not(target_os = "android"))]
+            let access = Access::None;
             let items = if access == Access::None {
                 Vec::new()
             } else {
@@ -99,10 +135,28 @@ pub fn reload() {
 }
 
 fn selected(path: &std::path::Path) -> bool {
-    selection().with(|s| s.paths.iter().any(|p| p == path))
+    // A library item: its exported file.
+    let path = if library::item_id(path).is_some() {
+        match exported(path) {
+            Some(file) => file,
+            None => return false,
+        }
+    } else {
+        path.to_path_buf()
+    };
+    selection().with(|s| s.paths.contains(&path))
 }
 
 fn toggle(path: PathBuf) {
+    if let Some(id) = library::item_id(&path) {
+        match exported(&path) {
+            Some(file) if selection().with_untracked(|s| s.paths.contains(&file)) => {
+                send::remove(file)
+            }
+            _ => send::add_from_library(path, id),
+        }
+        return;
+    }
     if selection().with_untracked(|s| s.paths.contains(&path)) {
         send::remove(path);
     } else {
@@ -184,16 +238,69 @@ pub fn section() -> impl IntoElement {
         .into_element()
 }
 
+/// Asks for the photos and videos with the system's prompt (NSH's
+/// `nsh::permissions`), then shows them; a user who refused before is
+/// sent to the system's settings, the only place that changes it.
 fn ask() {
-    if let Err(why) = media::ask() {
-        crate::state::toast(
-            dexdrop_core::api::NoticeKind::Error,
-            format!("Could not ask for your photos: {why}"),
-        );
+    if ios() {
+        ask_library();
+    } else {
+        ask_android();
     }
 }
 
-/// Android without access yet: what it is for, and the button.
+/// Android: NSH's `nsh::permissions`, asked from Rust.
+fn ask_android() {
+    #[cfg(target_os = "android")]
+    spawn(async {
+        use dexdrop_core::api::NoticeKind;
+        if !crate::android::can_ask_photos() {
+            crate::state::toast(
+                NoticeKind::Info,
+                "Allow photos and videos for DexDrop in the system's settings to see them here.",
+            );
+            drop(nsh_core::mobile::open_app_settings());
+            return;
+        }
+        match crate::android::ask_photos().await {
+            Ok(Access::None) => {}
+            Ok(_) => reload(),
+            Err(why) => crate::state::toast(
+                NoticeKind::Error,
+                format!("Could not ask for your photos: {why}"),
+            ),
+        }
+    });
+}
+
+/// iOS: the photo library's prompt the first time; after a refusal only
+/// the system's settings allow it. With Limited Access, the system's sheet
+/// to select more.
+fn ask_library() {
+    use dexdrop_core::api::NoticeKind;
+    if state().with_untracked(|s| s.access == Some(Access::Some)) {
+        library::choose_more();
+        return;
+    }
+    if !library::can_ask() && library::access() == Access::None {
+        crate::state::toast(
+            NoticeKind::Info,
+            "Allow Photos for DexDrop in Settings to see your photos and videos here.",
+        );
+        drop(nsh_core::mobile::open_app_settings());
+        return;
+    }
+    let asking = blocking(library::ask);
+    spawn(async move {
+        if let Ok(access) = asking.await
+            && access != Access::None
+        {
+            reload();
+        }
+    });
+}
+
+/// Phones without access yet: what it is for, and the button.
 fn allow_card() -> impl IntoElement {
     ui::tile()
         .items_center()

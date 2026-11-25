@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * DexDrop's bridge to Android's DNS-SD service ({@link NsdManager}).
  *
- * <p>Loaded from memory by the Rust discovery adapter
+ * <p>Made by the Rust discovery adapter
  * (crates/dexdrop-net/src/discovery/nsd.rs), which calls these methods from
  * one thread and reads what was found with {@link #poll}. The system does
  * the multicast work, so the app needs no multicast lock or extra
@@ -43,13 +43,8 @@ public final class NsdBridge {
     private NsdManager.DiscoveryListener browser;
     private NsdManager.RegistrationListener registration;
 
-    public NsdBridge() throws Exception {
-        Context context = (Context) Class.forName("android.app.ActivityThread")
-                .getMethod("currentApplication")
-                .invoke(null);
-        if (context == null) {
-            throw new IllegalStateException("no application context");
-        }
+    /** {@code context}: the application's, which NSH gives the Rust side. */
+    public NsdBridge(Context context) {
         nsd = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
         if (nsd == null) {
             throw new IllegalStateException("no network service discovery");

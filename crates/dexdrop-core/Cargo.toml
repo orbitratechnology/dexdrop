@@ -29,7 +29,7 @@ tempfile = "3.27.0"
 
 # The identity's private key goes to the OS credential store where one is
 # usable without prompts (see src/keystore.rs).
-[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "ios"))'.dependencies]
+[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "ios", target_os = "android"))'.dependencies]
 keyring-core = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -40,3 +40,7 @@ zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] 
 
 [target.'cfg(target_os = "ios")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["protected"] }
+
+# The Android Keystore, reached with the context NSH sets in ndk-context.
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "1"

@@ -20,7 +20,7 @@ import java.util.Set;
  * DexDrop's bridge to Android's {@link PackageManager}: the apps installed
  * (to send their APKs) and the details of an APK file.
  *
- * <p>Loaded from memory by the Rust adapter (crates/dexdrop-net/src/apps.rs),
+ * <p>Made by the Rust adapter (crates/dexdrop-net/src/apps.rs),
  * which calls these methods from a worker thread. Each app is one line,
  * fields separated by U+0001:
  * {@code package label versionName versionCode system size apks icon
@@ -42,13 +42,9 @@ public final class AppsBridge {
     private final Context context;
     private final PackageManager pm;
 
-    public AppsBridge() throws Exception {
-        context = (Context) Class.forName("android.app.ActivityThread")
-                .getMethod("currentApplication")
-                .invoke(null);
-        if (context == null) {
-            throw new IllegalStateException("no application context");
-        }
+    /** {@code context}: the application's, which NSH gives the Rust side. */
+    public AppsBridge(Context context) {
+        this.context = context;
         pm = context.getPackageManager();
     }
 

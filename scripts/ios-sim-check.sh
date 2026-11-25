@@ -236,6 +236,33 @@ send_with "$invitation" invitation "$note2" ||
   fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
 note "- 200 KB sent with the invitation link, accepted, received byte-identical (\`$(received_intact "$note2")\`)"
 
+# 3. Send's Recent from the photo library (PhotoKit, crates/dexdrop-photos):
+#    with Photos allowed, a photo added to the library shows under Send's
+#    choices; a tap exports its original into the app's staging folder and
+#    selects it.
+xcrun simctl privacy "$udid" grant photos "$bundle" || fail "could not grant Photos to the app"
+cp "$(dirname "$0")/../app/icon.png" "$out/dexdrop-recent.png"
+xcrun simctl addmedia "$udid" "$out/dexdrop-recent.png" || fail "could not add a photo to the simulator's library"
+tap Share || true
+tap Send || fail "could not open Send"
+ad scroll down >/dev/null 2>&1 || true
+ad wait text "Recent photos and videos" 20000 >/dev/null 2>&1 || { step 08-no-recent; fail "Send shows no Recent section"; }
+photo=
+for _ in $(seq 1 10); do
+  step 08-recent
+  photo=$(grep -oE 'Photo [^"]+\.(png|PNG|jpg|JPG|jpeg|heic|HEIC)' "$out/08-recent.txt" | head -1)
+  [ -n "$photo" ] && break
+  sleep 2
+done
+[ -n "$photo" ] || fail "Send's Recent does not show the photo added to the library (08-recent.txt)"
+note "- Send's Recent lists the photo library's newest photo (\"$photo\")"
+tap "$photo" || fail "could not tap $photo"
+ad wait 'label="Choose device"' 30000 >/dev/null 2>&1 || { step 09-not-selected; fail "the library photo was not selected"; }
+step 09-library-selected
+staged=$(find "$container" -path '*staging*' -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' \) | head -1)
+[ -n "$staged" ] || fail "no exported original in the app's staging folder"
+note "- Picked: its original exported to \`${staged#"$container"/}\` ($(wc -c <"$staged" | tr -d ' ') bytes) and selected"
+
 ad close >/dev/null 2>&1 || true
 note ""
 note "Passed in $(($(date +%s) - t0)) s."

@@ -1,8 +1,8 @@
 //! Send's Recent, headless: the newest files on a computer as rows, the
-//! newest photos and videos on Android as a grid of squares, nothing on an
-//! iPhone; a tap adds an item to the selection, another takes it out.
-//! (On a real Android phone the items come from the system's media
-//! library; headless, from the folders in `DEXDROP_RECENT_DIRS`.)
+//! newest photos and videos on Android and iPhone as a grid of squares; a
+//! tap adds an item to the selection, another takes it out. (On a real
+//! phone the items come from the system's media or photo library;
+//! headless, from the folders in `DEXDROP_RECENT_DIRS`.)
 
 use std::time::Duration;
 
@@ -113,13 +113,45 @@ fn android_offers_its_newest_photos_and_videos() {
         .unwrap();
 }
 
-/// An iPhone has no photo library in NSH yet: no Recent section.
+/// An iPhone shows the photo library's newest photos and videos (PhotoKit;
+/// headless, the folder standing in for it): a tap exports the original
+/// into staging and selects that copy; another tap takes it out.
 #[test]
-fn an_iphone_shows_no_recent_section() {
+fn an_iphone_offers_its_photo_library() {
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let (mut app, _dir) = start(|_| {});
+    let (mut app, dir) = start(|_| {});
     app.press("id:send").unwrap();
-    app.wait_for_within("id:pick-photos", Duration::from_secs(5))
+    app.wait_for_within("text:Recent photos and videos", Duration::from_secs(5))
         .unwrap();
-    assert!(app.screen().id("id:recent").is_err(), "a Recent section");
+    app.wait_for_within("label:Photo beach.jpg", Duration::from_secs(5))
+        .unwrap();
+    assert!(app.screen().id("label:Video clip.mp4").is_ok());
+    // Only photos and videos come from a photo library.
+    assert!(app.screen().id("label:Photo report.pdf").is_err());
+    app.press("label:Photo beach.jpg").unwrap();
+    app.wait_for_within("id:next", Duration::from_secs(5))
+        .unwrap();
+    // The selection holds the exported copy, in staging.
+    let staged: Vec<_> = walk(&dir.path().join("state").join("staging"))
+        .into_iter()
+        .filter(|p| p.file_name().is_some_and(|n| n == "beach.jpg"))
+        .collect();
+    assert_eq!(staged.len(), 1, "exported once: {staged:?}");
+    assert_eq!(std::fs::read(&staged[0]).unwrap(), vec![2u8; 4096]);
+    app.press("label:Photo beach.jpg").unwrap();
+    app.wait_for_gone("id:next", Duration::from_secs(5))
+        .unwrap();
+}
+
+fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(walk(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
 }

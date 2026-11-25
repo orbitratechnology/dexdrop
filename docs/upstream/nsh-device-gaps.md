@@ -3,9 +3,11 @@
 > **NSH 0.7.0 (2026-11-25):** `network()` now reports the link's kind and
 > whether it is expensive or constrained; DexDrop asks before sending over
 > the internet on such a link (FR-072), so that row is gone. 0.7.0 also
-> lets the manifest declare a `<service>` (`android.application`), which a
-> foreground service for background transfers needs; the service itself is
-> still DexDrop's to write. The rest below is still missing in 0.7.0.
+> lets the manifest declare a `<service>` (`android.application`): DexDrop
+> now runs a `dataSync` foreground service with a progress notification
+> while files move (ADR-007), so the Android half of "Background execution"
+> and "A progress notification" are DexDrop's own now. The rest below is
+> still missing in 0.7.0.
 
 Checked against https://nsh.dev/docs/device-and-environment.md and the
 module pages (`nsh`, `nsh/mobile`, `nsh/desktop`) on 2026-11-24, NSH 0.6.1.

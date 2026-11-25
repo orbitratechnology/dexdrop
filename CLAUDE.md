@@ -45,8 +45,17 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
   `android.launchScreen`). Nothing patches the APK.
 - NSH sets `ndk-context` before app code runs and panics if it is set
   again: never call `initialize_android_context`. The app calls
-  `dexdrop_net::use_android_context()`; the engine reads the VM from it
-  (`crates/dexdrop-net/src/jvm.rs`).
+  `dexdrop_net::use_android_context()`; the engine (`jvm.rs`, the Java
+  bridges, `android_service.rs`) and the identity keystore (Android
+  Keystore) read it from then on. After changing the Java in
+  `crates/dexdrop-net/android/`, run `scripts/build-nsd-dex.sh` and commit
+  `nsd.dex`.
+- Runtime permissions: Android through `nsh::permissions` (the app's
+  `android.rs`), iOS photos through PhotoKit (`crates/dexdrop-photos`,
+  which type-checks with `cargo clippy -p dexdrop-photos --target
+  aarch64-apple-ios`).
+- System features with an NSH fake are tested headless through it
+  (`nsh_extra::camera::set_backend` in `tests/camera.rs`).
 - On the desktops the root declares its window (`window().id("main")`);
   `main_window()` is the invisible app host, so per-window things (taskbar
   progress) use `current_window()`. `application.quitMode` is

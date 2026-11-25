@@ -124,6 +124,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 
 [[package]]
+name = "android-native-keyring-store"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48c6349ddff23194f8fdce2ea8849380f5a4868c1648965b70e801e104cba9b3"
+dependencies = [
+ "base64 0.22.1",
+ "jni 0.21.1",
+ "keyring-core",
+ "log",
+ "ndk-context",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1454,11 +1472,15 @@ dependencies = [
  "chrono",
  "dexdrop-core",
  "dexdrop-net",
+ "dexdrop-photos",
  "env_logger",
+ "image",
  "log",
  "nsh-base",
  "nsh-core",
  "nsh-engine",
+ "nsh-extra",
+ "nsh-platform-android",
  "nsh-platform-linux",
  "nsh-platform-macos",
  "nsh-platform-windows",
@@ -1495,6 +1517,7 @@ dependencies = [
 name = "dexdrop-core"
 version = "0.1.0"
 dependencies = [
+ "android-native-keyring-store",
  "apple-native-keyring-store",
  "blake3",
  "data-encoding",
@@ -1540,6 +1563,18 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+]
+
+[[package]]
+name = "dexdrop-photos"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-photos",
 ]
 
 [[package]]
@@ -4276,6 +4311,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "nsh-extra"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d23d7ff9d2471b2c1a7154b1ebd14e0e93c07c4d95e10c0677f390978559de80"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "libc",
+ "log",
+ "ndk-context",
+ "nsh-core",
+ "nsh-platform-android",
+ "nsh-platform-apple",
+ "nsh-platform-ios",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-ui-kit",
+ "tokio",
+]
+
+[[package]]
 name = "nsh-i18n"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4337,6 +4394,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "nsh-platform-android"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a5992d9f5c524773b81cd9cb36eab60829f5be58cd5abaebfee69f2cb859f6"
+dependencies = [
+ "jni 0.21.1",
+ "libc",
+ "log",
+ "ndk-context",
+ "nsh-base",
+ "nsh-core",
+ "nsh-engine",
+ "rustc-hash 2.1.3",
+ "serde_json",
+ "tokio",
+ "ttf-parser",
+]
+
+[[package]]
 name = "nsh-platform-apple"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4359,6 +4435,35 @@ dependencies = [
  "objc2-ui-kit",
  "serde_json",
  "unicode-bidi",
+]
+
+[[package]]
+name = "nsh-platform-ios"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0753429c805d2f04fa826668702aadb484a4f4c77439f3ef6e90a62006fc6ff"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "libc",
+ "log",
+ "nsh-base",
+ "nsh-core",
+ "nsh-engine",
+ "nsh-platform-apple",
+ "objc2",
+ "objc2-authentication-services",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-text",
+ "objc2-foundation",
+ "objc2-image-io",
+ "objc2-io-surface",
+ "objc2-quartz-core",
+ "objc2-ui-kit",
+ "rustc-hash 2.1.3",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -4601,6 +4706,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-authentication-services"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee6d6f7dab884a28adaec1012eb3889257a49cc145724e35f93ece2d209f8b25"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-core-foundation"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4685,6 +4802,19 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-photos"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ea9a706f18e32cf8a0723e99855af4f135282891e07259301bae9135ae3872"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-foundation",
 ]
 
 [[package]]

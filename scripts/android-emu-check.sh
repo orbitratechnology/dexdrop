@@ -88,6 +88,18 @@ ad open "$pkg" --relaunch >/dev/null || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
 ad wait text "Nearby" 60000 >/dev/null || { step 00-launch-failed; fail "the home screen did not appear"; }
 step 01-nearby
+# The identity key is in the Android Keystore (android-native-keyring-store,
+# with the context NSH sets in ndk-context): the identity file holds only
+# the certificate, and the store's SharedPreferences file exists.
+ident=$(sh_ "run-as $pkg sh -c 'cat \$(find . -name identity.json | head -1)'" 2>/dev/null | tr -d '\r')
+case "$ident" in
+  *'"key_in_system_store":true'*) ;;
+  *) fail "the identity key is not in the Android Keystore (identity.json: ${ident:0:120})" ;;
+esac
+case "$ident" in *key_pkcs8*) fail "identity.json still holds the private key" ;; esac
+sh_ "run-as $pkg ls shared_prefs" 2>/dev/null | grep -q keyring-dexdrop ||
+  fail "no keyring-dexdrop store in the app's SharedPreferences"
+note "- The identity key is in the Android Keystore; identity.json holds only the certificate"
 note "- Launched: home screen shown ($(($(date +%s) - t0)) s)"
 
 for tab in History Settings; do
@@ -313,6 +325,21 @@ tap_only "Send to CI Emulator Inbox" || { step 08-no-send; fail "could not tap S
 ad wait 'label="See progress"' 15000 >/dev/null 2>&1 || true
 tap_only "See progress" || { step 08-no-progress; fail "could not tap See progress"; }
 ad wait 'label="Pause"' 30000 >/dev/null 2>&1 || { step 09-not-sending; fail "the transfer did not start (no Pause button)"; }
+# While files move, DexDrop runs a foreground service (PRD 8.5) with its
+# progress in an ongoing notification.
+service=
+for _ in $(seq 1 10); do
+  service=$(sh_ "dumpsys activity services $pkg" | tr -d '\r')
+  case "$service" in *TransferService*isForeground=true*) break ;; esac
+  sleep 1
+done
+case "$service" in
+  *TransferService*isForeground=true*) ;;
+  *) step 09-no-service; printf '%s\n' "$service" >"$out/services.txt"; fail "no foreground TransferService while sending (services.txt)" ;;
+esac
+sh_ "dumpsys notification --noredact" | tr -d '\r' >"$out/notifications.txt" 2>/dev/null || true
+grep -q "dexdrop-transfers" "$out/notifications.txt" || warn "the transfer notification is not listed (notifications.txt)"
+note "- Sending runs a foreground service of type dataSync, with the progress notification"
 tap_only Pause || fail "could not tap Pause"
 ad wait text "Paused" 15000 >/dev/null 2>&1 || { step 09-not-paused; fail "the transfer did not pause"; }
 step 09-paused
@@ -379,11 +406,9 @@ else
   warn "the Apps page did not list apps"
 fi
 
-# 5. Recent: with the media permission (what "Show recent photos" asks
-#    for), a photo just added to the camera folder shows under Send's
-#    choices, from the system's media library.
-sh_ pm grant "$pkg" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 || true
-sh_ pm grant "$pkg" android.permission.READ_MEDIA_VIDEO >/dev/null 2>&1 || true
+# 5. Recent: "Show recent photos" asks with the system's prompt (NSH's
+#    nsh::permissions from Rust); allowed, a photo just added to the camera
+#    folder shows under Send's choices, from the system's media library.
 recent_photo=/sdcard/DCIM/Camera/dexdrop-recent.png
 sh_ "mkdir -p /sdcard/DCIM/Camera" >/dev/null 2>&1 || true
 adb -s "$serial" push "$(dirname "$0")/../app/icon.png" "$recent_photo" >/dev/null 2>&1 || true
@@ -392,6 +417,25 @@ front
 tap_only Share || true
 tap_only "Navigate up" || true
 if tap_only Send; then
+  ad scroll down >/dev/null 2>&1 || true
+  if tap_only "Show recent photos"; then
+    # Android 14: "Allow all" / "Select photos and videos" / "Don't allow".
+    if ad wait text "Allow all" 15000 >/dev/null 2>&1 && ad click 'label="Allow all"' --settle >/dev/null 2>&1; then
+      note "- \"Show recent photos\" showed the system's permission prompt; allowed"
+    elif ad wait text "Allow" 5000 >/dev/null 2>&1 && ad click 'label="Allow"' --settle >/dev/null 2>&1; then
+      note "- \"Show recent photos\" showed the system's permission prompt; allowed"
+    else
+      step 13-no-prompt
+      warn "no system prompt after \"Show recent photos\": granted with pm instead"
+      sh_ pm grant "$pkg" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 || true
+      sh_ pm grant "$pkg" android.permission.READ_MEDIA_VIDEO >/dev/null 2>&1 || true
+      front
+    fi
+  else
+    warn "no \"Show recent photos\" button: granted with pm instead"
+    sh_ pm grant "$pkg" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 || true
+    sh_ pm grant "$pkg" android.permission.READ_MEDIA_VIDEO >/dev/null 2>&1 || true
+  fi
   ad scroll down >/dev/null 2>&1 || true
   if ad wait 'label="Photo dexdrop-recent.png"' 20000 >/dev/null 2>&1; then
     step 13-recent

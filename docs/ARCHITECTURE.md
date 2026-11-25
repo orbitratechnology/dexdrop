@@ -327,20 +327,35 @@ sent from their own files (`MediaStore`'s path, readable with that
 permission): nothing is copied, nothing is cleaned up. Computers list the
 newest files directly in Downloads, Pictures and Movies (plus Desktop and
 Documents on Windows and Linux; not on macOS, which asks before an app
-reads them). iOS: NSH 0.7.0's `nsh-extra` `photos` reads the library, but
-hands over JPEGs prepared as picked ones, not the originals, and no videos:
-not what a file transfer should send, so no Recent there yet.
+reads them).
 
-**Consequences.** One tap to send a recent photo on Android, with no copy.
-The permission dialog is asked for from the bridge (`requestPermissions` on
-the activity in front, found through `ActivityThread`); the answer is read
-again when the app is back in front. NSH 0.7.0's
-`nsh::permissions::request` (`nsh-platform-android`) asks the same from
-Rust with an answer, which would retire the bridge's `ask`; it changes
-the dex, so it waits for an emulator run. Tests: `media` unit tests (the
-bridge's lines, folder listing, thumbnails kept), `app/tests/recent.rs`,
-and the emulator check's `13-recent` (a photo added to the camera folder
-shows).
+iOS: the photo library through PhotoKit (`crates/dexdrop-photos`, objc2):
+the newest photos and videos (`PHAsset`), 256 px JPEG thumbnails
+(`PHImageManager`), and on a tap the original file exported with
+`PHAssetResourceManager` into `staging` (the edited version of an edited
+photo, as Photos shows it; downloaded from iCloud when needed), which the
+selection then holds and ADR-004's cleanup removes once nothing needs it.
+NSH 0.7.0's `nsh-extra` `photos` was not used: it hands over JPEGs
+prepared as picked images, not the originals, and no videos. The items show
+under paths of their own (`photo-library:<id>/<name>`, `pages/library.rs`)
+until exported. The crate declares `NSPhotoLibraryUsageDescription`
+(`[package.metadata.nsh.ios.infoPlist]`). With Limited Access, "Choose more
+photos" shows the system's sheet (`presentLimitedLibraryPicker`).
+
+**Consequences.** One tap to send a recent photo on Android, with no copy;
+on iOS one tap and an export of the original. Permissions are asked from
+Rust with an answer: on Android NSH 0.7.0's `nsh::permissions`
+(`nsh-platform-android`) with the version's permissions
+(`media::android_permissions`), on iOS PhotoKit's
+`requestAuthorizationForAccessLevel:`; a user who refused for good is sent
+to the system's settings. The Java bridge no longer finds the activity in
+front by reflection. Tests: `media` unit tests (the bridge's lines, folder
+listing, thumbnails kept, the permissions per Android version),
+`app/tests/recent.rs` (an iPhone's library stood in for by a folder: pick,
+export, take out), the emulator check's `13-recent` (the system's prompt,
+then a photo added to the camera folder shows) and the simulator check's
+`08-recent` (Photos granted, a photo added to the library shows and is
+exported when picked).
 
 ## ADR-006: Native Shell 0.7.0 — what replaced DexDrop's own workarounds
 
@@ -397,12 +412,52 @@ covers them.
 **Consequences.** No APK rewriting in CI, one discovery path on every
 Android version NSH supports (8+), and the share-sheet entry on Android.
 Not covered by 0.7.0, still open: keeping a phone awake during a transfer,
-Android foreground services for background transfers (a `<service>` can
-now be declared through `android.application`, but its Java and the
-notification are DexDrop's to write), battery state, free space. Now
-unblocked: the Android Keystore for the identity key (it needed
-`ndk-context`), and Camera QR through `nsh-extra`'s `camera`. Tests:
+battery state, free space. What 0.7.0 unblocked followed (ADR-007): the
+Android Keystore, Camera QR, the foreground service, permissions from
+Rust. Tests:
 `app/tests/opened.rs` (shared files, at launch and while running),
 `mobile_data_asks_before_sending_over_the_internet` (`multi.rs`); CI reads
 the packaged APK's manifest back (permissions, queries, the share-sheet
 filters, the icon, the bridges' classes).
+
+## ADR-007: After 0.7.0 — the Keystore, the camera, a foreground service
+
+**Context.** With `ndk-context` set by NSH, crates' manifest entries and
+`nsh-extra`, four gaps could close: the identity key on Android stayed in
+a file, codes from another screen had to be photographed and imported,
+Android stopped a transfer the user left, and the photo permission was
+asked through reflection.
+
+**Decision.**
+
+- **Identity key in the Android Keystore**: `android-native-keyring-store`
+  (keyring-core, as on Windows, Linux and iOS), store `dexdrop`. It reads
+  `ndk-context`, which panics when unset, so the keystore uses it only once
+  `dexdrop_net::use_android_context()` said the context is there (the CLI
+  from a shell keeps its file). An existing key moves on the next start
+  through the migration every platform has (`Identity::load_or_create_with`:
+  the file loses its copy only after the store returns the key).
+- **Camera QR** (FR-024): `nsh-extra` with its `camera` feature, through the
+  app crate's `Cargo.toml` (an app with a crate of its own needs no
+  `nsh.json` `dependencies`). "Scan QR" shows where
+  `camera::available()`; the photo is read by the QR import (FR-025). No
+  live viewfinder: NSH has no camera preview view.
+- **A foreground service while files move** (PRD 8.5): `TransferService`
+  (Java, in dexdrop-net's dex), type `dataSync`, declared with
+  `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` in dexdrop-net's
+  `[package.metadata.nsh.android]`. The app starts it as soon as something
+  moves (`device::service_status`), updates its notification with the
+  progress, and stops it when nothing does. Chosen over a user-initiated
+  data transfer job (Android 14+): one mechanism for every version from 8,
+  and the transfer stays in the engine's process. Android 12+ refuses to
+  start it from the background: such a transfer keeps the older notice.
+  The bridges now receive the application `Context` from Rust instead of
+  finding it by reflection.
+
+**Consequences.** Verified in CI, not yet on phones: the emulator check
+reads `identity.json` (no key, `key_in_system_store`) and the Keystore
+store's preferences, finds `TransferService` in the foreground while
+sending, and goes through the system's photo prompt; the simulator check
+picks a library photo. Camera scanning is tested headless with a fake
+camera; the simulator and emulator have no camera to photograph a code.
+

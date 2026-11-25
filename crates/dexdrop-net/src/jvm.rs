@@ -31,6 +31,8 @@ static CONTEXT_SET: AtomicBool = AtomicBool::new(false);
 /// off, and listing apps or recent photos is unavailable.
 pub fn use_android_context() {
     CONTEXT_SET.store(true, Ordering::Release);
+    // The identity key goes to the Android Keystore from now on.
+    dexdrop_core::keystore::use_android_context();
 }
 
 /// The process's Java VM, from `ndk-context`; `None` before
@@ -51,18 +53,19 @@ pub(crate) fn has_context() -> bool {
     CONTEXT_SET.load(Ordering::Acquire)
 }
 
-/// Creates one `class` (`dev.dexdrop.…`), loaded by the application's
+/// The application's `Context`, which NSH keeps for the life of the process.
+pub(crate) fn application<'a>() -> JObject<'a> {
+    // SAFETY: a global reference NSH keeps for the life of the process; a
+    // `JObject` made from it never deletes it.
+    unsafe { JObject::from_raw(ndk_context::android_context().context().cast()) }
+}
+
+/// One of DexDrop's classes (`dev.dexdrop.…`), loaded by the application's
 /// class loader from the dex the package carries.
-pub(crate) fn new_bridge<'a>(
-    env: &mut JNIEnv<'a>,
-    class: &str,
-) -> jni::errors::Result<JObject<'a>> {
-    // SAFETY: a global reference NSH keeps for the life of the process;
-    // a `JObject` made from it never deletes it.
-    let application = unsafe { JObject::from_raw(ndk_context::android_context().context().cast()) };
+pub(crate) fn app_class<'a>(env: &mut JNIEnv<'a>, class: &str) -> jni::errors::Result<JClass<'a>> {
     let loader = env
         .call_method(
-            &application,
+            application(),
             "getClassLoader",
             "()Ljava/lang/ClassLoader;",
             &[],
@@ -77,8 +80,21 @@ pub(crate) fn new_bridge<'a>(
             &[JValue::Object(&name)],
         )?
         .l()?;
-    let class = JClass::from(class);
-    env.new_object(&class, "()V", &[])
+    Ok(JClass::from(class))
+}
+
+/// Creates one bridge `class` (`dev.dexdrop.…`), given the application's
+/// `Context` (the bridges find nothing by reflection).
+pub(crate) fn new_bridge<'a>(
+    env: &mut JNIEnv<'a>,
+    class: &str,
+) -> jni::errors::Result<JObject<'a>> {
+    let class = app_class(env, class)?;
+    env.new_object(
+        &class,
+        "(Landroid/content/Context;)V",
+        &[JValue::Object(&application())],
+    )
 }
 
 /// The text of a pending Java exception (cleared), or of `err`.

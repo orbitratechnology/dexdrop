@@ -227,6 +227,35 @@ pub fn add_apps(apps: Vec<(crate::files::AppCard, Vec<PathBuf>)>) {
     }
 }
 
+/// iOS: a photo or video of the library, picked in Recent: its original is
+/// exported to staging first (a card says so meanwhile), then selected.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn add_from_library(item: PathBuf, id: String) {
+    let name = item
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    set_loading(Some(format!("Preparing {name}…")));
+    let staging =
+        bridge::state_dir("staging").join(dexdrop_core::hex(&dexdrop_core::random_bytes::<6>()));
+    let exporting = blocking(move || {
+        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+        crate::pages::library::export(&id, &staging)
+    });
+    detached(async move {
+        let exported = exporting.await;
+        set_loading(None);
+        match exported {
+            Ok(Ok(path)) => {
+                crate::pages::recent::remember_export(item, path.clone());
+                select(vec![path]);
+            }
+            Ok(Err(err)) => toast(NoticeKind::Error, format!("Could not get {name}: {err}")),
+            Err(_) => {}
+        }
+    });
+}
+
 /// Phones give the bytes of picked files, not paths: they are copied to
 /// app-private staging first (PRD 15, "OS file providers").
 fn choose_staged(kind: Kind) {
@@ -1307,6 +1336,9 @@ fn device_row(
 /// Send with a typed code or a pasted invitation (FR-021).
 pub fn code_page() -> impl IntoElement {
     let entry = signal(String::new());
+    // Phones with a camera scan the other device's QR code (FR-024).
+    let camera = signal(false);
+    spawn(async move { camera.set(nsh_extra::camera::available().await) });
     let submit = move || {
         let value = entry.get_untracked();
         let value = value.trim();
@@ -1376,6 +1408,14 @@ pub fn code_page() -> impl IntoElement {
                             });
                         }),
                     )
+                    .child(when(
+                        move || camera.get(),
+                        move || {
+                            ui::icon_btn(Icon::Camera, "Scan QR", Variant::Secondary)
+                                .test_id("scan-qr")
+                                .on_press(move || scan_qr(entry))
+                        },
+                    ))
                     .child(
                         ui::icon_btn(Icon::Qr, "QR picture", Variant::Secondary)
                             .on_press(move || read_qr_picture(entry)),
@@ -1393,11 +1433,38 @@ pub fn code_page() -> impl IntoElement {
     )
 }
 
+/// The invitation in a picture's QR code, read off the UI thread.
+async fn decode_qr(
+    bytes: Vec<u8>,
+) -> Option<Result<String, dexdrop_core::invitation::InviteError>> {
+    bridge::off_thread(move || dexdrop_core::invitation::read_qr_image(&bytes)).await
+}
+
+/// Reads the other device's QR code with the system's camera (FR-024,
+/// `nsh-extra`'s `camera`): the user takes a photo of it, which is read as
+/// a picture is (FR-025) and not kept. The photo comes scaled to 2048 px,
+/// where QR modules stay several pixels wide.
+fn scan_qr(entry: Signal<String>) {
+    let mut request = nsh_extra::camera::PhotoRequest::default();
+    request.max_dimension = Some(nsh_core::geometry::DevicePixels(2048));
+    spawn(async move {
+        match nsh_extra::camera::take_photo(request).await {
+            Ok(Some(photo)) => apply_qr(entry, decode_qr(photo.data.bytes().to_vec()).await),
+            Ok(None) => {}
+            Err(err) if err.code.as_deref() == Some(nsh_extra::camera::DENIED) => toast(
+                NoticeKind::Error,
+                "DexDrop may not use the camera: allow it in the system's settings.",
+            ),
+            Err(err) => toast(
+                NoticeKind::Error,
+                format!("Could not take a photo: {}", err.message),
+            ),
+        }
+    });
+}
+
 /// Reads a QR invitation from a screenshot or photo (FR-025).
 fn read_qr_picture(entry: Signal<String>) {
-    let decode = |bytes: Vec<u8>| {
-        bridge::off_thread(move || dexdrop_core::invitation::read_qr_image(&bytes))
-    };
     if desktop_platform() {
         let picked = pick_paths(
             OpenDialog::files()
@@ -1419,7 +1486,7 @@ fn read_qr_picture(entry: Signal<String>) {
                 toast(NoticeKind::Error, "Could not open the picture.");
                 return;
             };
-            apply_qr(entry, decode(bytes).await);
+            apply_qr(entry, decode_qr(bytes).await);
         });
     } else {
         let picked = pick_images(nsh_core::picker::PickRequest::new(false, 1));
@@ -1428,7 +1495,7 @@ fn read_qr_picture(entry: Signal<String>) {
                 return;
             };
             let bytes = file.data.bytes().to_vec();
-            apply_qr(entry, decode(bytes).await);
+            apply_qr(entry, decode_qr(bytes).await);
         });
     }
 }

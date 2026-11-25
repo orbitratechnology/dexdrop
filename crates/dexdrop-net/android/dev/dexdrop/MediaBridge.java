@@ -1,10 +1,8 @@
 package dev.dexdrop;
 
-import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -14,15 +12,13 @@ import android.provider.MediaStore;
 import android.util.Size;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.lang.reflect.Field;
-import java.util.Map;
 
 /**
  * DexDrop's bridge to Android's {@link MediaStore}: the photos and videos
  * most recently added to the device, shown under Send's choices to pick
- * from in one tap, and the permission to read them.
+ * from in one tap.
  *
- * <p>Loaded from memory by the Rust adapter (crates/dexdrop-net/src/media.rs),
+ * <p>Made by the Rust adapter (crates/dexdrop-net/src/media.rs),
  * which calls these methods from a worker thread. Each item is one line,
  * fields separated by U+0001:
  * {@code path kind size added duration thumbnail}, where {@code kind} is
@@ -35,7 +31,8 @@ import java.util.Map;
  * {@code READ_MEDIA_VIDEO} (Android 13+; with
  * {@code READ_MEDIA_VISUAL_USER_SELECTED} on Android 14+ the user may allow
  * only some), or {@code READ_EXTERNAL_STORAGE} before;
- * dexdrop-net's Cargo.toml ([package.metadata.nsh.android]) declares them.
+ * dexdrop-net's Cargo.toml ([package.metadata.nsh.android]) declares them
+ * and the app asks for them with NSH's {@code nsh::permissions}.
  *
  * <p>Build with scripts/build-nsd-dex.sh.
  */
@@ -45,105 +42,9 @@ public final class MediaBridge {
 
     private final Context context;
 
-    public MediaBridge() throws Exception {
-        context = (Context) Class.forName("android.app.ActivityThread")
-                .getMethod("currentApplication")
-                .invoke(null);
-        if (context == null) {
-            throw new IllegalStateException("no application context");
-        }
-    }
-
-    private static String[] permissions() {
-        if (Build.VERSION.SDK_INT >= 34) {
-            return new String[] {
-                "android.permission.READ_MEDIA_IMAGES",
-                "android.permission.READ_MEDIA_VIDEO",
-                "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-            };
-        }
-        if (Build.VERSION.SDK_INT >= 33) {
-            return new String[] {
-                "android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO",
-            };
-        }
-        return new String[] {"android.permission.READ_EXTERNAL_STORAGE"};
-    }
-
-    private boolean granted(String permission) {
-        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    /**
-     * How much the app may read: {@code all}, {@code some} (Android 14's
-     * "allow limited access") or {@code none}.
-     */
-    public String access() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (granted("android.permission.READ_MEDIA_IMAGES")
-                    || granted("android.permission.READ_MEDIA_VIDEO")) {
-                return "all";
-            }
-            if (Build.VERSION.SDK_INT >= 34
-                    && granted("android.permission.READ_MEDIA_VISUAL_USER_SELECTED")) {
-                return "some";
-            }
-            return "none";
-        }
-        return granted("android.permission.READ_EXTERNAL_STORAGE") ? "all" : "none";
-    }
-
-    /**
-     * Asks the user, with the system's dialog, from the activity in front;
-     * {@code asked} when the dialog was requested, else why not. The answer
-     * is read with {@link #access()} once the app is back.
-     */
-    public String ask() {
-        final Activity activity = foreground();
-        if (activity == null) {
-            return "no activity in front";
-        }
-        final String[] wanted = permissions();
-        activity.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                activity.requestPermissions(wanted, 0xDD);
-            }
-        });
-        return "asked";
-    }
-
-    /** The resumed activity, found through ActivityThread's records. */
-    private static Activity foreground() {
-        try {
-            Class<?> threadClass = Class.forName("android.app.ActivityThread");
-            Object thread = threadClass.getMethod("currentActivityThread").invoke(null);
-            Field activities = threadClass.getDeclaredField("mActivities");
-            activities.setAccessible(true);
-            Object records = activities.get(thread);
-            if (!(records instanceof Map)) {
-                return null;
-            }
-            Activity any = null;
-            for (Object record : ((Map<?, ?>) records).values()) {
-                Class<?> recordClass = record.getClass();
-                Field activityField = recordClass.getDeclaredField("activity");
-                activityField.setAccessible(true);
-                Activity activity = (Activity) activityField.get(record);
-                if (activity == null) {
-                    continue;
-                }
-                any = activity;
-                Field paused = recordClass.getDeclaredField("paused");
-                paused.setAccessible(true);
-                if (!paused.getBoolean(record)) {
-                    return activity;
-                }
-            }
-            return any;
-        } catch (Exception e) {
-            return null;
-        }
+    /** {@code context}: the application's, which NSH gives the Rust side. */
+    public MediaBridge(Context context) {
+        this.context = context;
     }
 
     /**
