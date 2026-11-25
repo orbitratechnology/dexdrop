@@ -104,6 +104,40 @@ pub fn warning() -> AdaptiveColor {
 pub const SEND: (u32, u32) = (0x6366f1, 0x8b5cf6);
 pub const RECEIVE: (u32, u32) = (0x10b981, 0x0d9488);
 
+/// The colors of what Send offers to pick from, (light, dark): Apple's
+/// system colors, one set designed to sit together, in both appearances.
+pub mod source {
+    /// systemPink.
+    pub const PHOTOS: (u32, u32) = (0xff2d55, 0xff375f);
+    /// systemPurple.
+    pub const VIDEOS: (u32, u32) = (0xaf52de, 0xbf5af2);
+    /// systemBlue.
+    pub const FILES: (u32, u32) = (0x007aff, 0x0a84ff);
+    /// systemGreen.
+    pub const APPS: (u32, u32) = (0x34c759, 0x30d158);
+    /// systemOrange.
+    pub const FOLDER: (u32, u32) = (0xff9500, 0xff9f0a);
+}
+
+/// A source's mark, as iOS's Settings and share sheets draw them: its
+/// symbol in white on a rounded square of its color.
+pub fn source_badge(i: Icon, colors: (u32, u32), side: f32) -> View {
+    view()
+        .size(px(side))
+        .rounded(px(side * 0.26))
+        .items_center()
+        .justify_center()
+        .bg(AdaptiveColor::rgb(colors.0, colors.1))
+        .child(icon(i, side * 0.56, white()))
+}
+
+/// A rounded group of rows with no shadow: the grouped style of iOS's
+/// lists, white cells on the page's grouped background (one step above it
+/// in dark).
+pub fn flat_group() -> View {
+    view().rounded(px(16.0)).bg(surface).overflow_hidden()
+}
+
 /// A gradient-filled view.
 /// The app icon's blue, light to deep: the fill of the main buttons.
 pub const BRAND: (u32, u32) = (0x1a8cff, 0x0039e6);
@@ -198,6 +232,8 @@ pub enum Icon {
     Pdf,
     Markdown,
     Search,
+    /// Four rounded squares: apps.
+    Apps,
 }
 
 impl Icon {
@@ -261,6 +297,7 @@ impl Icon {
             Icon::Pdf => asset!("icons/pdf.svg"),
             Icon::Markdown => asset!("icons/markdown.svg"),
             Icon::Search => asset!("icons/search.svg"),
+            Icon::Apps => asset!("icons/apps.svg"),
         }
     }
 }

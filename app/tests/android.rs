@@ -44,34 +44,83 @@ fn frame(app: &mut Headless, selector: &str) -> (f32, f32, f32, f32) {
     (b.origin.x.0, b.origin.y.0, b.size.width.0, b.size.height.0)
 }
 
-/// Android sends apps too: four kinds of things, square, side by side in
-/// one row even on a 320 pt phone, so what is picked shows below them.
+/// Send's choices sit at the foot of the screen, in thumb reach, clear of
+/// the tab bar. Nothing chosen: one row each (photos, videos, files and,
+/// on Android, apps), the screen's width, a thumb's height, the first in
+/// the lower part of the screen. Something chosen: the four side by side,
+/// to add more, above "Choose device".
 #[test]
-fn send_offers_four_square_kinds_in_a_row_on_a_small_phone() {
-    let (mut app, _dir) = android(320.0, 640.0);
+fn send_offers_its_choices_in_thumb_reach() {
+    let (mut app, dir) = android(320.0, 640.0);
+    let bottom = 640.0 - 68.0; // Android's drawn tab bar.
     app.press("id:send").unwrap();
     app.wait_for_within("id:pick-apps", Duration::from_secs(5))
         .unwrap();
-    let tiles = [
+    let ids = [
         "id:pick-photos",
         "id:pick-videos",
         "id:pick-files",
         "id:pick-apps",
-    ]
-    .map(|t| frame(&mut app, t));
-    for (i, t) in tiles.iter().enumerate() {
-        assert_eq!(t.1, tiles[0].1, "tile {i} is not in the row");
-        assert!((t.2 - t.3).abs() < 0.5, "tile {i} is {} × {}", t.2, t.3);
+    ];
+    let rows = ids.map(|t| frame(&mut app, t));
+    for (i, r) in rows.iter().enumerate() {
+        assert!(r.3 >= 48.0, "row {i} is {} pt tall", r.3);
+        assert!(r.2 >= 280.0, "row {i} is {} pt wide", r.2);
         assert!(
-            t.0 >= 0.0 && t.0 + t.2 <= 320.0,
-            "tile {i} is off the screen"
+            r.0 >= 0.0 && r.0 + r.2 <= 320.0,
+            "row {i} is off the screen"
         );
+        if i > 0 {
+            assert!(
+                r.1 >= rows[i - 1].1 + rows[i - 1].3,
+                "row {i} is not below row {}",
+                i - 1
+            );
+        }
     }
     assert!(
-        tiles[0].1 + tiles[0].3 < 250.0,
-        "the tiles end at {} pt of a 640 pt screen",
-        tiles[0].1 + tiles[0].3
+        rows[0].1 > 640.0 * 0.4,
+        "the choices start at {} pt of a 640 pt screen: out of thumb reach",
+        rows[0].1
     );
+    let last = rows[3];
+    assert!(
+        last.1 + last.3 <= bottom,
+        "the last row runs under the tab bar"
+    );
+    // What the page is for shows whole above them.
+    let hero = frame(&mut app, "text:Choose what to send");
+    assert!(
+        hero.1 + hero.3 <= rows[0].1,
+        "the heading ends at {} pt, under the choices at {} pt",
+        hero.1 + hero.3,
+        rows[0].1
+    );
+
+    // Something chosen: the choices in one row, above the way on.
+    let file = dir.path().join("notes.txt");
+    std::fs::write(&file, b"hello").unwrap();
+    app.on_pick_paths(vec![file]).unwrap();
+    app.press("id:pick-files").unwrap();
+    app.wait_for_within("id:next", Duration::from_secs(5))
+        .unwrap();
+    let strip = ids.map(|t| frame(&mut app, t));
+    let next = frame(&mut app, "id:next");
+    for (i, t) in strip.iter().enumerate() {
+        assert_eq!(t.1, strip[0].1, "choice {i} is not in the row");
+        assert!(
+            t.3 >= 48.0 && t.2 >= 48.0,
+            "choice {i} is {} × {}",
+            t.2,
+            t.3
+        );
+        assert!(t.1 + t.3 <= next.1, "choice {i} is not above Choose device");
+    }
+    assert!(
+        next.1 + next.3 <= bottom,
+        "Choose device runs under the tab bar"
+    );
+    assert!(next.1 > 640.0 * 0.6, "Choose device is at {} pt", next.1);
 }
 
 /// A long selection lies in the page itself, every shown row laid out (a

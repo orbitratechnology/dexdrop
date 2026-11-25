@@ -2,6 +2,8 @@
 //! icon, name, version, size and when it was updated; the chosen ones are
 //! copied as APKs under their names ("Maps 11.2.apk") into the selection.
 //! APK files already on the phone are picked from the system's files.
+//! Flat grouped lists (no shadows), as Send's choices; "Add" sits at the
+//! foot of the screen, in thumb reach.
 
 use std::path::PathBuf;
 
@@ -81,8 +83,8 @@ pub fn page() -> impl IntoElement {
                     Apps::Ready(_) => view()
                         .gap(px(space::L))
                         .child(section("Your apps", move || shown(false), chosen))
-                        .child(ui::group().child(ui::switch_row(
-                            ui::glyph(Icon::Android, (0x22c55e, 0x16a34a), 30.0),
+                        .child(ui::flat_group().child(ui::switch_row(
+                            ui::source_badge(Icon::Android, ui::source::APPS, 30.0),
                             "Show system apps",
                             move || show_system.get(),
                             move |on| show_system.set(on),
@@ -124,8 +126,8 @@ fn load(apps: Signal<Apps>) {
 
 /// APK files already on the phone, from the system's files.
 fn apk_files() -> impl IntoElement {
-    ui::group().child(ui::nav_row(
-        ui::file_badge("app.apk", 30.0, 8.0),
+    ui::flat_group().child(ui::nav_row(
+        ui::source_badge(Icon::File, ui::source::FILES, 30.0),
         "APK files",
         "From your files",
         || {
@@ -143,7 +145,6 @@ fn search(query: Signal<String>) -> impl IntoElement {
         .px(px(space::M))
         .rounded(px(999.0))
         .bg(ui::surface)
-        .shadow_md()
         .child(ui::icon(Icon::Search, 18.0, move || {
             theme().muted_foreground
         }))
@@ -193,7 +194,7 @@ fn section(
                 let rows = computed(list);
                 // Virtualized (NSH lists): phones have hundreds of apps; only
                 // the rows near the screen exist.
-                ui::group().child(
+                ui::flat_group().child(
                     virtual_list(
                         move || rows.with(Vec::len),
                         move |at| {
@@ -301,12 +302,20 @@ fn app_row(
 /// A round tick, filled when chosen.
 fn check(selected: impl Fn() -> bool + Clone + 'static) -> impl IntoElement {
     let on2 = selected.clone();
+    let on3 = selected.clone();
     view()
         .size(px(26.0))
         .rounded(px(13.0))
         .items_center()
         .justify_center()
-        .shadow_sm()
+        .border_2()
+        .border_color(move || {
+            if on3() {
+                theme().primary
+            } else {
+                theme().muted_foreground.opacity(0.4)
+            }
+        })
         .bg(move || if on2() { theme().primary } else { theme().card })
         .child(when(selected, || {
             ui::icon(Icon::Check, 15.0, move || theme().primary_foreground)
@@ -334,7 +343,6 @@ fn add_bar(apps: Signal<Apps>, chosen: Signal<Vec<String>>) -> impl IntoElement 
             ui::icon_btn(Icon::Plus, label, Variant::Primary)
                 .w_full()
                 .max_w(px(420.0))
-                .shadow_lg()
                 .on_press(move || {
                     let picked: Vec<Listed> = apps.with_untracked(|a| match a {
                         Apps::Ready(list) => {

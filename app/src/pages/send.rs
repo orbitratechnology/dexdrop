@@ -444,6 +444,7 @@ pub fn page() -> impl IntoElement {
     let has = move || selection().with(|s| !s.paths.is_empty());
     let busy = move || loading().with(|l| l.0.clone());
     let dropping = signal(false);
+    let phone = !desktop_platform();
     view()
         .flex_1()
         .on_file_drag_enter(move |_: &FileDragEvent| dropping.set(true))
@@ -455,107 +456,329 @@ pub fn page() -> impl IntoElement {
         .child(body(
             view()
                 .gap(px(space::XL))
-                .child(kinds())
+                // Computers: the choices at the top, where the pointer
+                // starts; phones keep them at the foot (`dock`).
+                .child(when(move || !phone, kinds))
                 .child(when(move || busy().is_some(), move || loading_card(busy)))
                 .child(when(has, selected))
                 .child(when(
-                    move || desktop_platform() && !has(),
-                    move || drop_zone(dropping),
+                    move || phone && !has() && busy().is_none(),
+                    empty_hero,
                 ))
-                // The newest photos, videos or files, a tap away.
+                .child(when(move || !phone && !has(), move || drop_zone(dropping)))
+                // The newest files, a tap away (computers).
                 .child(crate::pages::recent::section())
-                // Room for the bar floating over the bottom.
-                .child(when(has, || view().h(px(72.0)))),
+                // Room for what floats over the bottom.
+                .child(dynamic(move || {
+                    let room = if phone {
+                        dock_height(has())
+                    } else if has() {
+                        72.0
+                    } else {
+                        0.0
+                    };
+                    view().h(px(room))
+                })),
         ))
-        .child(when(has, next_bar))
+        .child(when(move || phone, dock))
+        .child(when(move || !phone && has(), next_bar))
 }
 
-/// The kinds of things to send: squares in one row, on the page's own
-/// color with a soft shadow (no fill, no border), each kind's icon in its
-/// color over its name.
-fn kinds() -> impl IntoElement {
-    let android = os() == nsh_core::platform::Os::Android;
-    let count = if desktop_platform() {
-        2.0
-    } else if android {
-        4.0
+/// A thing Send offers to pick from: its mark, its name, what it holds,
+/// and what a tap does.
+#[derive(Clone, Copy)]
+struct Source {
+    icon: Icon,
+    label: &'static str,
+    detail: &'static str,
+    colors: (u32, u32),
+    pick: fn(),
+}
+
+impl Source {
+    /// The same id everywhere ("Choose files" on computers is "Files" on
+    /// phones), for tests that run on every platform.
+    fn test_id(&self) -> String {
+        format!(
+            "pick-{}",
+            self.label
+                .trim_start_matches("Choose ")
+                .to_ascii_lowercase()
+        )
+    }
+}
+
+/// What this platform picks from: files and folders on computers; photos,
+/// videos and files on phones, and apps on Android.
+fn sources() -> Vec<Source> {
+    use ui::source::*;
+    if desktop_platform() {
+        return vec![
+            Source {
+                icon: Icon::File,
+                label: "Choose files",
+                detail: "Any kind, any size",
+                colors: FILES,
+                pick: || choose(OpenDialog::files()),
+            },
+            Source {
+                icon: Icon::Folder,
+                label: "Choose folder",
+                detail: "Everything in it, as it is",
+                colors: FOLDER,
+                pick: || choose(OpenDialog::folders()),
+            },
+        ];
+    }
+    let mut list = vec![
+        Source {
+            icon: Icon::Photo,
+            label: "Photos",
+            detail: "From your photo library",
+            colors: PHOTOS,
+            pick: || choose_staged(Kind::Photos),
+        },
+        Source {
+            icon: Icon::Video,
+            label: "Videos",
+            detail: "Any length, as they are",
+            colors: VIDEOS,
+            pick: || choose_staged(Kind::Videos),
+        },
+        Source {
+            icon: Icon::File,
+            label: "Files",
+            detail: "Documents and anything else",
+            colors: FILES,
+            pick: || choose_staged(Kind::Files),
+        },
+    ];
+    if os() == nsh_core::platform::Os::Android {
+        list.push(Source {
+            icon: Icon::Apps,
+            label: "Apps",
+            detail: "Installed apps and APK files",
+            colors: APPS,
+            pick: || push(Route::Apps),
+        });
+    }
+    list
+}
+
+/// A source's row on phones: its badge, name and what it holds, and a
+/// chevron; as tall as a thumb wants (Apple's HIG: 44 pt at least).
+const SOURCE_ROW: f32 = 64.0;
+/// The phones' strip of sources while something is chosen.
+const SOURCE_STRIP: f32 = 72.0;
+/// The main button's height, with the room around it.
+const NEXT_BUTTON: f32 = 56.0;
+
+/// How tall the phones' dock is: the room the page keeps under its content.
+fn dock_height(has: bool) -> f32 {
+    if has {
+        space::S + SOURCE_STRIP + space::M + NEXT_BUTTON + space::L
     } else {
-        3.0
-    };
-    // As wide as the row allows, square, at most 150 pt.
-    let page = window().width.0.min(ui::content_width())
-        - 2.0 * if ui::mobile() { space::L } else { space::XL };
-    let side = ((page - (count - 1.0) * space::M) / count).clamp(64.0, 150.0);
-    let small = side < 90.0;
-    let tile = move |i: Icon, label: &'static str, color: u32, pick: fn()| {
-        ui::pressable()
-            .accessibility_label(label)
-            // The same id everywhere ("Choose files" on computers is
-            // "Files" on phones), for tests that run on every platform.
-            .test_id(&format!(
-                "pick-{}",
-                label.trim_start_matches("Choose ").to_ascii_lowercase()
-            ))
-            .on_press(pick)
-            .size(px(side))
-            .items_center()
-            .justify_center()
-            .gap(px(if small { space::XS } else { space::S }))
-            .rounded(px(if small { 18.0 } else { 22.0 }))
-            .bg(move || theme().background)
-            .shadow_md()
-            .active(|s| s.scale(0.96).shadow_sm())
-            .hover(|s| s.shadow_lg())
-            .child(ui::soft_glyph(
-                i,
-                move || AdaptiveColor::from(rgb(color)),
-                (side * 0.36).clamp(26.0, 48.0),
-            ))
-            .child(
-                text(label)
+        space::S + sources().len() as f32 * SOURCE_ROW + space::L
+    }
+}
+
+/// Phones: the choices and the way on, at the foot of the screen, where the
+/// thumb is. Nothing chosen: every source as a row of a grouped list.
+/// Something chosen: the sources as a compact strip to add more, and the
+/// button on to a device.
+fn dock() -> impl IntoElement {
+    let has = move || selection().with(|s| !s.paths.is_empty());
+    let mine = crate::state::tab_untracked();
+    on_key("enter", move |_| {
+        if !crate::state::showing(mine, |r| *r == Route::Send) || !has_selection() {
+            return;
+        }
+        next();
+    });
+    view()
+        .test_id("kinds")
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom(px(ui::above_tab_bar()))
+        .px(px(space::L))
+        .pt(px(space::S))
+        .pb(px(space::L))
+        .gap(px(space::M))
+        .items_center()
+        // The page's own color: what scrolls under it stays out of sight.
+        .bg(move || theme().background)
+        .child(when(move || !has(), source_list))
+        .child(when(has, source_strip))
+        .child(when(has, || {
+            dynamic(move || {
+                ui::icon_btn(Icon::Paperplane, next_label(), Variant::Primary)
+                    .test_id("next")
                     .w_full()
-                    .text_center()
-                    .number_of_lines(1)
-                    .text_size(px(if small {
-                        ui::size::CAPTION + 1.0
-                    } else {
-                        ui::size::BODY
-                    }))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(move || theme().foreground),
-            )
-    };
-    let mut row = view()
+                    .max_w(px(420.0))
+                    .on_press(next)
+            })
+        }))
+}
+
+/// Straight to the device picked first, else to the device list.
+fn next() {
+    match picked_peer() {
+        Some(p) => send_to(Target::Peer(p.peer_id)),
+        None => push(Route::Devices),
+    }
+}
+
+fn next_label() -> String {
+    match picked_peer() {
+        Some(p) => format!("Send to {}", p.name),
+        None => "Choose device".to_owned(),
+    }
+}
+
+/// Phones, nothing chosen yet: the sources as a grouped list, one row each.
+fn source_list() -> impl IntoElement {
+    let list = sources();
+    let last = list.len().saturating_sub(1);
+    ui::flat_group()
+        .w_full()
+        .max_w(px(560.0))
+        .children(list.into_iter().enumerate().map(move |(i, s)| {
+            view().child(source_row(s)).child(when(
+                move || i < last,
+                || ui::separator(space::L + 36.0 + space::M),
+            ))
+        }))
+}
+
+fn source_row(s: Source) -> impl IntoElement {
+    ui::pressable()
+        .accessibility_label(s.label)
+        .test_id(&s.test_id())
+        .on_press(s.pick)
+        .flex_row()
+        .items_center()
+        .gap(px(space::M))
+        .min_h(px(SOURCE_ROW))
+        .px(px(space::L))
+        .active(move |st| st.bg(move || theme().muted))
+        .child(ui::source_badge(s.icon, s.colors, 36.0))
+        .child(
+            view()
+                .flex_1()
+                .gap(px(1.0))
+                .child(
+                    text(s.label)
+                        .number_of_lines(1)
+                        .text_size(px(ui::size::BODY + 1.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(move || theme().foreground),
+                )
+                .child(
+                    muted(s.detail)
+                        .text_size(px(ui::size::SMALL))
+                        .number_of_lines(1),
+                ),
+        )
+        .child(ui::icon(Icon::ChevronRight, 18.0, move || {
+            theme().muted_foreground
+        }))
+}
+
+/// Phones, something chosen: the sources side by side, to add more.
+fn source_strip() -> impl IntoElement {
+    view()
+        .w_full()
+        .max_w(px(560.0))
+        .flex_row()
+        .gap(px(space::S))
+        .children(sources().into_iter().map(|s| {
+            ui::pressable()
+                .accessibility_label(s.label)
+                .test_id(&s.test_id())
+                .on_press(s.pick)
+                .flex_1()
+                .h(px(SOURCE_STRIP))
+                .items_center()
+                .justify_center()
+                .gap(px(6.0))
+                .rounded(px(16.0))
+                .bg(ui::surface)
+                .active(|st| st.opacity(0.7))
+                .child(ui::source_badge(s.icon, s.colors, 30.0))
+                .child(
+                    text(s.label)
+                        .number_of_lines(1)
+                        .text_size(px(ui::size::CAPTION + 1.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(move || theme().foreground),
+                )
+        }))
+}
+
+/// Phones, nothing chosen: what the page is for, above the sources.
+fn empty_hero() -> impl IntoElement {
+    let art = if short_screen() { 110.0 } else { 150.0 };
+    view()
+        .items_center()
+        .gap(px(space::S))
+        .pt(px(space::M))
+        .child(ui::art(ui::Art::Devices, art))
+        .child(
+            text("Choose what to send")
+                .text_size(px(ui::size::TITLE))
+                .font_weight(FontWeight::BOLD)
+                .text_center()
+                .text_color(move || theme().foreground),
+        )
+        .child(
+            muted("It goes straight to your other device, encrypted.")
+                .text_center()
+                .max_w(px(300.0)),
+        )
+}
+
+/// Computers: the two choices side by side at the top, flat (no shadow),
+/// each its badge, name and what it holds.
+fn kinds() -> impl IntoElement {
+    view()
         .test_id("kinds")
         .flex_row()
-        .justify_center()
         .gap(px(space::M))
-        // Room for the shadows.
-        .py(px(space::XS));
-    if desktop_platform() {
-        row = row
-            .child(tile(Icon::File, "Choose files", 0x3b82f6, || {
-                choose(OpenDialog::files())
-            }))
-            .child(tile(Icon::Folder, "Choose folder", 0xf59e0b, || {
-                choose(OpenDialog::folders())
-            }));
-    } else {
-        row = row
-            .child(tile(Icon::Photo, "Photos", 0xec4899, || {
-                choose_staged(Kind::Photos)
-            }))
-            .child(tile(Icon::Video, "Videos", 0x8b5cf6, || {
-                choose_staged(Kind::Videos)
-            }))
-            .child(tile(Icon::File, "Files", 0x3b82f6, || {
-                choose_staged(Kind::Files)
-            }));
-        if android {
-            row = row.child(tile(Icon::Android, "Apps", 0x22c55e, || push(Route::Apps)));
-        }
-    }
-    row
+        .children(sources().into_iter().map(|s| {
+            ui::pressable()
+                .accessibility_label(s.label)
+                .test_id(&s.test_id())
+                .on_press(s.pick)
+                .flex_1()
+                .flex_row()
+                .items_center()
+                .gap(px(space::M))
+                .p(px(space::L))
+                .min_h(px(72.0))
+                .rounded(px(16.0))
+                .bg(ui::surface)
+                .hover(move |st| st.bg(move || theme().muted))
+                .active(|st| st.opacity(0.8))
+                .child(ui::source_badge(s.icon, s.colors, 40.0))
+                .child(
+                    view()
+                        .flex_1()
+                        .gap(px(2.0))
+                        .child(
+                            text(s.label)
+                                .number_of_lines(1)
+                                .text_size(px(ui::size::BODY))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(move || theme().foreground),
+                        )
+                        .child(
+                            muted(s.detail)
+                                .text_size(px(ui::size::SMALL))
+                                .number_of_lines(1),
+                        ),
+                )
+        }))
 }
 
 /// Computers: a place to drop files and folders, lit while they hover.
@@ -852,18 +1075,16 @@ fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
         )
 }
 
-/// The action at the foot of the send page: straight to the device picked
-/// first, else to the device list. Return does the same.
+/// Computers: the action floating at the foot of the send page: straight
+/// to the device picked first, else to the device list. Return does the
+/// same.
 fn next_bar() -> impl IntoElement {
     let mine = crate::state::tab_untracked();
     on_key("enter", move |_| {
         if !crate::state::showing(mine, |r| *r == Route::Send) || !has_selection() {
             return;
         }
-        match picked_peer() {
-            Some(p) => send_to(Target::Peer(p.peer_id)),
-            None => push(Route::Devices),
-        }
+        next();
     });
     view()
         .absolute()
@@ -874,20 +1095,12 @@ fn next_bar() -> impl IntoElement {
         .pb(px(space::L))
         .items_center()
         .child(dynamic(move || {
-            let peer = picked_peer();
-            let label = match &peer {
-                Some(p) => format!("Send to {}", p.name),
-                None => "Choose device".to_owned(),
-            };
-            ui::icon_btn(Icon::Paperplane, label, Variant::Primary)
+            ui::icon_btn(Icon::Paperplane, next_label(), Variant::Primary)
                 .test_id("next")
                 .w_full()
                 .max_w(px(420.0))
                 .shadow_lg()
-                .on_press(move || match &peer {
-                    Some(p) => send_to(Target::Peer(p.peer_id)),
-                    None => push(Route::Devices),
-                })
+                .on_press(next)
         }))
 }
 
