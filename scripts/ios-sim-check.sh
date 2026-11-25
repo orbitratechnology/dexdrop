@@ -250,12 +250,22 @@ tap Share || true
 tap Send || fail "could not open Send"
 ad scroll down >/dev/null 2>&1 || true
 ad wait text "Recent photos and videos" 20000 >/dev/null 2>&1 || { step 08-no-recent; fail "Send shows no Recent section"; }
-# Should the grant not have reached the app, its own button asks (PhotoKit's
-# prompt: "Allow Full Access").
-if ad wait 'label="Show recent photos"' 3000 >/dev/null 2>&1; then
-  note "- Recent asked for Photos although it was granted: answering the prompt"
-  tap "Show recent photos" || true
-  ad click 'label="Allow Full Access"' --settle >/dev/null 2>&1 || ad alert accept >/dev/null 2>&1 || true
+# The simctl grant does not reach PhotoKit on every simulator (iOS 26 in CI
+# run 86): then Recent offers its button, which asks with PhotoKit's prompt
+# (requestAuthorizationForAccessLevel), answered "Allow Full Access".
+step 08-recent-first
+if grep -q 'Show recent photos' "$out/08-recent-first.txt"; then
+  tap "Show recent photos" || fail "could not tap Show recent photos"
+  if ad wait text "Allow Full Access" 20000 >/dev/null 2>&1; then
+    step 08-photos-prompt
+    tap "Allow Full Access" || ad alert accept >/dev/null 2>&1 || fail "could not answer the Photos prompt"
+    note "- Recent asked for Photos with the system's prompt; answered Allow Full Access"
+  else
+    step 08-no-photos-prompt
+    fail "Show recent photos brought no Photos prompt (08-no-photos-prompt.txt)"
+  fi
+else
+  note "- Photos granted before launch (simctl privacy)"
 fi
 photo=
 for _ in $(seq 1 10); do
