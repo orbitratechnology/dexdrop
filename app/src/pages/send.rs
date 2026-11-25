@@ -719,10 +719,15 @@ fn source_strip() -> impl IntoElement {
 /// Phones, nothing chosen: what the page is for, above the sources.
 fn empty_hero() -> impl IntoElement {
     let art = if short_screen() { 110.0 } else { 150.0 };
+    // Centered in the room between the header and the choices: the window
+    // less the header (about 100 pt), the choices and the tab bar, less
+    // the art and two lines of text.
+    let room = window().height.0 - 100.0 - dock_height(false) - ui::above_tab_bar();
+    let top = ((room - (art + 90.0)) / 2.0).clamp(space::M, 160.0);
     view()
         .items_center()
         .gap(px(space::S))
-        .pt(px(space::M))
+        .pt(px(top))
         .child(ui::art(ui::Art::Devices, art))
         .child(
             text("Choose what to send")
@@ -928,7 +933,8 @@ fn selected() -> impl IntoElement {
             move || {
                 view()
                     .gap(px(space::S))
-                    .child(ui::group().child(each(
+                    // Flat, as the choices under it (no shadow).
+                    .child(ui::flat_group().child(each(
                         move || {
                             others.with(|o| o.iter().take(SHOWN_ROWS).cloned().collect::<Vec<_>>())
                         },
