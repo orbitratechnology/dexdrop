@@ -21,6 +21,8 @@ pub mod wire;
 
 pub use dexdrop_core::api::*;
 pub use engine::{Engine, EngineConfig, EngineError, EngineHandle, spawn, summary};
+#[cfg(target_os = "android")]
+pub use jvm::use_android_context;
 
 /// The engine's event stream.
 pub type Events = tokio::sync::mpsc::UnboundedReceiver<dexdrop_core::api::Event>;

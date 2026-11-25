@@ -271,8 +271,10 @@ uses its own service behind one `DiscoveryEvent` contract
 - **Apple** (iOS, macOS): the system's Bonjour (`dns_sd`), so iOS asks for
   local-network permission once and needs no multicast entitlement
   (`bonjour.rs`). The iOS Simulator uses mdns-sd.
-- **Android:** the system's `NsdManager` through a Java bridge loaded from
-  memory (`nsd.rs`, Android 12+; older versions fall back to mdns-sd).
+- **Android:** the system's `NsdManager` through a Java bridge (`nsd.rs`),
+  packaged as an Android library from dexdrop-net's `Cargo.toml` and
+  reached with the Java VM NSH puts in `ndk-context` (ADR-006). A process
+  without it (the CLI from a shell) uses mdns-sd.
 - **Windows, Linux:** mdns-sd, a Rust responder that shares port 5353
   with Avahi or Windows' own (`mdns.rs`).
 
@@ -314,24 +316,93 @@ longer shows previews of sent photos (their copies are gone). Tests:
 several taps, and the picker hands over a copy (ADR-004). A user asked for
 the latest photos, videos and files right on Send.
 
-**Decision.** Android: a Java bridge (`MediaBridge`, in the same in-memory
-dex as the discovery and apps bridges) asks `MediaStore` for the newest
+**Decision.** Android: a Java bridge (`MediaBridge`, in the same dex as the
+discovery and apps bridges) asks `MediaStore` for the newest
 photos and videos and writes small JPEG thumbnails (256 px, kept only for
 the items listed). Reading them needs `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`
 (Android 13+; Android 14's "limited access" works too, with a button to
-choose more) or `READ_EXTERNAL_STORAGE` before; the manifest patch declares
-them, and Send asks only when the user taps "Show recent photos". Items are
+choose more) or `READ_EXTERNAL_STORAGE` before; dexdrop-net's `Cargo.toml`
+declares them (`[package.metadata.nsh.android]`), and Send asks only when the user taps "Show recent photos". Items are
 sent from their own files (`MediaStore`'s path, readable with that
 permission): nothing is copied, nothing is cleaned up. Computers list the
 newest files directly in Downloads, Pictures and Movies (plus Desktop and
 Documents on Windows and Linux; not on macOS, which asks before an app
-reads them). iOS has no photo library API in NSH 0.6.1 (`PHPhotoLibrary`
-would need native code NSH cannot add yet): no Recent there.
+reads them). iOS: NSH 0.7.0's `nsh-extra` `photos` reads the library, but
+hands over JPEGs prepared as picked ones, not the originals, and no videos:
+not what a file transfer should send, so no Recent there yet.
 
 **Consequences.** One tap to send a recent photo on Android, with no copy.
 The permission dialog is asked for from the bridge (`requestPermissions` on
 the activity in front, found through `ActivityThread`); the answer is read
-again when the app is back in front. Tests: `media` unit tests (the
+again when the app is back in front. NSH 0.7.0's
+`nsh::permissions::request` (`nsh-platform-android`) asks the same from
+Rust with an answer, which would retire the bridge's `ask`; it changes
+the dex, so it waits for an emulator run. Tests: `media` unit tests (the
 bridge's lines, folder listing, thumbnails kept), `app/tests/recent.rs`,
 and the emulator check's `13-recent` (a photo added to the camera folder
 shows).
+
+## ADR-006: Native Shell 0.7.0 — what replaced DexDrop's own workarounds
+
+**Context.** NSH 0.6.1 could not declare Android manifest entries, did not
+set `ndk-context`, packaged one flat Android icon and had no way for other
+apps to hand files to DexDrop or to tell a metered network. DexDrop worked
+around each (an apktool pass over the APK, a Java VM found through
+`JNI_GetCreatedJavaVMs` and the `Context` by reflection, a dex loaded from
+memory). 0.7.0 (https://github.com/longbridge/nsh/releases/tag/v0.7.0)
+covers them.
+
+**Decision.**
+
+- **Android manifest from the code that needs it.** dexdrop-net's
+  `Cargo.toml` declares, under `[package.metadata.nsh.android]`, the Java
+  bridges (`libraries = ["android/nsd.dex"]`), the `<queries>` entry for
+  launcher apps and the media-reading permissions; `nsh` adds them to every
+  package of an app that links the crate, and to `nsh test`'s Android
+  host. The app's own `nsh.json` declares `REQUEST_INSTALL_PACKAGES`, the
+  adaptive icon (`icon.android`: foreground, white background, monochrome
+  layer) and `android.launchScreen`. `scripts/patch-android-manifest.sh`
+  and `app/android/res` are gone; `nsh package` signs the APK itself.
+- **`ndk-context` is NSH's.** NSH sets it (the VM and the application
+  `Context`) before app code runs and panics if it is set again, so the
+  engine never sets it: the app calls `dexdrop_net::use_android_context()`
+  and the engine reads the VM from it. The bridges' classes load through
+  the application's class loader. The Android 12 floor that
+  `JNI_GetCreatedJavaVMs` imposed on `NsdManager` discovery is gone.
+- **Windows are declared.** A Rust root on the desktops declares its
+  window (`window().id("main").content(…)`, as NSH's own Rust examples
+  do); off the desktops the same call fills the app's one surface. The
+  main-window ref is now the invisible app host, so the Dock and taskbar
+  progress go to `current_window()`. `application.quitMode` is
+  `lastWindowClosed`: closing the window quits on every platform, as with
+  0.6.1. NSH's default keeps a macOS app in the Dock with no window; that
+  would leave incoming requests with nowhere to show (nothing reopens the
+  window yet), so it waits for a window-less receive flow (`on_reopen`,
+  a notification that opens the request).
+- **Files other apps hand over** (FR-035): `fileTypes` declares one type
+  of any file (`mimeTypes: ["*/*"]`, `contentTypes: ["public.data"]`).
+  Android lists DexDrop in the share sheet (`SEND`/`SEND_MULTIPLE`; NSH
+  copies each stream into the cache), macOS in Open With and for drops on
+  its Dock icon, iOS in "Open in". The files come to
+  `next_open_files()`, join Send's selection, and Send shows them. Windows
+  registers no type without extensions, so nothing changes there; on Linux
+  the desktop entry lists `*/*`, which file managers may or may not offer.
+- **Mobile data** (FR-072): `network()` says whether the link is
+  expensive (cellular, a hotspot, metered Wi-Fi) or constrained (Low Data
+  Mode, Data Saver). Sending to a device that is not nearby on such a link
+  asks first; nearby devices never use the internet.
+- **Clipboard answers:** copying says it failed where the system says so
+  (Windows, macOS, the web).
+
+**Consequences.** No APK rewriting in CI, one discovery path on every
+Android version NSH supports (8+), and the share-sheet entry on Android.
+Not covered by 0.7.0, still open: keeping a phone awake during a transfer,
+Android foreground services for background transfers (a `<service>` can
+now be declared through `android.application`, but its Java and the
+notification are DexDrop's to write), battery state, free space. Now
+unblocked: the Android Keystore for the identity key (it needed
+`ndk-context`), and Camera QR through `nsh-extra`'s `camera`. Tests:
+`app/tests/opened.rs` (shared files, at launch and while running),
+`mobile_data_asks_before_sending_over_the_internet` (`multi.rs`); CI reads
+the packaged APK's manifest back (permissions, queries, the share-sheet
+filters, the icon, the bridges' classes).

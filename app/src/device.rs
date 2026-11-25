@@ -9,7 +9,8 @@ use nsh_core::{
     Haptic, HapticImpact, HapticNotification,
     desktop::{ProgressState, WindowAttributes, WindowProgress},
     element::{
-        close_notification, desktop::main_window, haptic, set_badge, show_notification, wake_count,
+        close_notification, desktop::current_window, haptic, set_badge, show_notification,
+        wake_count,
     },
     geometry::Percentage,
     platform::Lifecycle,
@@ -181,7 +182,9 @@ fn taskbar_progress() {
         return;
     }
     let shown = computed(|| model().with(|m| progress_of(&m.transfers)));
-    let window = main_window();
+    // The window this renders in (the app's "main"): the app host
+    // (`main_window`) has no taskbar button or Dock tile of its own.
+    let window = current_window();
     effect(move || {
         let progress = shown.get().map(|(value, state)| {
             let mut p = WindowProgress::default();

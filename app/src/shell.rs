@@ -170,6 +170,7 @@ pub fn shell() -> impl IntoElement {
     shortcuts();
     application_menu();
     crate::device::watch();
+    pages::send::take_opened_files();
     view()
         .flex_1()
         .bg(move || theme().background)
@@ -531,9 +532,10 @@ fn native_tab_bar() -> impl IntoElement {
         .left_0()
         .right_0()
         .bottom_0()
-    // Its colors are the system's: NSH 0.6.1 draws Android's Material 3
-    // bar with Material's own surface color and takes only the tint (CI's
-    // emulator showed a background set here does not reach it).
+    // Its colors are the system's: NSH draws Android's Material 3 bar with
+    // Material's own surface color and takes only the tint (CI's emulator
+    // showed a background set here does not reach it; 0.7.0 still tints
+    // only the chosen tab).
 }
 
 /// The tab's icon by the platform's name: an SF Symbol on iOS, one of
@@ -775,8 +777,7 @@ fn diagnostics(report: String) -> impl IntoElement {
                 .gap(px(space::S))
                 .child(
                     ui::icon_btn(Icon::Copy, "Copy", Variant::Secondary).on_press(move || {
-                        set_clipboard(copy.clone());
-                        crate::state::toast(NoticeKind::Success, "Diagnostics copied.");
+                        crate::state::copy(copy.clone(), "Diagnostics copied.");
                     }),
                 )
                 .child(

@@ -66,6 +66,25 @@ pub fn select(paths: Vec<PathBuf>) {
     recount();
 }
 
+/// Files the system hands DexDrop to send (`nsh.json` `fileTypes`): shared
+/// to it from another app on Android (the share sheet), opened with it or
+/// dropped on its icon on computers, "Open in" on iOS. They join the
+/// selection, and Share shows them on Send, ready to pick a device. Files
+/// that came before this listens (those that launched the app) come at
+/// once.
+pub fn take_opened_files() {
+    detached(async {
+        loop {
+            let paths = next_open_files().await;
+            if paths.is_empty() {
+                continue;
+            }
+            select(paths);
+            crate::state::open(crate::state::Tab::Share, Route::Send);
+        }
+    });
+}
+
 /// Counts the selection and reads each new path's size, off the engine
 /// thread (a selection of thousands is thousands of disk reads), then
 /// updates it if it has not changed meanwhile.
@@ -1058,15 +1077,64 @@ fn new_group() -> TransferId {
     }
 }
 
+/// Whether sending to `targets` would use a link that costs the user
+/// (FR-072): one of them is reached over the internet while the system
+/// calls the network expensive (mobile data, a phone's hotspot, a metered
+/// Wi-Fi) or constrained (Low Data Mode, Data Saver). Nearby devices are
+/// reached over the local network, which costs nothing. Platforms that
+/// cannot tell (Windows, Linux) never ask.
+fn costs_data(targets: &[Target]) -> bool {
+    let net = network();
+    if !(net.expensive || net.constrained) {
+        return false;
+    }
+    model().with_untracked(|m| {
+        targets.iter().any(|t| match t {
+            Target::Peer(id) => m.peers.iter().any(|p| p.peer_id == *id && !p.nearby),
+            _ => false,
+        })
+    })
+}
+
 /// Sends the selection to `targets` as part of `group`, staying on the
-/// device list.
+/// device list; over the internet on a metered link, once the user agrees.
 fn send_group(group: TransferId, targets: Vec<Target>) {
-    let paths = selection().with_untracked(|s| s.paths.clone());
-    if paths.is_empty() {
+    if selection().with_untracked(|s| s.paths.is_empty()) {
         toast(NoticeKind::Info, "Choose what to send first.");
         return;
     }
     if targets.is_empty() {
+        return;
+    }
+    if costs_data(&targets) {
+        let size = selection()
+            .with_untracked(|s| s.summary)
+            .map(|(_, _, bytes)| format!(" ({})", format::bytes(bytes)))
+            .unwrap_or_default();
+        let (title, link) = if network().expensive {
+            (
+                "Send over mobile data?",
+                "You are on mobile data or a metered network",
+            )
+        } else {
+            ("Send with Data Saver on?", "Data Saver is on")
+        };
+        ui::ask(
+            title,
+            format!(
+                "{link}. This device is not nearby, so the files{size} go over the internet and may use your data plan."
+            ),
+            "Send",
+            move || start_group(group, targets),
+        );
+        return;
+    }
+    start_group(group, targets);
+}
+
+fn start_group(group: TransferId, targets: Vec<Target>) {
+    let paths = selection().with_untracked(|s| s.paths.clone());
+    if paths.is_empty() {
         return;
     }
     crate::device::buzz(crate::device::Buzz::Tap);

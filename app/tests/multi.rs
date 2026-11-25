@@ -177,3 +177,57 @@ fn arrows_and_return_send_to_a_device() {
         .unwrap();
     assert!(app.screen().id("label:Send to Desk").is_ok());
 }
+
+/// FR-072: on mobile data (the system calls the link expensive), sending
+/// to a device over the internet asks first; Cancel sends nothing. Back on
+/// Wi-Fi it sends at once.
+#[test]
+fn mobile_data_asks_before_sending_over_the_internet() {
+    use nsh_core::platform::{Network, NetworkKind};
+    use nsh_testing::DialogAnswer;
+
+    let (mut app, dir) = start();
+    app.set_environment("setNetworkState(cellular, expensive)", |e| {
+        e.network = Network::new(NetworkKind::Cellular).expensive(true);
+    })
+    .unwrap();
+    let file = dir.path().join("talk.pdf");
+    std::fs::write(&file, vec![7u8; 4096]).unwrap();
+    app.press("id:send").unwrap();
+    app.wait_for("id:pick-files").unwrap();
+    app.drop_files("id:pick-files", vec![format!("file://{}", file.display())])
+        .unwrap();
+    app.wait_for_within("id:next", Duration::from_secs(5))
+        .unwrap();
+    app.press("id:next").unwrap();
+    app.wait_for_within("label:Send to Desk", Duration::from_secs(5))
+        .unwrap();
+
+    app.answer_dialogs_myself();
+    app.press("label:Send to Desk").unwrap();
+    let dialog = app.pending_dialog().expect("an alert").clone();
+    assert_eq!(dialog.title.as_deref(), Some("Send over mobile data?"));
+    app.answer_dialog(DialogAnswer::Press("Cancel".into()))
+        .unwrap();
+    app.wait(Duration::from_millis(300)).unwrap();
+    assert!(
+        app.screen().id("label:/^Desk, /").is_err(),
+        "sent after Cancel"
+    );
+
+    app.press("label:Send to Desk").unwrap();
+    app.answer_dialog(DialogAnswer::Press("Send".into()))
+        .unwrap();
+    app.wait_for_within("label:/^Desk, /", Duration::from_secs(5))
+        .unwrap();
+
+    // On Wi-Fi: no question.
+    app.set_environment("setNetworkState(wifi)", |e| {
+        e.network = Network::new(NetworkKind::Wifi);
+    })
+    .unwrap();
+    app.press("label:Send to Laptop").unwrap();
+    assert!(app.pending_dialog().is_none(), "asked on Wi-Fi");
+    app.wait_for_within("label:/^Laptop, /", Duration::from_secs(5))
+        .unwrap();
+}

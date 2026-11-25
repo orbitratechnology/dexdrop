@@ -171,7 +171,7 @@ mod system {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         if slot.is_none() {
-            let vm = java_vm().ok_or("Android 12 or later is needed to list apps.")?;
+            let vm = java_vm().ok_or("The system's app list is not reachable.")?;
             let bridge = {
                 let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
                 let made = new_bridge(&mut env, "dev.dexdrop.AppsBridge")

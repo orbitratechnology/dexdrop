@@ -35,7 +35,7 @@ import java.util.Map;
  * {@code READ_MEDIA_VIDEO} (Android 13+; with
  * {@code READ_MEDIA_VISUAL_USER_SELECTED} on Android 14+ the user may allow
  * only some), or {@code READ_EXTERNAL_STORAGE} before;
- * scripts/patch-android-manifest.sh declares them in the packaged APK.
+ * dexdrop-net's Cargo.toml ([package.metadata.nsh.android]) declares them.
  *
  * <p>Build with scripts/build-nsd-dex.sh.
  */

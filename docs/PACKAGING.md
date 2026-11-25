@@ -1,7 +1,7 @@
 # Packaging DexDrop
 
 How DexDrop is packaged for each platform, following NSH's packaging guide
-(https://nsh.dev/docs/packaging.md) for NSH 0.6.1. CI packages every target
+(https://nsh.dev/docs/packaging.md) for NSH 0.7.0. CI packages every target
 on every push (`.github/workflows/ci.yml`); the commands below are the ones
 it runs.
 
@@ -14,9 +14,19 @@ it runs.
 | `version` | `0.1.0` | `CFBundleShortVersionString`, Android `versionName`; raise it for each release |
 | `build` | `1`, CI passes `--build <run number>` | `CFBundleVersion`, Android `versionCode`: grows with every build, so a newer APK installs over an older one |
 | `icon` | one file per platform (below) | |
-| `ios.launchScreen` | off-white `#fbfaf8` / near-black `#070707` (the theme's backgrounds), the icon at 96 pt | iOS only in NSH |
+| `ios.launchScreen`, `android.launchScreen` | off-white `#fbfaf8` / near-black `#070707` (the theme's backgrounds), the icon at 96 pt | On Android the window's background from the tap on, and the system splash screen (Android 12+) |
+| `application.quitMode` | `lastWindowClosed` | Closing the window quits on every computer, macOS included (ADR-006) |
+| `fileTypes` | one type, any file (`mimeTypes: ["*/*"]`, `contentTypes: ["public.data"]`) | Android's share sheet, macOS's Open With and Dock icon, iOS's "Open in": the files go to Send (FR-035) |
 | `macos.infoPlist.LSApplicationCategoryType` | `public.app-category.utilities` | The App Store's and Finder's category |
 | `android.targetSdk` | `35` | |
+| `android.permissions` | `REQUEST_INSTALL_PACKAGES` | Opening a received APK hands it to the system's installer |
+
+The engine's own Android needs are in `crates/dexdrop-net/Cargo.toml`
+(`[package.metadata.nsh.android]`), which `nsh` adds to every package of
+an app that links it: the Java bridges (`libraries`: `android/nsd.dex`),
+the `<queries>` entry for launcher apps (Send › Apps) and the permissions
+to read photos and videos (Send's Recent). Check a package's with
+`aapt2 dump xmltree --file AndroidManifest.xml DexDrop.apk`; CI does.
 
 ## Icons
 
@@ -26,11 +36,11 @@ PNG per platform, ideally 1024 × 1024, and makes every size from it.
 
 | File | Platforms | What it is |
 |---|---|---|
-| `app/icon.png` | Windows, Linux, Android (before 8), web | The transparent artwork filling the canvas with a 4 % margin. Windows gets `.ico` sizes 16–256 embedded in `DexDrop.exe` (only when packaged on Windows, as CI does); Linux `dev.dexdrop.app.png` named by the `.desktop` file; web the favicon, Apple touch icon and manifest icons |
+| `app/icon.png` | Windows, Linux, web | The transparent artwork filling the canvas with a 4 % margin. Windows gets `.ico` sizes 16–256 embedded in `DexDrop.exe` (only when packaged on Windows, as CI does); Linux `dev.dexdrop.app.png` named by the `.desktop` file; web the favicon, Apple touch icon and manifest icons |
 | `app/icon-macos.png` | macOS | The artwork at 824 px on a transparent 1024 canvas: Apple's icon grid, which NSH does not apply itself |
 | `app/icon-ios.png` | iOS | The white-background artwork, opaque (the App Store refuses icons with transparency); iOS rounds the corners |
 | `app/launch.png` | iOS launch screen | 288 px, drawn at 96 pt on 3x screens |
-| `app/android/res/` | Android 8+ | An adaptive icon: white background, the artwork in the 66 dp safe zone, and a monochrome layer (the rounded square with the arrows cut out) for Android 13's themed icons. NSH 0.6.1 packages one flat 192 px icon, which launchers shrink onto a white disc, so `scripts/patch-android-manifest.sh` adds these to the APK |
+| `app/icon-android-foreground.png`, `app/icon-android-monochrome.png` | Android 8+ | `icon.android`'s adaptive icon: the artwork in the 66 dp safe zone of a 432 px layer on a white `background`, and a monochrome layer (the rounded square with the arrows cut out) for Android 13's themed icons |
 
 To change the icon, replace the two source images and regenerate the files
 above at the same sizes (the transparent one trimmed to its rounded square
@@ -44,7 +54,7 @@ first).
 | Windows | `nsh package app --target windows --build N` | `DexDrop\`, `.zip`, `.iss` and the per-user `DexDrop-setup.exe` (Inno Setup 6, on GitHub's Windows runners) |
 | macOS | `nsh package app --target macos --build N` | `DexDrop.app`, ad hoc signed |
 | iOS simulator | `nsh package app --target ios-simulator --build N` | `DexDrop.app` |
-| Android | `nsh package app --target android --abi arm64-v8a,armeabi-v7a,x86_64 --build N [--keystore … --key-alias …]`, then `scripts/patch-android-manifest.sh` | `DexDrop.apk` |
+| Android | `nsh package app --target android --abi arm64-v8a,armeabi-v7a,x86_64 --build N [--keystore … --key-alias …]` | `DexDrop.apk` |
 | Web | `nsh package app --target web --build N` | `DexDrop/` |
 
 ## Signing
@@ -66,8 +76,7 @@ Actions): `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` (`upload`) and
 `NSH_KEYSTORE_PASSWORD`. Keep the `.jks` file and its password out of the
 repository and somewhere safe: an app's updates must be signed with the
 same key for its whole life. CI decodes it to the runner's temporary
-folder, passes it to `nsh package --keystore` and to the manifest patch
-(which signs again after editing the APK), and deletes it.
+folder, passes it to `nsh package --keystore`, and deletes it.
 
 For Google Play: `--format aab` (the upload key registered in Play App
 Signing) and `nsh publish android`.
@@ -85,8 +94,9 @@ yet.
 ## Before a release
 
 1. Raise `version` in `app/nsh.json` (CI raises `build`).
-2. Android: the release keystore secrets are set (the CI log of the patch
-   step names the key: `upload`, not `androiddebugkey`).
+2. Android: the release keystore secrets are set (`apksigner verify
+   --print-certs DexDrop.apk` names the key: `upload`, not
+   `androiddebugkey`).
 3. iOS and macOS: the signing above, once there is an Apple developer
    account.
 4. Update `docs/RELEASE_NOTES.md`.

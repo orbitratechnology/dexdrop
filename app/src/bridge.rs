@@ -77,6 +77,11 @@ mod native {
     }
 
     pub fn start() -> Result<dexdrop_net::Events, String> {
+        // NSH has put the Java VM and the application Context in
+        // ndk-context before this code runs: discovery, internet transfers,
+        // the apps list and recent photos reach Java through it.
+        #[cfg(target_os = "android")]
+        dexdrop_net::use_android_context();
         let platform = os().name();
         let (state, downloads) = dirs(platform);
         let mut config = EngineConfig::new(state, downloads, platform);

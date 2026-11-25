@@ -2,8 +2,9 @@
 //! the selection. On Android the newest photos and videos (the system's
 //! media library, once the user allows it); on computers the newest files
 //! in Downloads, Pictures, Movies (and Desktop and Documents on Windows and
-//! Linux). Items are sent from their own files: nothing is copied. iOS has
-//! no photo library in NSH 0.6.1, so nothing shows there.
+//! Linux). Items are sent from their own files: nothing is copied. Nothing
+//! shows on iOS: NSH 0.7.0's photo library (`nsh-extra` `photos`) hands
+//! over re-encoded JPEGs, not the originals or videos (ADR-005).
 
 use std::path::PathBuf;
 

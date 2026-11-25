@@ -348,7 +348,7 @@ wait "$inbox" 2>/dev/null
 note "- Resumed from the app: the CLI received \`$out_file\` byte-identical (SHA-256)"
 
 # 4. Apps: the list of installed apps (needs the manifest's <queries>, which
-#    scripts/patch-android-manifest.sh adds), then one app into the
+#    dexdrop-net's Cargo.toml declares), then one app into the
 #    selection as its APK.
 tap_only Share || true
 tap_only Done || tap_only "Navigate up" || true

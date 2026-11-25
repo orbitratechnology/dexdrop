@@ -38,12 +38,33 @@ libc = "0.2.191"
 [target."cfg(any(not(target_vendor = \"apple\"), all(target_os = \"ios\", target_abi = \"sim\")))".dependencies]
 mdns-sd = { version = "0.22.0", features = ["async"] }
 
-# Android reaches the system's NsdManager through JNI (the version NSH uses).
+# Android reaches the system's NsdManager through JNI (the version NSH uses),
+# with the Java VM and application Context NSH puts in ndk-context (which
+# Iroh's DNS resolver and network watcher read too).
 [target."cfg(target_os = \"android\")".dependencies]
 jni = "0.21"
-# Iroh's DNS resolver and network watcher read the Android context; NSH
-# 0.6.1 does not set it, so the engine does (src/jvm.rs).
 ndk-context = "0.1.1"
+
+# What the packaged Android app needs for this crate's Android code; `nsh`
+# adds it to every package (and to `nsh test`'s Android host) of an app that
+# links this crate (https://nsh.dev/docs/nshm.md#what-the-packaged-app-needs).
+[package.metadata.nsh.android]
+# The Java bridges (android/dev/dexdrop, scripts/build-nsd-dex.sh): NsdManager
+# discovery, the installed apps, the newest photos and videos (src/jvm.rs).
+libraries = ["android/nsd.dex"]
+# Android 11+ shows an app only the apps it queries: the launcher apps
+# Send › Apps lists (src/apps.rs).
+queries = ['<intent><action android:name="android.intent.action.MAIN"/></intent>']
+# Send's recent photos and videos (src/media.rs): READ_MEDIA_* from Android
+# 13 (READ_MEDIA_VISUAL_USER_SELECTED: 14's "allow limited access"),
+# READ_EXTERNAL_STORAGE before. Asked for when the user taps "Show recent
+# photos and videos".
+permissions = [
+    "READ_MEDIA_IMAGES",
+    "READ_MEDIA_VIDEO",
+    "READ_MEDIA_VISUAL_USER_SELECTED",
+    "READ_EXTERNAL_STORAGE",
+]
 
 [lints.rust]
 # `--cfg dexdrop_check_bonjour` type-checks the Bonjour adapter elsewhere.

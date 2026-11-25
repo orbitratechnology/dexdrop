@@ -1,5 +1,15 @@
 # NSH and Android permissions / platform access: already solved upstream
 
+> **Done with NSH 0.7.0 (2026-11-25).** The release ships all three
+> (`android.permissions`/`queries`/`libraries`/`application`, `ndk-context`
+> set by NSH, `nsh::permissions`), and DexDrop adopted them: the APK patch
+> and `app/android/res` are gone, the engine's manifest needs are in
+> `crates/dexdrop-net/Cargo.toml`, the bridges ship as an Android library,
+> and the engine reads the VM from `ndk-context` (ADR-006 in
+> `docs/ARCHITECTURE.md`). DexDrop kept `NsdManager` over mdns-sd with a
+> multicast lock (no battery cost, one less permission). The rest of this
+> page is the history that led there.
+
 We drafted a request to NSH (`longbridge/nsh`) for Rust apps on Android to
 declare manifest permissions and reach Android APIs. Searching its issues
 before filing showed the same requests already done on `main` (all closed as

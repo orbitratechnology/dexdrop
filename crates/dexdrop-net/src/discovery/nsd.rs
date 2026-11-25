@@ -1,19 +1,18 @@
 //! Android: the system's DNS-SD service, `NsdManager`.
 //!
 //! Wi-Fi drivers on Android drop multicast unless an app holds a multicast
-//! lock, which needs a manifest permission the packaged app cannot declare
-//! (see docs/STATUS.md). `NsdManager` does the multicast work in the system
-//! instead and needs no permission — the same arrangement as Bonjour on
-//! Apple platforms.
+//! lock (`CHANGE_WIFI_MULTICAST_STATE`), which also costs battery while it
+//! is held. `NsdManager` does the multicast work in the system instead and
+//! needs no permission — the same arrangement as Bonjour on Apple
+//! platforms.
 //!
 //! `NsdManager` reports through Java callback interfaces, so a small Java
 //! bridge (`android/dev/dexdrop/NsdBridge.java`, built into `android/nsd.dex`
-//! by `scripts/build-nsd-dex.sh`) is embedded here and loaded from memory
-//! (`InMemoryDexClassLoader`). One thread drives it: it sends commands and
+//! by `scripts/build-nsd-dex.sh`) is packaged with the app as an Android
+//! library (see `crate::jvm`). One thread drives it: it sends commands and
 //! polls the bridge's event queue, so Java never calls into Rust.
 //!
-//! Without a Java VM to reach — the `dexdrop` CLI run from a shell, or
-//! Android before 12, where `JNI_GetCreatedJavaVMs` is not public — the
+//! Without a Java VM to reach — the `dexdrop` CLI run from a shell — the
 //! mdns-sd responder is used instead.
 
 use std::{collections::HashMap, net::SocketAddr};

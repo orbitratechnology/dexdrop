@@ -188,7 +188,9 @@ pub fn open(tab: Tab, route: Route) {
             stack.push(route);
         }
     });
-    set_tab(tab);
+    // Not `set_tab`: on the tab already shown it goes back to the root,
+    // as a second tap on a tab does, which would undo the push.
+    global::<CurrentTab>().set(CurrentTab(tab));
 }
 
 /// Files the user chose to send, before choosing a device.
@@ -233,6 +235,23 @@ pub struct Toasts {
 
 pub fn toasts() -> Signal<Toasts> {
     global::<Toasts>()
+}
+
+/// Puts `text` on the clipboard and says so with `done`, or that it
+/// failed where the system says it refused (NSH answers whether the
+/// clipboard took it on Windows, macOS and the web; elsewhere it hands it
+/// over and cannot tell).
+pub fn copy(text: String, done: &'static str) {
+    let written = nsh_core::prelude::set_clipboard(text);
+    nsh_core::prelude::spawn(async move {
+        match written.await {
+            nsh_core::prelude::ClipboardWrite::Failed => toast(
+                NoticeKind::Error,
+                "Could not copy: the clipboard refused it.",
+            ),
+            _ => toast(NoticeKind::Success, done),
+        }
+    });
 }
 
 /// Shows a short message: an error 8 s, anything else 4 s (longer while

@@ -18,13 +18,14 @@ current whenever tests, selectors, CI jobs or timings change.
 | UI headless, keyboard and long presses | `cargo test -p dexdrop-app --test keys` | ~3 s | Home's S / R / arrows, Escape back; a past transfer removed and a device forgotten by a long press, through the system's alert (`answer_dialogs_myself`) |
 | UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~4 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), Home's header (icon and name), "Nearby" and the radar centered on iPhone, Android and Mac, the radar's still circles with less motion, History's and Settings' titles centered, illustrations in the empty states and the first launch, Android's drawn white tabs (Settings opens), headings and the status pill taking their rows' width, a picked copy deleted when taken out of the selection, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
 | UI headless, Send's Recent | `cargo test -p dexdrop-app --test recent` | ~4 s | a computer's newest files as rows (a tap adds, another takes out), Android's newest photos and videos as squares four across (from `DEXDROP_RECENT_DIRS` headless), none on an iPhone |
-| UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~2 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress |
+| UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~3 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress; on mobile data (`set_environment`, `Environment::network` expensive) sending over the internet asks first, Cancel sends nothing, Wi-Fi does not ask (FR-072) |
+| UI headless, files handed over | `cargo test -p dexdrop-app --test opened` | ~2 s | files shared to DexDrop (Android's share sheet, Open With): `Root::url_schemes(["file"])` as `nsh` sets it from `fileTypes`, then `open_with_url("file://…")` while running and `Headless::start_with_link` at launch; they join Send's selection (FR-035) |
 | UI headless, device settings | `cargo test -p dexdrop-app --test device` | ~3 s | the user's 12/24-hour clock, large text: `EngineConfig::environment` (`locale_settings`, `font_scale`) and `set_environment` |
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
 | Every platform, real app | `cd app && nsh test e2e/app.test.ts --target <linux\|macos\|windows\|ios\|android>` | 2–6 s a test once built (CI: Windows ~2 s, macOS 3–6 s, Linux under Xvfb ~27 s); building the development host takes 3–7 min on CI, ~0.5 s when reused | the development host through the platform's input, with the same `id:` selectors |
 | Cross-app, CI | `scripts/{android-emu,ios-sim,macos-ui}-check.sh` (agent-device) | 5–30 min | system pickers, the CLI as the other device, discovery over the network, the share sheet; Pause from the app (the chunk in flight lands, up to 4 MiB, then the received size must hold for 4 s) |
 
-Run the first four before every push (about 25 s together):
+Run the headless layers before every push (about 25 s together):
 
 ```sh
 cargo test --workspace --features dexdrop-net/test-relay
@@ -89,6 +90,10 @@ Add an id when a test needs a control; add it to this table.
   is 752 MB and installs in 6 s; the Linux host is 311 MB instead of
   1.1 GB. It did not make CI's builds shorter (compiling dominates). Set
   it locally too when the host is only driven, not debugged.
+- **Desktop runs declare a window.** Since NSH 0.7.0 a Rust root on the
+  desktops shows nothing until it declares `window()`; headless runs as
+  macOS or Windows (`tests/design.rs`, `tests/multi.rs`) caught it
+  (an empty screen) before any platform run.
 - **Environment variables do not reach the app** under `nsh test` unless
   `nsh.json` declares them in `capabilities.process.env`, and declaring any
   capability makes NSH refuse everything undeclared. DexDrop declares none,
@@ -108,7 +113,8 @@ Add an id when a test needs a control; add it to this table.
   several runs (`dexdrop bench`; `--to N` sends to N receivers at once).
 - **Filter.** `cargo test -p dexdrop-app <name>`, `nsh test … --filter <name>`.
 - **Reuse builds.** `nsh test` builds the development host once and reuses
-  it (~0.5 s on later runs).
+  it (~0.5 s on later runs). `--jobs N` (NSH 0.7.0) runs test files side by
+  side; DexDrop has one e2e file, so it gains nothing yet.
 
 ## The development loop
 
@@ -129,7 +135,7 @@ Add an id when a test needs a control; add it to this table.
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
 | Package macOS and iOS | `nsh test … --target macos`, `--target ios`, after the checks (the e2e first launch starts discovery in NSH's host; its system prompt must not be the one the checks answer) | desktop check, agent-device macOS and iOS checks (run first) |
-| Package Android | `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon; `13-recent.png`: a photo added to the camera folder shows in Send's Recent) | agent-device emulator check |
+| Package Android | the packaged APK's manifest read back with `aapt2` (`REQUEST_INSTALL_PACKAGES`, the media permissions, the launcher `<queries>`, the share sheet's `SEND_MULTIPLE` filter, the launcher icon, the Java bridges' classes in the dex), then `scripts/android-checks.sh`: `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon; `13-recent.png`: a photo added to the camera folder shows in Send's Recent) | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
 (`desktop-check-*`, `e2e-apple`, `android-check`).

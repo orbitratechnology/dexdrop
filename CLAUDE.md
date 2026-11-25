@@ -1,7 +1,7 @@
 # DexDrop: notes for working on this repository
 
 Cross-platform peer-to-peer file transfer: a Rust engine
-(`crates/dexdrop-core`, `crates/dexdrop-net`), an NSH 0.6.1 app (`app/`,
+(`crates/dexdrop-core`, `crates/dexdrop-net`), an NSH 0.7.0 app (`app/`,
 Rust only), a CLI (`crates/dexdrop-cli`). Product requirements:
 `docs/STATUS.md` (audit against the PRD), `docs/ARCHITECTURE.md`
 (decisions).
@@ -38,10 +38,18 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
 
 ## Platform notes
 
-- NSH 0.6.1 cannot declare Android manifest entries: CI patches the APK
-  (`scripts/patch-android-manifest.sh`). It does not set `ndk-context`
-  either: the engine does, before Iroh (`crates/dexdrop-net/src/jvm.rs`).
-  Both go when NSH's next release covers them
-  (`docs/upstream/nsh-android-permissions.md`).
+- Android manifest entries live with the code that needs them: the
+  engine's (Java bridges `android/nsd.dex`, `<queries>`, media permissions)
+  in `crates/dexdrop-net/Cargo.toml` `[package.metadata.nsh.android]`, the
+  app's in `app/nsh.json` (`android.permissions`, `icon.android`,
+  `android.launchScreen`). Nothing patches the APK.
+- NSH sets `ndk-context` before app code runs and panics if it is set
+  again: never call `initialize_android_context`. The app calls
+  `dexdrop_net::use_android_context()`; the engine reads the VM from it
+  (`crates/dexdrop-net/src/jvm.rs`).
+- On the desktops the root declares its window (`window().id("main")`);
+  `main_window()` is the invisible app host, so per-window things (taskbar
+  progress) use `current_window()`. `application.quitMode` is
+  `lastWindowClosed` (`docs/ARCHITECTURE.md` ADR-006).
 - Icons are SVG assets (`asset!("icons/…")`, `app/assets/icons`); `cargo run`
   lays them out for the desktop runner (`dev_assets`).

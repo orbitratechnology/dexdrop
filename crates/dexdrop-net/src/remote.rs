@@ -82,7 +82,7 @@ pub fn secret_key(identity: &Identity) -> Result<SecretKey, String> {
 /// Starts this device's internet endpoint.
 pub async fn bind(identity: &Identity, config: &RemoteConfig) -> Result<Endpoint, String> {
     #[cfg(target_os = "android")]
-    if !crate::jvm::ensure_ndk_context() {
+    if !crate::jvm::has_context() {
         return Err("no Android context in this process (run from a shell)".into());
     }
     let secret = secret_key(identity)?;

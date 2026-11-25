@@ -14,8 +14,8 @@ name = "dexdrop-app"
 path = "src/main.rs"
 
 [dependencies]
-nsh-core = { version = "=0.6.1", features = ["svg"] }
-nsh-base = "=0.6.1"
+nsh-core = { version = "=0.7.0", features = ["svg"] }
+nsh-base = "=0.7.0"
 dexdrop-core = { path = "../crates/dexdrop-core" }
 log = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -25,15 +25,15 @@ env_logger = "0.11"
 dexdrop-net = { path = "../crates/dexdrop-net" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "=0.6.1", default-features = false, features = ["svg"] }
+nsh-platform-linux = { version = "=0.7.0", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { version = "=0.6.1", default-features = false, features = ["svg"] }
+nsh-platform-macos = { version = "=0.7.0", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { version = "=0.6.1", default-features = false, features = ["svg", "media"] }
+nsh-platform-windows = { version = "=0.7.0", default-features = false, features = ["svg", "media"] }
 
 [dev-dependencies]
-nsh-engine = "=0.6.1"
-nsh-testing = "=0.6.1"
+nsh-engine = "=0.7.0"
+nsh-testing = "=0.7.0"
 tempfile = "3"

@@ -16,7 +16,7 @@ mod state;
 mod ui;
 
 use nsh_base::theme;
-use nsh_core::prelude::*;
+use nsh_core::{element::desktop::window as app_window, prelude::*};
 
 /// The app's UI set (`nsh.json` `"rust"`).
 #[native_module("dexdrop/native")]
@@ -40,7 +40,9 @@ pub fn dev_assets() -> Option<std::path::PathBuf> {
     Some(dir)
 }
 
-/// The app's root.
+/// The app's root: on computers the window it declares (closing it quits,
+/// `nsh.json` `application.quitMode`); on phones and the web `window()`
+/// shows the same content in the app's one surface.
 #[component]
 pub fn App() -> impl IntoElement {
     // The theme of nsh.json, applied by the app itself so every runner
@@ -50,9 +52,11 @@ pub fn App() -> impl IntoElement {
         Err(err) => log::warn!("theme: {err}"),
     }
     bridge::start();
-    view()
-        .flex_1()
-        .bg(move || theme().background)
-        .text_color(move || theme().foreground)
-        .child(shell::shell())
+    app_window().id("main").content(|| {
+        view()
+            .flex_1()
+            .bg(move || theme().background)
+            .text_color(move || theme().foreground)
+            .child(shell::shell())
+    })
 }

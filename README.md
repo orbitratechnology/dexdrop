@@ -6,7 +6,7 @@ are verified with BLAKE3, and resume where they left off if the connection
 drops.
 
 Built as a Rust-only [Native Shell (NSH)](https://nsh.dev) app (pinned to NSH
-`v0.6.1`) on top of a UI-independent Rust transfer engine.
+`v0.7.0`) on top of a UI-independent Rust transfer engine.
 
 ## Platforms
 
@@ -85,10 +85,10 @@ docs/                   architecture, protocol and status
 
 ## Building
 
-Requirements: Rust (stable, 1.85+) and, for the app, NSH `v0.6.1`:
+Requirements: Rust (stable, 1.97+, which NSH 0.7.0 needs) and, for the app, NSH `v0.7.0`:
 
 ```sh
-curl -fsSL https://nsh.dev/install.sh | NSH_VERSION=v0.6.1 sh
+curl -fsSL https://nsh.dev/install.sh | NSH_VERSION=v0.7.0 sh
 ```
 
 Linux additionally needs GTK 4.14+, clang and GStreamer development packages

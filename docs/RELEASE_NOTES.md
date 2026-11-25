@@ -20,6 +20,11 @@ devices, with no account and no cloud.
 - Desktop: native file and folder dialogs, drag and drop, keyboard
   shortcuts, system notifications, *Show in folder*.
 - Phones: *Share or save* to export received files.
+- Android: share files to DexDrop from any app's share sheet; they wait on
+  *Send*, ready for a device (on a Mac: *Open With* or a drop on the Dock
+  icon).
+- Asks before sending to a device over the internet while on mobile data
+  or with Data Saver / Low Data Mode on.
 - Measured transfer speed per device; local history; anonymized diagnostics.
 - `dexdrop` command-line tool for sending, receiving and benchmarking.
 

@@ -29,7 +29,7 @@ import java.util.Set;
  * a PNG of the app's icon written under the given folder.
  *
  * <p>Seeing other apps needs the manifest's {@code <queries>} entry for
- * launcher activities (Android 11+); scripts/patch-android-manifest.sh adds
+ * launcher activities (Android 11+); dexdrop-net's Cargo.toml declares
  * it to the packaged APK.
  *
  * <p>Build with scripts/build-nsd-dex.sh.

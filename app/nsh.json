@@ -6,7 +6,11 @@
   "icon": {
     "ios": "icon-ios.png",
     "macos": "icon-macos.png",
-    "android": "icon.png",
+    "android": {
+      "foreground": "icon-android-foreground.png",
+      "background": "#ffffff",
+      "monochrome": "icon-android-monochrome.png"
+    },
     "windows": "icon.png",
     "linux": "icon.png",
     "web": "icon.png"
@@ -15,6 +19,20 @@
   "root": "App",
   "theme": "theme.json",
   "appearance": "system",
+  "application": {
+    "quitMode": "lastWindowClosed"
+  },
+  "fileTypes": [
+    {
+      "name": "File",
+      "mimeTypes": [
+        "*/*"
+      ],
+      "contentTypes": [
+        "public.data"
+      ]
+    }
+  ],
   "ios": {
     "launchScreen": {
       "background": {
@@ -42,6 +60,16 @@
     }
   },
   "android": {
-    "targetSdk": 35
+    "targetSdk": 35,
+    "permissions": [
+      "REQUEST_INSTALL_PACKAGES"
+    ],
+    "launchScreen": {
+      "background": {
+        "light": "#fbfaf8",
+        "dark": "#070707"
+      },
+      "image": "launch.png"
+    }
   }
 }

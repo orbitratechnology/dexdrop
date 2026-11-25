@@ -1,14 +1,14 @@
 //! Receiving: this device on a radar, ready for nearby devices, with a
 //! code and a QR code for devices that cannot see it (FR-020).
 
-use dexdrop_core::api::{Command, NoticeKind};
+use dexdrop_core::api::Command;
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
 use crate::{
     bridge,
     pages::body,
-    state::{model, toast},
+    state::model,
     ui::{self, Icon, Variant, muted, space},
 };
 
@@ -148,8 +148,7 @@ fn code_card() -> impl IntoElement {
                         ui::icon_btn(Icon::Link, "Copy invitation", Variant::Plain)
                             .test_id("copy-invitation")
                             .on_press(move || {
-                                set_clipboard(text.clone());
-                                toast(NoticeKind::Success, "Invitation copied.");
+                                crate::state::copy(text.clone(), "Invitation copied.");
                             }),
                     )
                     .child(ui::qr(inv.qr_width, inv.qr_modules.clone(), 188.0))

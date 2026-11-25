@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Builds the Android NSD bridge (crates/dexdrop-net/android/...java) into
-# crates/dexdrop-net/android/nsd.dex, which the Rust adapter embeds and loads
-# from memory (InMemoryDexClassLoader, Android 8+). Run after changing the
-# Java source and commit the result.
+# crates/dexdrop-net/android/nsd.dex, which dexdrop-net's Cargo.toml lists
+# as an Android library ([package.metadata.nsh.android] libraries): `nsh
+# package` carries it in the APK, and src/jvm.rs loads its classes with the
+# application's class loader. Run after changing the Java source and commit
+# the result.
 #
 #   ANDROID_HOME=/opt/android-sdk scripts/build-nsd-dex.sh
 set -euo pipefail

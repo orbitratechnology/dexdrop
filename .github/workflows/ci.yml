@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NSH_VERSION: v0.6.1
+  NSH_VERSION: v0.7.0
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -155,8 +155,9 @@ jobs:
       # over the last; else with the debug key NSH creates, new on every
       # runner. The build number (versionCode) is the run's, growing with
       # every build. x86_64 is for emulators (the check below) and x86
-      # Chromebooks. Then what nsh.json cannot declare yet: seeing other
-      # apps, installing APKs, the adaptive icon.
+      # Chromebooks. The manifest's permissions and queries, the adaptive
+      # icon and the Java bridges come from nsh.json and dexdrop-net's
+      # Cargo.toml ([package.metadata.nsh]).
       - name: Package the APK
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -170,8 +171,19 @@ jobs:
             signing=(--keystore "$ANDROID_KEYSTORE" --key-alias "$ANDROID_KEY_ALIAS")
           fi
           nsh package app --target android --abi arm64-v8a,armeabi-v7a,x86_64 --build ${{ github.run_number }} "${signing[@]}" -o dist/android
-          for apk in dist/android/*.apk; do bash scripts/patch-android-manifest.sh "$apk"; done
           rm -f "$RUNNER_TEMP/release.jks"
+      # What the package must declare, read back from the APK.
+      - name: Check the APK's manifest and icon
+        run: |
+          apk=$(ls dist/android/*.apk | head -1)
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2
+          manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")
+          for want in REQUEST_INSTALL_PACKAGES READ_MEDIA_VISUAL_USER_SELECTED android.intent.action.MAIN android.intent.action.SEND_MULTIPLE; do
+            grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
+          done
+          "$aapt2" dump resources "$apk" | grep -q "ic_launcher" || { echo "::error::no launcher icon"; exit 1; }
+          unzip -o -q "$apk" 'classes*.dex' -d "$RUNNER_TEMP/dex"
+          grep -qa "Ldev/dexdrop/NsdBridge;" "$RUNNER_TEMP"/dex/classes*.dex || { echo "::error::the Java bridges (dexdrop-net's nsd.dex) are not in the APK"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: dexdrop-android

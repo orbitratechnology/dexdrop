@@ -10,7 +10,7 @@
 //! | Linux | Secret Service (GNOME Keyring, KWallet) when one answers | headless systems have none: file |
 //! | iOS | Keychain, data-protection store (per app) | |
 //! | macOS | file | the Keychain ties items to the code signature, so ad-hoc-signed builds would prompt after every update; Keychain with signed releases |
-//! | Android | file, in the app's private storage | the Android Keystore store needs `ndk-context`, which NSH sets only after v0.6.1 |
+//! | Android | file, in the app's private storage | the Android Keystore is reachable since NSH 0.7.0 sets `ndk-context`; moving keys there waits for a device to check the migration on |
 //!
 //! `DEXDROP_KEY_STORE=file` keeps the key in the file everywhere (tests,
 //! portable setups). Threat model: docs/SECURITY.md.

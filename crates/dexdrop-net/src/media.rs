@@ -2,8 +2,8 @@
 //! newest photos and videos on Android (the system's `MediaStore`, through
 //! the Java bridge `android/dev/dexdrop/MediaBridge.java`), the newest files
 //! in the usual folders on computers. Items are sent from their own files;
-//! nothing is copied. iOS has no way in NSH 0.6.1 (no photo library API):
-//! nothing is offered there.
+//! nothing is copied. Nothing is offered on iOS: NSH 0.7.0's photo library
+//! hands over re-encoded JPEGs, not the originals (ADR-005).
 
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;

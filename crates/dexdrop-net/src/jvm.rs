@@ -1,75 +1,73 @@
 //! Android: reaching Java from Rust threads.
 //!
+//! NSH sets `ndk-context` to the process's Java VM and the application's
+//! `Context` before the app's Rust code runs (and panics if anyone sets it
+//! again, so DexDrop never does). The app says so with
+//! [`use_android_context`] before it starts the engine; a process without
+//! it (the `dexdrop` CLI run from a shell) has no VM: discovery then uses
+//! mdns-sd and internet transfers stay off.
+//!
 //! DexDrop's Java bridges (`android/dev/dexdrop/*.java`, built into
-//! `android/nsd.dex` by `scripts/build-nsd-dex.sh`) are embedded here and
-//! loaded from memory (`InMemoryDexClassLoader`), with the process's Java VM
-//! found through `JNI_GetCreatedJavaVMs` (public from Android 12) and the
-//! application's `Context` by reflection inside the bridges.
+//! `android/nsd.dex` by `scripts/build-nsd-dex.sh`) are packaged with the
+//! app as an Android library: this crate lists the dex under
+//! `[package.metadata.nsh.android]` in its `Cargo.toml`, and `nsh package`
+//! carries it. Their classes come from the application's class loader: a
+//! thread Rust started finds only the system's classes through `FindClass`.
 
-use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use jni::{
     JNIEnv, JavaVM,
     objects::{JClass, JObject, JString, JValue},
-    sys::{jint, jsize},
 };
 
-static DEX: &[u8] = include_bytes!("../android/nsd.dex");
+/// Set by [`use_android_context`].
+static CONTEXT_SET: AtomicBool = AtomicBool::new(false);
 
-/// The process's Java VM: Android 12+ exports `JNI_GetCreatedJavaVMs`
-/// to apps from `libnativehelper.so`. `None` without one.
-pub(crate) fn java_vm() -> Option<JavaVM> {
-    type GetCreatedVms =
-        unsafe extern "system" fn(*mut *mut jni::sys::JavaVM, jsize, *mut jsize) -> jint;
-    // SAFETY: dlopen/dlsym with valid C strings; the symbol has this
-    // signature (jni.h); the VM pointer it returns is valid for the
-    // process's lifetime.
-    unsafe {
-        let lib = libc::dlopen(c"libnativehelper.so".as_ptr(), libc::RTLD_NOW);
-        if lib.is_null() {
-            return None;
-        }
-        let sym: *mut c_void = libc::dlsym(lib, c"JNI_GetCreatedJavaVMs".as_ptr());
-        if sym.is_null() {
-            return None;
-        }
-        let get: GetCreatedVms = std::mem::transmute(sym);
-        let mut vm: *mut jni::sys::JavaVM = std::ptr::null_mut();
-        let mut count: jsize = 0;
-        if get(&mut vm, 1, &mut count) != jni::sys::JNI_OK || count < 1 || vm.is_null() {
-            return None;
-        }
-        JavaVM::from_raw(vm).ok()
-    }
+/// Tells the engine that this process's `ndk-context` holds its Java VM and
+/// application `Context`, as NSH sets them before an app's code runs. Call
+/// it once from the app, before [`crate::Engine::start`]. Without it the
+/// engine reaches no Java: discovery uses mdns-sd, internet transfers stay
+/// off, and listing apps or recent photos is unavailable.
+pub fn use_android_context() {
+    CONTEXT_SET.store(true, Ordering::Release);
 }
 
-/// Loads `class` (`dev.dexdrop.…`) from the embedded dex and creates one.
+/// The process's Java VM, from `ndk-context`; `None` before
+/// [`use_android_context`].
+pub(crate) fn java_vm() -> Option<JavaVM> {
+    if !CONTEXT_SET.load(Ordering::Acquire) {
+        return None;
+    }
+    let context = ndk_context::android_context();
+    // SAFETY: NSH set a valid VM pointer, which lives as long as the
+    // process.
+    unsafe { JavaVM::from_raw(context.vm().cast()) }.ok()
+}
+
+/// Whether `ndk-context` is set (Iroh's DNS resolver and network watcher
+/// read it and panic in a background task without it).
+pub(crate) fn has_context() -> bool {
+    CONTEXT_SET.load(Ordering::Acquire)
+}
+
+/// Creates one `class` (`dev.dexdrop.…`), loaded by the application's
+/// class loader from the dex the package carries.
 pub(crate) fn new_bridge<'a>(
     env: &mut JNIEnv<'a>,
     class: &str,
 ) -> jni::errors::Result<JObject<'a>> {
-    let bytes = env.byte_array_from_slice(DEX)?;
-    let buffer = env
-        .call_static_method(
-            "java/nio/ByteBuffer",
-            "wrap",
-            "([B)Ljava/nio/ByteBuffer;",
-            &[JValue::Object(&bytes)],
-        )?
-        .l()?;
-    let parent = env
-        .call_static_method(
-            "java/lang/ClassLoader",
-            "getSystemClassLoader",
+    // SAFETY: a global reference NSH keeps for the life of the process;
+    // a `JObject` made from it never deletes it.
+    let application = unsafe { JObject::from_raw(ndk_context::android_context().context().cast()) };
+    let loader = env
+        .call_method(
+            &application,
+            "getClassLoader",
             "()Ljava/lang/ClassLoader;",
             &[],
         )?
         .l()?;
-    let loader = env.new_object(
-        "dalvik/system/InMemoryDexClassLoader",
-        "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V",
-        &[JValue::Object(&buffer), JValue::Object(&parent)],
-    )?;
     let name = env.new_string(class)?;
     let class = env
         .call_method(
@@ -96,50 +94,4 @@ pub(crate) fn describe(env: &mut JNIEnv<'_>, err: jni::errors::Error) -> String 
         .and_then(|v| v.l())
         .and_then(|s| env.get_string(&JString::from(s)).map(String::from))
         .unwrap_or_else(|_| err.to_string())
-}
-
-/// Gives `ndk-context` the process's Java VM and application `Context`,
-/// once: Iroh's DNS resolver and network watcher read them, and panic in a
-/// background task without them (NSH 0.6.1 does not set them; its next
-/// release does, and then this must go). `false` without a Java VM (the
-/// CLI run from a shell): internet transfers then stay off.
-pub(crate) fn ensure_ndk_context() -> bool {
-    use std::sync::OnceLock;
-    static READY: OnceLock<bool> = OnceLock::new();
-    *READY.get_or_init(|| {
-        let Some(vm) = java_vm() else {
-            return false;
-        };
-        let Ok(mut env) = vm.attach_current_thread() else {
-            return false;
-        };
-        let context = env
-            .call_static_method(
-                "android/app/ActivityThread",
-                "currentApplication",
-                "()Landroid/app/Application;",
-                &[],
-            )
-            .and_then(|v| v.l());
-        let context = match context {
-            Ok(context) if !context.is_null() => context,
-            _ => {
-                let _ = env.exception_clear();
-                return false;
-            }
-        };
-        let Ok(global) = env.new_global_ref(context) else {
-            return false;
-        };
-        // SAFETY: the VM pointer is valid for the process's lifetime, and
-        // the global reference is leaked so the context stays valid too.
-        unsafe {
-            ndk_context::initialize_android_context(
-                vm.get_java_vm_pointer().cast::<c_void>(),
-                global.as_obj().as_raw().cast::<c_void>(),
-            );
-        }
-        std::mem::forget(global);
-        true
-    })
 }

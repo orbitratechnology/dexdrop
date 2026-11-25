@@ -58,7 +58,8 @@ pub const ANDROID_TAB_BAR: f32 = 68.0;
 
 /// Whether the app draws its own tab bar: everywhere but iOS, whose
 /// system bar takes the app's colors. Android's Material bar takes the
-/// phone's wallpaper colors (Material You), which NSH 0.6.1 cannot set.
+/// phone's wallpaper colors (Material You); NSH 0.7.0 sets only the chosen
+/// tab's color.
 pub fn drawn_tabs() -> bool {
     os() != nsh_core::platform::Os::Ios
 }
@@ -1246,6 +1247,31 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
         )
         .self_stretch()
         .into_element()
+}
+
+/// Asks before something that costs the user (data on a metered link),
+/// with the system's alert: `title`, `description`, Cancel and `action`;
+/// runs `then` when the user goes ahead.
+pub fn ask(
+    title: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    action: impl Into<SharedString>,
+    then: impl FnOnce() + 'static,
+) {
+    let answer = nsh_base::alert_dialog()
+        .title(title)
+        .description(description)
+        .cancel("cancel", "Cancel")
+        .action("go", action)
+        .show();
+    spawn(async move {
+        if answer
+            .await
+            .is_ok_and(|a| a.action.as_deref() == Some("go"))
+        {
+            then();
+        }
+    });
 }
 
 /// Asks before something is removed, with the system's alert: `title`,
