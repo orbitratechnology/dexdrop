@@ -90,16 +90,23 @@ ad wait text "Nearby" 60000 >/dev/null || { step 00-launch-failed; fail "the hom
 step 01-nearby
 # The identity key is in the Android Keystore (android-native-keyring-store,
 # with the context NSH sets in ndk-context): the identity file holds only
-# the certificate, and the store's SharedPreferences file exists.
-ident=$(sh_ "run-as $pkg sh -c 'cat \$(find . -name identity.json | head -1)'" 2>/dev/null | tr -d '\r')
-case "$ident" in
-  *'"key_in_system_store":true'*) ;;
-  *) fail "the identity key is not in the Android Keystore (identity.json: ${ident:0:120})" ;;
-esac
-case "$ident" in *key_pkcs8*) fail "identity.json still holds the private key" ;; esac
-sh_ "run-as $pkg ls shared_prefs" 2>/dev/null | grep -q keyring-dexdrop ||
-  fail "no keyring-dexdrop store in the app's SharedPreferences"
-note "- The identity key is in the Android Keystore; identity.json holds only the certificate"
+# the certificate, and the store's SharedPreferences file exists. The APK
+# is not debuggable (no run-as); the CI image (google_apis, userdebug) has
+# su, which reads the app's storage.
+app_sh() { sh_ "su 0 sh -c '$1'" 2>/dev/null || sh_ "run-as $pkg sh -c '$1'" 2>/dev/null; }
+if [ -z "$(app_sh "ls /data/data/$pkg")" ]; then
+  warn "the app's storage is not readable here (no su, not debuggable): the Keystore is not checked"
+else
+  ident=$(app_sh "cat \$(find /data/data/$pkg -name identity.json | head -1)" | tr -d '\r')
+  case "$ident" in
+    *'"key_in_system_store":true'*) ;;
+    *) fail "the identity key is not in the Android Keystore (identity.json: ${ident:0:120})" ;;
+  esac
+  case "$ident" in *key_pkcs8*) fail "identity.json still holds the private key" ;; esac
+  app_sh "ls /data/data/$pkg/shared_prefs" | grep -q keyring-dexdrop ||
+    fail "no keyring-dexdrop store in the app's SharedPreferences"
+  note "- The identity key is in the Android Keystore; identity.json holds only the certificate"
+fi
 note "- Launched: home screen shown ($(($(date +%s) - t0)) s)"
 
 for tab in History Settings; do

@@ -80,6 +80,12 @@ ad install "$bundle" "$app" || { sleep 20; ad install "$bundle" "$app"; } ||
 ad prepare ios-runner --timeout 600000 || { sleep 20; ad prepare ios-runner --timeout 600000; } ||
   fail "agent-device could not prepare its runner"
 note "- App installed, agent-device runner ready at $(($(date +%s) - t0)) s"
+# For Send's Recent (step 3): Photos allowed and a photo in the library
+# before the app starts; a grant made while it runs does not reach
+# PhotoKit (CI run 86).
+xcrun simctl privacy "$udid" grant photos "$bundle" || fail "could not grant Photos to the app"
+cp "$(dirname "$0")/../app/icon.png" "$out/dexdrop-recent.png"
+xcrun simctl addmedia "$udid" "$out/dexdrop-recent.png" || fail "could not add a photo to the simulator's library"
 
 ad open "$bundle" || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
@@ -237,16 +243,20 @@ send_with "$invitation" invitation "$note2" ||
 note "- 200 KB sent with the invitation link, accepted, received byte-identical (\`$(received_intact "$note2")\`)"
 
 # 3. Send's Recent from the photo library (PhotoKit, crates/dexdrop-photos):
-#    with Photos allowed, a photo added to the library shows under Send's
-#    choices; a tap exports its original into the app's staging folder and
-#    selects it.
-xcrun simctl privacy "$udid" grant photos "$bundle" || fail "could not grant Photos to the app"
-cp "$(dirname "$0")/../app/icon.png" "$out/dexdrop-recent.png"
-xcrun simctl addmedia "$udid" "$out/dexdrop-recent.png" || fail "could not add a photo to the simulator's library"
+#    with Photos allowed (granted before launch, above), a photo added to
+#    the library shows under Send's choices; a tap exports its original into
+#    the app's staging folder and selects it.
 tap Share || true
 tap Send || fail "could not open Send"
 ad scroll down >/dev/null 2>&1 || true
 ad wait text "Recent photos and videos" 20000 >/dev/null 2>&1 || { step 08-no-recent; fail "Send shows no Recent section"; }
+# Should the grant not have reached the app, its own button asks (PhotoKit's
+# prompt: "Allow Full Access").
+if ad wait 'label="Show recent photos"' 3000 >/dev/null 2>&1; then
+  note "- Recent asked for Photos although it was granted: answering the prompt"
+  tap "Show recent photos" || true
+  ad click 'label="Allow Full Access"' --settle >/dev/null 2>&1 || ad alert accept >/dev/null 2>&1 || true
+fi
 photo=
 for _ in $(seq 1 10); do
   step 08-recent
