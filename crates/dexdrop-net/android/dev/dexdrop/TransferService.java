@@ -32,13 +32,30 @@ public final class TransferService extends Service {
     private static final String TAG = "DexDropTransfers";
     private static final String CHANNEL = "dexdrop-transfers";
     private static final int ID = 0xDD01;
-    private static final String TITLE = "title";
-    private static final String TEXT = "text";
-    private static final String PERCENT = "percent";
-    private static final String UPLOAD = "upload";
 
-    /** Whether the service runs (set by the system's calls on the main thread). */
-    private static volatile boolean running;
+    private static final int IDLE = 0;
+    /** Asked to start; Android has not called onStartCommand yet. */
+    private static final int STARTING = 1;
+    private static final int RUNNING = 2;
+
+    /**
+     * Guards the fields below: show and hide come from Rust threads, the
+     * system's calls on the main thread.
+     */
+    private static final Object LOCK = new Object();
+    private static int state = IDLE;
+    /**
+     * hide came while starting. Android kills an app that stops a service
+     * started with startForegroundService before it calls startForeground
+     * (ForegroundServiceDidNotStartInTimeException), as a transfer that ends
+     * within moments would: onStartCommand goes into the foreground, then
+     * stops.
+     */
+    private static boolean stopWhenStarted;
+    private static String lastTitle = "DexDrop";
+    private static String lastText = "";
+    private static int lastPercent = -1;
+    private static boolean lastUpload;
 
     /**
      * Shows {@code title} and {@code text} with {@code percent} done (-1:
@@ -48,53 +65,76 @@ public final class TransferService extends Service {
      */
     public static String show(
             Context context, String title, String text, int percent, boolean upload) {
-        try {
-            if (running) {
-                manager(context).notify(ID, build(context, title, text, percent, upload));
+        synchronized (LOCK) {
+            lastTitle = title;
+            lastText = text;
+            lastPercent = percent;
+            lastUpload = upload;
+            stopWhenStarted = false;
+            try {
+                if (state == RUNNING) {
+                    manager(context).notify(ID, build(context, title, text, percent, upload));
+                } else if (state == IDLE) {
+                    // onStartCommand shows the newest status.
+                    context.startForegroundService(new Intent(context, TransferService.class));
+                    state = STARTING;
+                }
                 return "ok";
+            } catch (Exception e) {
+                // ForegroundServiceStartNotAllowedException (Android 12+)
+                // from the background, or a SecurityException.
+                Log.w(TAG, "could not start: " + e);
+                return e.toString();
             }
-            Intent start = new Intent(context, TransferService.class)
-                    .putExtra(TITLE, title)
-                    .putExtra(TEXT, text)
-                    .putExtra(PERCENT, percent)
-                    .putExtra(UPLOAD, upload);
-            context.startForegroundService(start);
-            return "ok";
-        } catch (Exception e) {
-            // ForegroundServiceStartNotAllowedException (Android 12+) from
-            // the background, or a SecurityException.
-            Log.w(TAG, "could not start: " + e);
-            return e.toString();
         }
     }
 
     /** Stops the service and takes its notification away. */
     public static void hide(Context context) {
-        try {
-            context.stopService(new Intent(context, TransferService.class));
-        } catch (Exception e) {
-            Log.w(TAG, "could not stop: " + e);
+        synchronized (LOCK) {
+            if (state == STARTING) {
+                stopWhenStarted = true;
+                return;
+            }
+            if (state != RUNNING) {
+                return;
+            }
+            state = IDLE;
+            try {
+                context.stopService(new Intent(context, TransferService.class));
+            } catch (Exception e) {
+                Log.w(TAG, "could not stop: " + e);
+            }
         }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String title = intent != null ? intent.getStringExtra(TITLE) : null;
-        String text = intent != null ? intent.getStringExtra(TEXT) : null;
-        int percent = intent != null ? intent.getIntExtra(PERCENT, -1) : -1;
-        boolean upload = intent != null && intent.getBooleanExtra(UPLOAD, false);
-        Notification notification = build(
-                this, title != null ? title : "DexDrop", text != null ? text : "", percent, upload);
-        try {
-            if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-            } else {
-                startForeground(ID, notification);
+        synchronized (LOCK) {
+            // Every startForegroundService must be answered with
+            // startForeground, even one that is to stop at once.
+            Notification notification = build(this, lastTitle, lastText, lastPercent, lastUpload);
+            try {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                } else {
+                    startForeground(ID, notification);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "could not run in the foreground: " + e);
+                state = IDLE;
+                stopWhenStarted = false;
+                stopSelf();
+                return START_NOT_STICKY;
             }
-            running = true;
-        } catch (Exception e) {
-            Log.w(TAG, "could not run in the foreground: " + e);
-            stopSelf();
+            if (stopWhenStarted) {
+                stopWhenStarted = false;
+                state = IDLE;
+                stopForeground(STOP_FOREGROUND_REMOVE);
+                stopSelf();
+            } else {
+                state = RUNNING;
+            }
         }
         // Not restarted by the system: the app restarts transfers itself.
         return START_NOT_STICKY;
@@ -103,13 +143,10 @@ public final class TransferService extends Service {
     /** Android 15 caps data-sync services at six hours a day. */
     @Override
     public void onTimeout(int startId, int fgsType) {
+        synchronized (LOCK) {
+            state = IDLE;
+        }
         stopSelf();
-    }
-
-    @Override
-    public void onDestroy() {
-        running = false;
-        super.onDestroy();
     }
 
     @Override

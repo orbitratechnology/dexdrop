@@ -34,8 +34,14 @@ collect_logs() {
   grep -E 'DexDropNsd|dexdrop|nsh' "$out/logcat.txt" >"$out/logcat-dexdrop.txt" 2>/dev/null || true
   cp -R "$HOME/.agent-device/sessions" "$out/agent-device-sessions" 2>/dev/null || true
 }
+# The app's crash, if it crashed: the exception line Android logged.
+app_crash() {
+  adb -s "$serial" logcat -d -b crash 2>/dev/null | grep -A2 "Process: $pkg" | grep -E 'Exception|Error' | head -1
+}
 fail() {
   note "FAILED: $*"
+  crash=$(app_crash)
+  [ -n "$crash" ] && note "  The app crashed: $crash"
   collect_logs
   [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$summary" >>"$GITHUB_STEP_SUMMARY"
   exit 1
@@ -454,6 +460,9 @@ if tap_only Send; then
   fi
 fi
 
+# A crash the steps above did not notice (the app restarted) fails too.
+crash=$(app_crash)
+[ -z "$crash" ] || fail "the app crashed during the check"
 collect_logs
 ad close >/dev/null 2>&1 || true
 note ""
