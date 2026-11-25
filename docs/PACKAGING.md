@@ -25,16 +25,20 @@ it runs.
 The engine's own Android needs are in `crates/dexdrop-net/Cargo.toml`
 (`[package.metadata.nsh.android]`), which `nsh` adds to every package of
 an app that links it: the Java bridges (`libraries`: `android/nsd.dex`),
-the `<queries>` entry for launcher apps (Send › Apps), the permissions to
-read photos and videos (Send's Recent), and the foreground service that
+the `<queries>` entry for launcher apps (Send › Apps), and the foreground
+service that
 keeps transfers going (`application`: `TransferService`, type `dataSync`,
 with `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC`). Likewise
-`nsh-extra`'s `camera` adds the camera apps' `<queries>`, and
-`crates/dexdrop-photos` adds iOS's `NSPhotoLibraryUsageDescription`.
-Google Play asks apps that declare `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`
-why they need the whole library (a file-transfer app's Recent) and those
-with a `dataSync` foreground service what it does; both go in the Play
-Console's declarations. Check a package's with
+`nsh-extra`'s `camera` adds the camera apps' `<queries>`.
+
+No permission to read photos, videos or storage, on either phone
+(ADR-008): Google Play restricts `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO` to
+apps whose core use needs them, and the system's pickers need none; CI
+fails an APK that asks for them, and the simulator check an app that
+declares `NSPhotoLibraryUsageDescription`. The Play Console still asks
+what the `dataSync` foreground service does (a user-started file
+transfer) and why the app installs packages (`REQUEST_INSTALL_PACKAGES`:
+received APKs, a file-transfer app's core use). Check a package's with
 `aapt2 dump xmltree --file AndroidManifest.xml DexDrop.apk`; CI does.
 
 ## Icons

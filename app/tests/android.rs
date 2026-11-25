@@ -45,8 +45,7 @@ fn frame(app: &mut Headless, selector: &str) -> (f32, f32, f32, f32) {
 }
 
 /// Android sends apps too: four kinds of things, square, side by side in
-/// one row even on a 320 pt phone, so what is picked and the recent
-/// photos show below them.
+/// one row even on a 320 pt phone, so what is picked shows below them.
 #[test]
 fn send_offers_four_square_kinds_in_a_row_on_a_small_phone() {
     let (mut app, _dir) = android(320.0, 640.0);

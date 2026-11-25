@@ -1472,7 +1472,6 @@ dependencies = [
  "chrono",
  "dexdrop-core",
  "dexdrop-net",
- "dexdrop-photos",
  "env_logger",
  "image",
  "log",
@@ -1480,7 +1479,6 @@ dependencies = [
  "nsh-core",
  "nsh-engine",
  "nsh-extra",
- "nsh-platform-android",
  "nsh-platform-linux",
  "nsh-platform-macos",
  "nsh-platform-windows",
@@ -1563,18 +1561,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
-]
-
-[[package]]
-name = "dexdrop-photos"
-version = "0.1.0"
-dependencies = [
- "block2",
- "dispatch2",
- "objc2",
- "objc2-core-foundation",
- "objc2-foundation",
- "objc2-photos",
 ]
 
 [[package]]
@@ -4802,19 +4788,6 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-core-foundation",
-]
-
-[[package]]
-name = "objc2-photos"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ea9a706f18e32cf8a0723e99855af4f135282891e07259301bae9135ae3872"
-dependencies = [
- "bitflags 2.13.2",
- "block2",
- "objc2",
- "objc2-core-foundation",
- "objc2-foundation",
 ]
 
 [[package]]

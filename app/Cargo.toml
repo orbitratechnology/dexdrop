@@ -27,15 +27,6 @@ env_logger = "0.11"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dexdrop-net = { path = "../crates/dexdrop-net" }
-# iOS's photo library for Send's Recent (PhotoKit; nothing elsewhere).
-dexdrop-photos = { path = "../crates/dexdrop-photos" }
-
-# Android's runtime permissions from Rust (`nsh::permissions`): the library
-# of NSH's Android backend, which every Android build of the app links.
-[target.'cfg(target_os = "android")'.dependencies]
-# No features: the packaged app's runner chooses them (a Rust app has no
-# QuickJS), as nsh-extra depends on it.
-nsh-platform-android = { version = "=0.7.0", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nsh-platform-linux = { version = "=0.7.0", default-features = false, features = ["svg"] }

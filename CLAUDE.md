@@ -39,7 +39,8 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
 ## Platform notes
 
 - Android manifest entries live with the code that needs them: the
-  engine's (Java bridges `android/nsd.dex`, `<queries>`, media permissions)
+  engine's (Java bridges `android/nsd.dex`, `<queries>`, the foreground
+  service)
   in `crates/dexdrop-net/Cargo.toml` `[package.metadata.nsh.android]`, the
   app's in `app/nsh.json` (`android.permissions`, `icon.android`,
   `android.launchScreen`). Nothing patches the APK.
@@ -50,10 +51,10 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
   Keystore) read it from then on. After changing the Java in
   `crates/dexdrop-net/android/`, run `scripts/build-nsd-dex.sh` and commit
   `nsd.dex`.
-- Runtime permissions: Android through `nsh::permissions` (the app's
-  `android.rs`), iOS photos through PhotoKit (`crates/dexdrop-photos`,
-  which type-checks with `cargo clippy -p dexdrop-photos --target
-  aarch64-apple-ios`).
+- No broad photo permission on phones (`docs/ARCHITECTURE.md` ADR-008):
+  no `READ_MEDIA_*`/storage permissions on Android, no photo library
+  access on iOS; phones pick photos, videos and files with the system's
+  pickers. CI's APK check and the simulator check fail otherwise.
 - System features with an NSH fake are tested headless through it
   (`nsh_extra::camera::set_backend` in `tests/camera.rs`).
 - On the desktops the root declares its window (`window().id("main")`);

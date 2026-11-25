@@ -28,7 +28,8 @@ devices, with no account and no cloud.
 - Phones: scan the other device's QR code with the camera.
 - Android: transfers keep going when you switch apps, with their progress
   in a notification; the device key is kept in the Android Keystore.
-- iPhone: your latest photos and videos on *Send*, sent as their originals.
+- No access to your photo library is asked for: phones pick photos, videos
+  and files with the system's pickers.
 - Measured transfer speed per device; local history; anonymized diagnostics.
 - `dexdrop` command-line tool for sending, receiving and benchmarking.
 

@@ -11,6 +11,8 @@
 > (ADR-007) the identity key is in the Android Keystore, the photo
 > permission is asked with `nsh::permissions`, and a `dataSync` foreground
 > service declared through `android.application` keeps transfers going.
+> Later (ADR-008) the photo permission and Send's Recent on phones were
+> removed for Google Play's photo and video permissions policy.
 > The rest of this page is the history that led there.
 
 We drafted a request to NSH (`longbridge/nsh`) for Rust apps on Android to

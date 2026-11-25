@@ -3,13 +3,11 @@
 pub mod apps;
 pub mod history;
 pub mod home;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod library;
 pub mod profile;
 pub mod receive;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod recent;
-/// The browser preview reads no device folders and has no media library:
+/// The browser preview reads no device folders:
 /// no Recent there.
 #[cfg(target_arch = "wasm32")]
 pub mod recent {

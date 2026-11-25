@@ -80,13 +80,6 @@ ad install "$bundle" "$app" || { sleep 20; ad install "$bundle" "$app"; } ||
 ad prepare ios-runner --timeout 600000 || { sleep 20; ad prepare ios-runner --timeout 600000; } ||
   fail "agent-device could not prepare its runner"
 note "- App installed, agent-device runner ready at $(($(date +%s) - t0)) s"
-# For Send's Recent (step 3): Photos allowed and a photo in the library
-# before the app starts; a grant made while it runs does not reach
-# PhotoKit (CI run 86).
-xcrun simctl privacy "$udid" grant photos "$bundle" || fail "could not grant Photos to the app"
-cp "$(dirname "$0")/../app/icon.png" "$out/dexdrop-recent.png"
-xcrun simctl addmedia "$udid" "$out/dexdrop-recent.png" || fail "could not add a photo to the simulator's library"
-
 ad open "$bundle" || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
 # The first launch says why the local network is used (FR-004); the
@@ -242,46 +235,20 @@ send_with "$invitation" invitation "$note2" ||
   fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
 note "- 200 KB sent with the invitation link, accepted, received byte-identical (\`$(received_intact "$note2")\`)"
 
-# 3. Send's Recent from the photo library (PhotoKit, crates/dexdrop-photos):
-#    with Photos allowed (granted before launch, above), a photo added to
-#    the library shows under Send's choices; a tap exports its original into
-#    the app's staging folder and selects it.
+# 3. No photo library access (ADR-008): the app declares no
+#    NSPhotoLibraryUsageDescription, and Send offers the system's pickers
+#    with no Recent section.
+app_dir=$(find "$dist" -maxdepth 2 -name '*.app' -type d | head -1)
+if /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$app_dir/Info.plist" >/dev/null 2>&1; then
+  fail "Info.plist declares NSPhotoLibraryUsageDescription (photo library access)"
+fi
 tap Share || true
 tap Send || fail "could not open Send"
-ad scroll down >/dev/null 2>&1 || true
-ad wait text "Recent photos and videos" 20000 >/dev/null 2>&1 || { step 08-no-recent; fail "Send shows no Recent section"; }
-# The simctl grant does not reach PhotoKit on every simulator (iOS 26 in CI
-# run 86): then Recent offers its button, which asks with PhotoKit's prompt
-# (requestAuthorizationForAccessLevel), answered "Allow Full Access".
-step 08-recent-first
-if grep -q 'Show recent photos' "$out/08-recent-first.txt"; then
-  tap "Show recent photos" || fail "could not tap Show recent photos"
-  if ad wait text "Allow Full Access" 20000 >/dev/null 2>&1; then
-    step 08-photos-prompt
-    tap "Allow Full Access" || ad alert accept >/dev/null 2>&1 || fail "could not answer the Photos prompt"
-    note "- Recent asked for Photos with the system's prompt; answered Allow Full Access"
-  else
-    step 08-no-photos-prompt
-    fail "Show recent photos brought no Photos prompt (08-no-photos-prompt.txt)"
-  fi
-else
-  note "- Photos granted before launch (simctl privacy)"
-fi
-photo=
-for _ in $(seq 1 10); do
-  step 08-recent
-  photo=$(grep -oE 'Photo [^"]+\.(png|PNG|jpg|JPG|jpeg|heic|HEIC)' "$out/08-recent.txt" | head -1)
-  [ -n "$photo" ] && break
-  sleep 2
-done
-[ -n "$photo" ] || fail "Send's Recent does not show the photo added to the library (08-recent.txt)"
-note "- Send's Recent lists the photo library's newest photo (\"$photo\")"
-tap "$photo" || fail "could not tap $photo"
-ad wait 'label="Choose device"' 30000 >/dev/null 2>&1 || { step 09-not-selected; fail "the library photo was not selected"; }
-step 09-library-selected
-staged=$(find "$container" -path '*staging*' -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.heic' \) | head -1)
-[ -n "$staged" ] || fail "no exported original in the app's staging folder"
-note "- Picked: its original exported to \`${staged#"$container"/}\` ($(wc -c <"$staged" | tr -d ' ') bytes) and selected"
+ad wait text "Files" 20000 >/dev/null 2>&1 || { step 08-no-send; fail "Send does not show its choices"; }
+step 08-send-kinds
+! grep -q 'Recent photos and videos\|Show recent photos' "$out/08-send-kinds.txt" ||
+  fail "Send still shows a photo library Recent (08-send-kinds.txt)"
+note "- No photo library access: Send offers Photos, Videos and Files through the system's pickers"
 
 ad close >/dev/null 2>&1 || true
 note ""

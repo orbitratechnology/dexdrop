@@ -1065,7 +1065,6 @@ pub enum Art {
     Waiting,
     Trusted,
     Apps,
-    Photos,
     Drop,
 }
 
@@ -1079,7 +1078,6 @@ impl Art {
             Art::Waiting => asset!("art/waiting.svg"),
             Art::Trusted => asset!("art/trusted.svg"),
             Art::Apps => asset!("art/apps.svg"),
-            Art::Photos => asset!("art/photos.svg"),
             Art::Drop => asset!("art/drop.svg"),
         }
     }

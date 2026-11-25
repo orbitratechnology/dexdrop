@@ -312,6 +312,10 @@ longer shows previews of sent photos (their copies are gone). Tests:
 
 ## ADR-005: Send's Recent — the system's media library, sent in place
 
+**Status.** The phones' part below (Android's `MediaStore`, iOS's
+PhotoKit) was removed: it needed a broad photo permission (ADR-008). The
+computers' Recent files stand.
+
 **Context.** Picking a photo through the system's picker on a phone takes
 several taps, and the picker hands over a copy (ADR-004). A user asked for
 the latest photos, videos and files right on Send.
@@ -372,7 +376,8 @@ covers them.
 - **Android manifest from the code that needs it.** dexdrop-net's
   `Cargo.toml` declares, under `[package.metadata.nsh.android]`, the Java
   bridges (`libraries = ["android/nsd.dex"]`), the `<queries>` entry for
-  launcher apps and the media-reading permissions; `nsh` adds them to every
+  launcher apps and the media-reading permissions (removed since,
+  ADR-008); `nsh` adds them to every
   package of an app that links the crate, and to `nsh test`'s Android
   host. The app's own `nsh.json` declares `REQUEST_INSTALL_PACKAGES`, the
   adaptive icon (`icon.android`: foreground, white background, monochrome
@@ -457,7 +462,41 @@ asked through reflection.
 **Consequences.** Verified in CI, not yet on phones: the emulator check
 reads `identity.json` (no key, `key_in_system_store`) and the Keystore
 store's preferences, finds `TransferService` in the foreground while
-sending, and goes through the system's photo prompt; the simulator check
-picks a library photo. Camera scanning is tested headless with a fake
+sending, and went through the system's photo prompt; the simulator check
+picked a library photo (both until ADR-008 took the phones' Recent out). Camera scanning is tested headless with a fake
 camera; the simulator and emulator have no camera to photograph a code.
 
+## ADR-008: No broad photo permission — no media Recent on phones
+
+**Context.** Send's Recent on phones (ADR-005) showed the newest photos and
+videos, which takes a broad photo permission: on Android
+`READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO` (with
+`READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE` before
+Android 13), on iOS full access to the photo library. Google Play's photo
+and video permissions policy allows those permissions only where broad
+access to photos is the app's core use; an app with a one-time or
+occasional need must use the system's photo picker. A file-transfer app's
+convenience strip is the case it rejects. iOS's App Store accepts library
+access with a stated purpose, but it is still the broad permission, where
+the system's picker needs none.
+
+**Decision.** Recent is on the computers only (`recent::offered`: the
+newest files of a few folders, which need no permission). Phones send
+photos, videos and files through the system's pickers (Android's photo
+picker and document picker, iOS's PHPicker and document picker). Removed:
+Android's `MediaBridge`, the media permissions in dexdrop-net's
+`Cargo.toml`, the app's `nsh::permissions` module (and its
+`nsh-platform-android` dependency); on iOS the `dexdrop-photos` crate
+(PhotoKit) with its `NSPhotoLibraryUsageDescription`, and the
+`photo-library:` items with their export to `staging`. Send › Apps stays,
+with its launcher `<queries>` and `REQUEST_INSTALL_PACKAGES` (sending apps
+and installing received APKs are core to the app).
+
+**Consequences.** Sending a recent photo from a phone takes the system's
+picker (a few taps, and a copy, ADR-004) instead of one tap. CI fails an
+APK whose manifest asks for a photo, video or storage permission; the
+emulator check reads the installed app's requested permissions back
+(`dumpsys package`) and that Send shows no media Recent; the simulator
+check fails an app whose `Info.plist` declares
+`NSPhotoLibraryUsageDescription`. Tests:
+`phones_show_no_recent_and_ask_for_no_photos` (`app/tests/recent.rs`).

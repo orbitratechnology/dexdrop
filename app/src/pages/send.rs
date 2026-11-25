@@ -227,35 +227,6 @@ pub fn add_apps(apps: Vec<(crate::files::AppCard, Vec<PathBuf>)>) {
     }
 }
 
-/// iOS: a photo or video of the library, picked in Recent: its original is
-/// exported to staging first (a card says so meanwhile), then selected.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn add_from_library(item: PathBuf, id: String) {
-    let name = item
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    set_loading(Some(format!("Preparing {name}…")));
-    let staging =
-        bridge::state_dir("staging").join(dexdrop_core::hex(&dexdrop_core::random_bytes::<6>()));
-    let exporting = blocking(move || {
-        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-        crate::pages::library::export(&id, &staging)
-    });
-    detached(async move {
-        let exported = exporting.await;
-        set_loading(None);
-        match exported {
-            Ok(Ok(path)) => {
-                crate::pages::recent::remember_export(item, path.clone());
-                select(vec![path]);
-            }
-            Ok(Err(err)) => toast(NoticeKind::Error, format!("Could not get {name}: {err}")),
-            Err(_) => {}
-        }
-    });
-}
-
 /// Phones give the bytes of picked files, not paths: they are copied to
 /// app-private staging first (PRD 15, "OS file providers").
 fn choose_staged(kind: Kind) {

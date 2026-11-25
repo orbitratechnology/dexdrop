@@ -50,22 +50,17 @@ ndk-context = "0.1.1"
 # links this crate (https://nsh.dev/docs/nshm.md#what-the-packaged-app-needs).
 [package.metadata.nsh.android]
 # The Java bridges (android/dev/dexdrop, scripts/build-nsd-dex.sh): NsdManager
-# discovery, the installed apps, the newest photos and videos (src/jvm.rs),
-# and the foreground service that keeps transfers going (src/android_service.rs).
+# discovery, the installed apps (src/jvm.rs, src/apps.rs), and the foreground
+# service that keeps transfers going (src/android_service.rs).
 libraries = ["android/nsd.dex"]
 # Android 11+ shows an app only the apps it queries: the launcher apps
 # Send › Apps lists (src/apps.rs).
 queries = ['<intent><action android:name="android.intent.action.MAIN"/></intent>']
-# Send's recent photos and videos (src/media.rs): READ_MEDIA_* from Android
-# 13 (READ_MEDIA_VISUAL_USER_SELECTED: 14's "allow limited access"),
-# READ_EXTERNAL_STORAGE before. Asked for when the user taps "Show recent
-# photos and videos". The foreground service: FOREGROUND_SERVICE and its
-# data-sync type (Android 14+).
+# The foreground service: FOREGROUND_SERVICE and its data-sync type (Android
+# 14+). No permission to read the user's photos and videos: Google Play
+# restricts those to apps whose core use needs them (docs/ARCHITECTURE.md
+# ADR-008); the system's pickers need none.
 permissions = [
-    "READ_MEDIA_IMAGES",
-    "READ_MEDIA_VIDEO",
-    "READ_MEDIA_VISUAL_USER_SELECTED",
-    "READ_EXTERNAL_STORAGE",
     "FOREGROUND_SERVICE",
     "FOREGROUND_SERVICE_DATA_SYNC",
 ]

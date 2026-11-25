@@ -178,8 +178,13 @@ jobs:
           apk=$(ls dist/android/*.apk | head -1)
           aapt2=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2
           manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")
-          for want in REQUEST_INSTALL_PACKAGES READ_MEDIA_VISUAL_USER_SELECTED android.intent.action.MAIN android.intent.action.SEND_MULTIPLE android.media.action.IMAGE_CAPTURE FOREGROUND_SERVICE_DATA_SYNC dev.dexdrop.TransferService; do
+          for want in REQUEST_INSTALL_PACKAGES android.intent.action.MAIN android.intent.action.SEND_MULTIPLE android.media.action.IMAGE_CAPTURE FOREGROUND_SERVICE_DATA_SYNC dev.dexdrop.TransferService; do
             grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
+          done
+          # No photo, video or storage reading: Google Play restricts it to
+          # apps whose core use needs it (ADR-008); no dependency may add it.
+          for banned in READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_VISUAL_USER_SELECTED READ_EXTERNAL_STORAGE MANAGE_EXTERNAL_STORAGE; do
+            ! grep -q "android.permission.$banned\"" <<<"$manifest" || { echo "::error::the manifest asks for $banned, which Google Play restricts"; exit 1; }
           done
           "$aapt2" dump resources "$apk" | grep -q "ic_launcher" || { echo "::error::no launcher icon"; exit 1; }
           unzip -o -q "$apk" 'classes*.dex' -d "$RUNNER_TEMP/dex"

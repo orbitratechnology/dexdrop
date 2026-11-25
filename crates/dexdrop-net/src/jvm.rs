@@ -28,7 +28,7 @@ static CONTEXT_SET: AtomicBool = AtomicBool::new(false);
 /// application `Context`, as NSH sets them before an app's code runs. Call
 /// it once from the app, before [`crate::Engine::start`]. Without it the
 /// engine reaches no Java: discovery uses mdns-sd, internet transfers stay
-/// off, and listing apps or recent photos is unavailable.
+/// off, and listing apps is unavailable.
 pub fn use_android_context() {
     CONTEXT_SET.store(true, Ordering::Release);
     // The identity key goes to the Android Keystore from now on.

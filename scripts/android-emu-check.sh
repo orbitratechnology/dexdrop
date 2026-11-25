@@ -420,44 +420,22 @@ else
   warn "the Apps page did not list apps"
 fi
 
-# 5. Recent: "Show recent photos" asks with the system's prompt (NSH's
-#    nsh::permissions from Rust); allowed, a photo just added to the camera
-#    folder shows under Send's choices, from the system's media library.
-recent_photo=/sdcard/DCIM/Camera/dexdrop-recent.png
-sh_ "mkdir -p /sdcard/DCIM/Camera" >/dev/null 2>&1 || true
-adb -s "$serial" push "$(dirname "$0")/../app/icon.png" "$recent_photo" >/dev/null 2>&1 || true
-sh_ "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://$recent_photo" >/dev/null 2>&1 || true
+# 5. No media library (ADR-008): the installed app requests none of the
+#    photo, video or storage permissions Google Play restricts, and Send
+#    offers no Recent section.
+requested=$(sh_ dumpsys package "$pkg" | sed -n '/requested permissions:/,/install permissions:/p' | tr -d '\r')
+for banned in READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_VISUAL_USER_SELECTED READ_EXTERNAL_STORAGE MANAGE_EXTERNAL_STORAGE; do
+  ! grep -q "android.permission.$banned\$" <<<"$requested" || fail "the app requests $banned (dumpsys package)"
+done
+note "- Requests no photo, video or storage permission (dumpsys package)"
 front
 tap_only Share || true
 tap_only "Navigate up" || true
-if tap_only Send; then
-  ad scroll down >/dev/null 2>&1 || true
-  if tap_only "Show recent photos"; then
-    # Android 14: "Allow all" / "Select photos and videos" / "Don't allow".
-    if ad wait text "Allow all" 15000 >/dev/null 2>&1 && ad click 'label="Allow all"' --settle >/dev/null 2>&1; then
-      note "- \"Show recent photos\" showed the system's permission prompt; allowed"
-    elif ad wait text "Allow" 5000 >/dev/null 2>&1 && ad click 'label="Allow"' --settle >/dev/null 2>&1; then
-      note "- \"Show recent photos\" showed the system's permission prompt; allowed"
-    else
-      step 13-no-prompt
-      warn "no system prompt after \"Show recent photos\": granted with pm instead"
-      sh_ pm grant "$pkg" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 || true
-      sh_ pm grant "$pkg" android.permission.READ_MEDIA_VIDEO >/dev/null 2>&1 || true
-      front
-    fi
-  else
-    warn "no \"Show recent photos\" button: granted with pm instead"
-    sh_ pm grant "$pkg" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 || true
-    sh_ pm grant "$pkg" android.permission.READ_MEDIA_VIDEO >/dev/null 2>&1 || true
-  fi
-  ad scroll down >/dev/null 2>&1 || true
-  if ad wait 'label="Photo dexdrop-recent.png"' 20000 >/dev/null 2>&1; then
-    step 13-recent
-    note "- Send's Recent shows the photo just added to the camera folder (MediaStore)"
-  else
-    step 13-no-recent
-    warn "Send's Recent did not show the photo added to the camera folder"
-  fi
+if tap_only Send && ad wait text "Files" 10000 >/dev/null 2>&1; then
+  step 13-send-kinds
+  ! grep -q 'Show recent photos\|Recent photos and videos' "$out/13-send-kinds.txt" ||
+    fail "Send still shows a media Recent (13-send-kinds.txt)"
+  note "- Send offers Photos, Videos and Files through the system's pickers, with no Recent"
 fi
 
 # A crash the steps above did not notice (the app restarted) fails too.

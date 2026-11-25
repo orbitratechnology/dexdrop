@@ -1,8 +1,7 @@
-//! Send's Recent, headless: the newest files on a computer as rows, the
-//! newest photos and videos on Android and iPhone as a grid of squares; a
-//! tap adds an item to the selection, another takes it out. (On a real
-//! phone the items come from the system's media or photo library;
-//! headless, from the folders in `DEXDROP_RECENT_DIRS`.)
+//! Send's Recent, headless: the newest files on a computer as rows (from
+//! the folders in `DEXDROP_RECENT_DIRS`); a tap adds one to the selection,
+//! another takes it out. Phones have none: their photos and videos would
+//! take a broad photo permission (ADR-008).
 
 use std::time::Duration;
 
@@ -40,21 +39,6 @@ fn start(env: impl FnOnce(&mut EngineConfig)) -> (Headless, tempfile::TempDir) {
     (app, dir)
 }
 
-fn frame(app: &mut Headless, selector: &str) -> (f32, f32, f32, f32) {
-    let id = app
-        .screen()
-        .id(selector)
-        .unwrap_or_else(|e| panic!("{selector}: {e}"));
-    let b = app
-        .screen()
-        .layout_nodes()
-        .into_iter()
-        .find(|n| n.id == id)
-        .expect("laid out")
-        .bounds;
-    (b.origin.x.0, b.origin.y.0, b.size.width.0, b.size.height.0)
-}
-
 /// The tests share a process: one at a time, since each points
 /// `DEXDROP_RECENT_DIRS` at its own folder.
 static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -84,107 +68,32 @@ fn a_computer_offers_its_newest_files() {
         .unwrap();
 }
 
-/// Android shows its newest photos and videos as squares, four across;
-/// a video says how long it is.
+/// Phones show no Recent and ask for no photos: their newest photos and
+/// videos take a broad photo permission (Android's READ_MEDIA_*, which
+/// Google Play restricts; iOS's full photo library), so Send offers the
+/// system's pickers only (ADR-008).
 #[test]
-fn android_offers_its_newest_photos_and_videos() {
+fn phones_show_no_recent_and_ask_for_no_photos() {
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let (mut app, _dir) = start(|c| {
-        c.viewport = size(px(360.0), px(760.0));
-        c.environment.window = c.viewport;
-        c.environment.os = Os::Android;
-        c.environment.platform = Some("android");
-    });
-    app.press("id:send").unwrap();
-    app.wait_for_within("text:Recent photos and videos", Duration::from_secs(5))
-        .unwrap();
-    app.wait_for_within("label:Photo beach.jpg", Duration::from_secs(5))
-        .unwrap();
-    let photo = frame(&mut app, "label:Photo beach.jpg");
-    assert!((photo.2 - photo.3).abs() < 0.5, "not square: {photo:?}");
-    assert!(
-        photo.2 >= 70.0 && photo.2 <= 90.0,
-        "{} pt: not four across",
-        photo.2
-    );
-    assert!(app.screen().id("label:Video clip.mp4").is_ok());
-    app.press("label:Photo beach.jpg").unwrap();
-    app.wait_for_within("id:next", Duration::from_secs(5))
-        .unwrap();
-}
-
-/// An iPhone shows the photo library's newest photos and videos (PhotoKit;
-/// headless, the folder standing in for it): a tap exports the original
-/// into staging and selects that copy; another tap takes it out.
-#[test]
-fn an_iphone_offers_its_photo_library() {
-    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let (mut app, dir) = start(|_| {});
-    app.press("id:send").unwrap();
-    app.wait_for_within("text:Recent photos and videos", Duration::from_secs(5))
-        .unwrap();
-    app.wait_for_within("label:Photo beach.jpg", Duration::from_secs(5))
-        .unwrap();
-    assert!(app.screen().id("label:Video clip.mp4").is_ok());
-    // Only photos and videos come from a photo library.
-    assert!(app.screen().id("label:Photo report.pdf").is_err());
-    app.press("label:Photo beach.jpg").unwrap();
-    app.wait_for_within("id:next", Duration::from_secs(5))
-        .unwrap();
-    // The selection holds the exported copy, in staging.
-    let staged: Vec<_> = walk(&dir.path().join("state").join("staging"))
-        .into_iter()
-        .filter(|p| p.file_name().is_some_and(|n| n == "beach.jpg"))
-        .collect();
-    assert_eq!(staged.len(), 1, "exported once: {staged:?}");
-    assert_eq!(std::fs::read(&staged[0]).unwrap(), vec![2u8; 4096]);
-    app.press("label:Photo beach.jpg").unwrap();
-    app.wait_for_gone("id:next", Duration::from_secs(5))
-        .unwrap();
-}
-
-/// Access asked from Recent's card: the system's prompt makes the app
-/// inactive, and the app is active again before the library reports the
-/// grant (CI run 92), so the read on return still finds no access. The
-/// answer to the prompt then shows the photos; the card that asked, gone
-/// by then, does not take that answer with it.
-#[test]
-fn an_iphone_shows_its_photos_once_allowed() {
-    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let grant = tempfile::tempdir().unwrap();
-    let granted = grant.path().join("granted");
-    // SAFETY: under ONE, and removed before the lock is released.
-    unsafe { std::env::set_var("DEXDROP_RECENT_GRANT", &granted) };
-    let (mut app, _dir) = start(|_| {});
-    app.press("id:send").unwrap();
-    app.wait_for_within("id:allow-recent", Duration::from_secs(5))
-        .unwrap();
-    app.press("id:allow-recent").unwrap();
-    // The prompt is up, then gone before the library has the answer.
-    app.set_environment("prompt shown", |e| {
-        e.lifecycle = nsh_core::platform::Lifecycle::Inactive
-    })
-    .unwrap();
-    app.set_environment("prompt answered", |e| {
-        e.lifecycle = nsh_core::platform::Lifecycle::Active
-    })
-    .unwrap();
-    std::fs::write(&granted, b"").unwrap();
-    let shown = app.wait_for_within("label:Photo beach.jpg", Duration::from_secs(10));
-    unsafe { std::env::remove_var("DEXDROP_RECENT_GRANT") };
-    shown.unwrap();
-    assert!(app.screen().id("id:allow-recent").is_err());
-}
-
-fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            out.extend(walk(&path));
-        } else {
-            out.push(path);
-        }
+    for (os, platform) in [(Os::Android, "android"), (Os::Ios, "ios")] {
+        let (mut app, _dir) = start(|c| {
+            c.viewport = size(px(360.0), px(760.0));
+            c.environment.window = c.viewport;
+            c.environment.os = os;
+            c.environment.platform = Some(platform);
+        });
+        app.press("id:send").unwrap();
+        app.wait_for_within("id:pick-photos", Duration::from_secs(5))
+            .unwrap();
+        let screen = app.screen();
+        assert!(
+            screen.id("id:recent").is_err(),
+            "{platform}: a Recent section"
+        );
+        assert!(
+            screen.id("id:allow-recent").is_err(),
+            "{platform}: a photos prompt"
+        );
+        assert!(!screen.texts().contains(&"Recent photos and videos"));
     }
-    out
 }
