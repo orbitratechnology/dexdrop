@@ -12,12 +12,6 @@ pub mod library {
 
     pub use crate::state::Category;
 
-    impl Category {
-        pub fn title(self) -> &'static str {
-            ""
-        }
-    }
-
     pub fn offered() -> bool {
         false
     }
@@ -84,7 +78,8 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
             )
         }
         (_, Route::Apps) => (fixed("Apps"), apps::page().into_element()),
-        (_, Route::Library(c)) => (fixed(c.title()), library::page(c).into_element()),
+        // One title for the categories the page switches between.
+        (_, Route::Library(c)) => (fixed("Library"), library::page(c).into_element()),
         (_, Route::Avatar) => (fixed("Avatar"), profile::page().into_element()),
         (_, Route::Trusted) => (
             fixed("Trusted devices"),

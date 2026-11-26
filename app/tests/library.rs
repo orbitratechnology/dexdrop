@@ -5,8 +5,12 @@
 //! stands in for Android's MediaStore (registered under its scheme): it
 //! holds no bytes, and counts what is asked of it.
 
+#[path = "common/shot.rs"]
+mod shot;
+
 use std::{
     io,
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -36,6 +40,38 @@ struct Asked {
 struct Library {
     photos: usize,
     asked: Arc<Asked>,
+    /// Where thumbnails are drawn (`None`: the provider has none).
+    thumbs: Option<PathBuf>,
+}
+
+/// A thumbnail for item `n`: a soft two-color gradient, a different hue
+/// each, as a photo's colors would be.
+fn picture(n: u64, to: &std::path::Path) {
+    let hue = (n * 47 % 360) as f32;
+    let rgb = |h: f32, l: f32| {
+        let h = h / 60.0;
+        let c = 0.55;
+        let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+        let (r, g, b) = match h as u32 {
+            0 => (c, x, 0.0),
+            1 => (x, c, 0.0),
+            2 => (0.0, c, x),
+            3 => (0.0, x, c),
+            4 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+        [
+            ((r + l) * 255.0).min(255.0) as u8,
+            ((g + l) * 255.0).min(255.0) as u8,
+            ((b + l) * 255.0).min(255.0) as u8,
+        ]
+    };
+    let (a, b) = (rgb(hue, 0.35), rgb((hue + 40.0) % 360.0, 0.15));
+    let img = image::RgbImage::from_fn(96, 96, |x, y| {
+        let t = (x + y) as f32 / 190.0;
+        image::Rgb([0, 1, 2].map(|i| (a[i] as f32 * (1.0 - t) + b[i] as f32 * t) as u8))
+    });
+    img.save(to).unwrap();
 }
 
 fn item(token: &str, name: &str, kind: MediaType, size: u64, at: i64) -> MediaItem {
@@ -135,6 +171,24 @@ impl AssetProvider for Library {
             more,
         })
     }
+    fn thumbnail(&self, id: &AssetId, _px: u32) -> io::Result<Option<PathBuf>> {
+        let Some(dir) = &self.thumbs else {
+            return Ok(None);
+        };
+        let token = id.token();
+        let n: u64 = token
+            .rsplit(':')
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0)
+            + if token.starts_with("video") { 500 } else { 0 };
+        let to = dir.join(format!("{}.png", token.replace(':', "-")));
+        if !to.exists() {
+            std::fs::create_dir_all(dir)?;
+            picture(n, &to);
+        }
+        Ok(Some(to))
+    }
     fn albums(&self, kinds: &[MediaType]) -> io::Result<Vec<(String, usize)>> {
         Ok(if kinds.contains(&MediaType::Image) {
             vec![("Camera".into(), self.photos), ("Screenshots".into(), 0)]
@@ -149,12 +203,22 @@ impl AssetProvider for Library {
 static ONE: Mutex<()> = Mutex::new(());
 
 fn start(photos: usize, access: Option<&str>) -> (Headless, tempfile::TempDir, Arc<Asked>) {
+    let (app, dir, asked, _camera) = start_with(photos, access, false);
+    (app, dir, asked)
+}
+
+fn start_with(
+    photos: usize,
+    access: Option<&str>,
+    thumbs: bool,
+) -> (Headless, tempfile::TempDir, Arc<Asked>, shot::Camera) {
     let asked = Arc::new(Asked::default());
+    let dir = tempfile::tempdir().unwrap();
     register(Arc::new(Library {
         photos,
         asked: asked.clone(),
+        thumbs: thumbs.then(|| dir.path().join("thumbs")),
     }));
-    let dir = tempfile::tempdir().unwrap();
     for state in [dir.path().to_path_buf(), dir.path().join("state")] {
         std::fs::create_dir_all(&state).unwrap();
         std::fs::write(
@@ -179,8 +243,11 @@ fn start(photos: usize, access: Option<&str>) -> (Headless, tempfile::TempDir, A
     config.environment.os = Os::Android;
     config.environment.platform = Some("android");
     let mut app = Headless::start(config).unwrap();
+    // Before any step: it records the styles and images mounted from the
+    // first batch on.
+    let camera = shot::Camera::attach(&mut app);
     app.wait_for("Nearby").unwrap();
-    (app, dir, asked)
+    (app, dir, asked, camera)
 }
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -282,4 +349,49 @@ fn the_browser_asks_before_listing() {
     );
     app.press("id:allow-media").unwrap();
     app.wait_for_within("label:IMG_0005.jpg", WAIT).unwrap();
+}
+
+/// Pictures of the browser, drawn from the headless layout
+/// (`common/shot.rs`), into `DEXDROP_SHOTS` (default
+/// `target/shots/library`): Send's choices, the permission card, the
+/// photo grid with two chosen, Videos, Large files, and Send with the
+/// photos added.
+#[test]
+fn screenshots_of_the_browser() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let out = std::env::var_os("DEXDROP_SHOTS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/shots/library")
+        });
+    let (mut app, _dir, _asked, camera) = start_with(60, Some("none"), true);
+    app.press("id:send").unwrap();
+    app.wait_for_within("id:pick-photos", WAIT).unwrap();
+    camera.shoot(&mut app, &out, "1-send");
+    app.press("id:pick-photos").unwrap();
+    app.wait_for_within("id:allow-media", WAIT).unwrap();
+    camera.shoot(&mut app, &out, "2-allow");
+    app.press("id:allow-media").unwrap();
+    app.wait_for_within("label:IMG_0060.jpg", WAIT).unwrap();
+    app.press("label:IMG_0059.jpg").unwrap();
+    app.press("label:IMG_0057.jpg").unwrap();
+    app.wait_for_within("text:2 selected · 6.00 MB", WAIT)
+        .unwrap();
+    camera.shoot(&mut app, &out, "3-photos");
+    app.press("text:Videos").unwrap();
+    app.wait_for_within("label:Holiday.mov", WAIT).unwrap();
+    camera.shoot(&mut app, &out, "4-videos");
+    app.press("text:Large").unwrap();
+    app.wait_for_gone("label:clip1.mp4", WAIT).unwrap();
+    app.wait_for_within("label:Holiday.mov", WAIT).unwrap();
+    camera.shoot(&mut app, &out, "5-large");
+    app.press("id:library-add").unwrap();
+    app.wait_for_within("label:Remove IMG_0059.jpg", WAIT)
+        .unwrap();
+    camera.shoot(&mut app, &out, "6-added");
+    for name in [
+        "1-send", "2-allow", "3-photos", "4-videos", "5-large", "6-added",
+    ] {
+        assert!(out.join(format!("{name}.png")).is_file());
+    }
 }

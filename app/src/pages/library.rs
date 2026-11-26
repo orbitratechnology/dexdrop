@@ -72,15 +72,6 @@ impl Category {
     fn grid(self) -> bool {
         matches!(self, Category::Photos | Category::Videos)
     }
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Category::Photos => "Photos",
-            Category::Videos => "Videos",
-            Category::Audio => "Audio",
-            Category::Large => "Large files",
-        }
-    }
 }
 
 /// The scheme of this platform's media provider.
@@ -924,12 +915,29 @@ fn item_row(b: Browser, item: impl Fn() -> Option<MediaItem> + Copy + 'static) -
                         .number_of_lines(1),
                 ),
         )
-        .child(
-            view()
-                .rounded(px(12.0))
-                .bg(move || theme().muted_foreground.opacity(0.35))
-                .child(tick(on)),
-        )
+        .child(list_tick(on))
+}
+
+/// A row's tick: a ring on the page's colors, filled when chosen (the Apps
+/// page's).
+fn list_tick(on: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
+    view()
+        .size(px(26.0))
+        .rounded(px(13.0))
+        .items_center()
+        .justify_center()
+        .border_2()
+        .border_color(move || {
+            if on() {
+                theme().primary
+            } else {
+                theme().muted_foreground.opacity(0.4)
+            }
+        })
+        .bg(move || if on() { theme().primary } else { theme().card })
+        .child(when(on, || {
+            ui::icon(Icon::Check, 15.0, move || theme().primary_foreground)
+        }))
 }
 
 /// At the foot, in thumb reach: how many are chosen and their size, and

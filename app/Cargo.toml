@@ -52,3 +52,6 @@ nsh-testing = "=0.7.0"
 tempfile = "3"
 # Pictures of QR codes for the camera's fake (tests/camera.rs).
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Pictures of headless screens (tests/common/shot.rs): what NSH's headless
+# engine laid out, drawn as SVG and rasterized (the engine draws nothing).
+resvg = "0.48"
