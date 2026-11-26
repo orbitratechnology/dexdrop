@@ -31,6 +31,15 @@ dexdrop-net = { path = "../crates/dexdrop-net" }
 [target.'cfg(target_os = "linux")'.dependencies]
 nsh-platform-linux = { version = "=0.7.0", default-features = false, features = ["svg"] }
 
+# Android's runtime permissions (`nsh::permissions`): the media browser's
+# READ_MEDIA_* (src/android.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+nsh-platform-android = { version = "=0.7.0", default-features = false }
+
+# The photo library as Send's media browser's provider (PhotoKit).
+[target.'cfg(target_os = "ios")'.dependencies]
+dexdrop-photos = { path = "../crates/dexdrop-photos" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 nsh-platform-macos = { version = "=0.7.0", default-features = false, features = ["svg"] }
 

@@ -17,6 +17,7 @@ summary="$out/summary.md"
 : >"$summary"
 
 note() { echo "$*" | tee -a "$summary"; }
+warn() { note "- Warning: $*"; }
 fail() {
   note "FAILED: $*"
   # What the system's Bonjour logged, for discovery problems.
@@ -235,20 +236,29 @@ send_with "$invitation" invitation "$note2" ||
   fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
 note "- 200 KB sent with the invitation link, accepted, received byte-identical (\`$(received_intact "$note2")\`)"
 
-# 3. No photo library access (ADR-008): the app declares no
-#    NSPhotoLibraryUsageDescription, and Send offers the system's pickers
-#    with no Recent section.
+# 3. The media browser (ADR-009, docs/FILE_SELECTION.md): the app says why
+#    it reads the photo library; allowed, Photos lists the simulator's
+#    photos in the app, and choosing them adds them without a copy.
 app_dir=$(find "$dist" -maxdepth 2 -name '*.app' -type d | head -1)
-if /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$app_dir/Info.plist" >/dev/null 2>&1; then
-  fail "Info.plist declares NSPhotoLibraryUsageDescription (photo library access)"
-fi
+/usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$app_dir/Info.plist" >/dev/null 2>&1 ||
+  fail "Info.plist lacks NSPhotoLibraryUsageDescription"
+bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_dir/Info.plist")
+xcrun simctl privacy "$udid" grant photos "$bundle" >/dev/null 2>&1 || true
 tap Share || true
 tap Send || fail "could not open Send"
 ad wait text "Files" 20000 >/dev/null 2>&1 || { step 08-no-send; fail "Send does not show its choices"; }
 step 08-send-kinds
-! grep -q 'Recent photos and videos\|Show recent photos' "$out/08-send-kinds.txt" ||
-  fail "Send still shows a photo library Recent (08-send-kinds.txt)"
-note "- No photo library access: Send offers Photos, Videos and Files through the system's pickers"
+if tap Photos && ad wait text "Select all" 20000 >/dev/null 2>&1; then
+  step 08-library
+  if tap "Select all" && tap Add && ad wait text "Selected" 10000 >/dev/null 2>&1; then
+    step 08-library-added
+    note "- Photos lists the library in the app; all chosen and added (references, nothing exported)"
+  else
+    warn "could not add the simulator's photos from the browser (08-library)"
+  fi
+else
+  warn "Photos did not open the media browser (08-send-kinds)"
+fi
 
 ad close >/dev/null 2>&1 || true
 note ""

@@ -289,11 +289,69 @@ pub trait AssetProvider: Send + Sync {
     fn release(&self, id: &AssetId) {
         let _ = id;
     }
+
+    /// The albums (folders, collections) holding items of `kinds`, with how
+    /// many each holds, largest first; none when the provider has none.
+    fn albums(&self, kinds: &[MediaType]) -> io::Result<Vec<(String, usize)>> {
+        let _ = kinds;
+        Ok(Vec::new())
+    }
+}
+
+/// A file sent under another name, read where it is: an app's APK as
+/// `"Maps 11.2.apk"` without copying it. Built in: scheme [`LocalFiles::SCHEME`],
+/// the token the file's absolute path.
+pub struct LocalFiles;
+
+impl LocalFiles {
+    pub const SCHEME: &'static str = "local";
+
+    /// The reference path that sends `file` as `name`.
+    pub fn reference(file: &Path, name: &str) -> PathBuf {
+        AssetPath::new(AssetId::new(Self::SCHEME, &file.to_string_lossy()), name).to_path()
+    }
+}
+
+impl AssetProvider for LocalFiles {
+    fn scheme(&self) -> &str {
+        Self::SCHEME
+    }
+
+    fn metadata(&self, id: &AssetId) -> io::Result<MediaItem> {
+        let path = PathBuf::from(id.token());
+        let meta = std::fs::metadata(&path)?;
+        if !meta.is_file() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a file"));
+        }
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mtime = crate::manifest::mtime_of(&meta).and_then(|t| i64::try_from(t).ok());
+        Ok(MediaItem {
+            id: id.clone(),
+            media_type: MediaType::of("", &name),
+            name,
+            mime_type: String::new(),
+            size: Some(meta.len()),
+            source: AssetSource::LocalFile,
+            created_at: None,
+            modified_at: mtime,
+            duration: None,
+            width: None,
+            height: None,
+            album: None,
+        })
+    }
+
+    fn open(&self, id: &AssetId) -> io::Result<Box<dyn SourceReader>> {
+        Ok(Box::new(std::fs::File::open(id.token())?))
+    }
 }
 
 fn providers() -> &'static RwLock<Vec<Arc<dyn AssetProvider>>> {
     static PROVIDERS: OnceLock<RwLock<Vec<Arc<dyn AssetProvider>>>> = OnceLock::new();
-    PROVIDERS.get_or_init(Default::default)
+    PROVIDERS.get_or_init(|| RwLock::new(vec![Arc::new(LocalFiles)]))
 }
 
 /// Makes `provider` resolve the ids of its scheme (replacing one registered
@@ -373,6 +431,20 @@ mod tests {
         let path = AssetPath::new(AssetId::new("x", "1"), "../../etc/passwd").to_path();
         let back = AssetPath::parse(&path).unwrap();
         assert!(!back.name.contains('/'));
+    }
+
+    #[test]
+    fn a_local_file_goes_under_another_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let apk = dir.path().join("base.apk");
+        std::fs::write(&apk, b"PK\x03\x04 app").unwrap();
+        let path = LocalFiles::reference(&apk, "Maps 11.2.apk");
+        assert_eq!(path.file_name().unwrap(), "Maps 11.2.apk");
+        let st = crate::source::stat(&path).unwrap();
+        assert_eq!(st.len, 8);
+        let mut back = Vec::new();
+        io::Read::read_to_end(&mut crate::source::open(&path).unwrap(), &mut back).unwrap();
+        assert_eq!(back, b"PK\x03\x04 app");
     }
 
     #[test]

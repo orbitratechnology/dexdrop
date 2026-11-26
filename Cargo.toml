@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/dexdrop-core", "crates/dexdrop-net", "crates/dexdrop-cli", "crates/dexdrop-bench", "app"]
-default-members = ["crates/dexdrop-core", "crates/dexdrop-net", "crates/dexdrop-cli", "app"]
+members = ["crates/dexdrop-core", "crates/dexdrop-net", "crates/dexdrop-photos", "crates/dexdrop-cli", "crates/dexdrop-bench", "app"]
+default-members = ["crates/dexdrop-core", "crates/dexdrop-net", "crates/dexdrop-photos", "crates/dexdrop-cli", "app"]
 
 [workspace.package]
 version = "0.1.0"

@@ -181,14 +181,15 @@ jobs:
           for want in REQUEST_INSTALL_PACKAGES android.intent.action.MAIN android.intent.action.SEND_MULTIPLE android.media.action.IMAGE_CAPTURE FOREGROUND_SERVICE_DATA_SYNC dev.dexdrop.TransferService; do
             grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
           done
-          # No photo, video or storage reading: Google Play restricts it to
-          # apps whose core use needs it (ADR-008); no dependency may add it.
-          for banned in READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_VISUAL_USER_SELECTED READ_EXTERNAL_STORAGE MANAGE_EXTERNAL_STORAGE; do
-            ! grep -q "android.permission.$banned\"" <<<"$manifest" || { echo "::error::the manifest asks for $banned, which Google Play restricts"; exit 1; }
+          # The media browser's granular permissions (ADR-009): photos,
+          # videos and audio, Android 14's partial access; never all files.
+          for want in READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO READ_MEDIA_VISUAL_USER_SELECTED dev.dexdrop.PickerActivity; do
+            grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
           done
+          ! grep -q 'android.permission.MANAGE_EXTERNAL_STORAGE"' <<<"$manifest" || { echo "::error::the manifest asks for MANAGE_EXTERNAL_STORAGE"; exit 1; }
           "$aapt2" dump resources "$apk" | grep -q "ic_launcher" || { echo "::error::no launcher icon"; exit 1; }
           unzip -o -q "$apk" 'classes*.dex' -d "$RUNNER_TEMP/dex"
-          for class in NsdBridge TransferService; do
+          for class in NsdBridge TransferService AssetsBridge PickerActivity; do
             grep -qa "Ldev/dexdrop/$class;" "$RUNNER_TEMP"/dex/classes*.dex || { echo "::error::dev.dexdrop.$class (dexdrop-net's nsd.dex) is not in the APK"; exit 1; }
           done
       - uses: actions/upload-artifact@v4

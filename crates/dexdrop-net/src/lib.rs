@@ -8,6 +8,7 @@
 #[cfg(target_os = "android")]
 pub mod android_service;
 pub mod apps;
+pub mod assets;
 pub mod discovery;
 pub mod engine;
 mod incoming;

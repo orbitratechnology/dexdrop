@@ -124,10 +124,24 @@ pub enum Route {
     Avatar,
     /// Send: apps installed on this phone (Android).
     Apps,
+    /// Send: the phone's photos, videos and audio, browsed in the app
+    /// (`pages::library`).
+    Library(Category),
     /// A video playing, or a photo shown, in the app.
     Viewer(std::path::PathBuf),
     /// History: a past transfer, by its hex ID.
     Past(String),
+}
+
+/// What Send's media browser shows (`pages::library`; none on the web).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Category {
+    Photos,
+    Videos,
+    Audio,
+    /// Photos, videos and audio of 100 MB or more, largest first.
+    Large,
 }
 
 /// Each tab's pages, root first.

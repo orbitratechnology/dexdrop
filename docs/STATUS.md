@@ -64,6 +64,14 @@ every action, and the platform's own controls where NSH has them.
   a `<queries>` entry (declared by dexdrop-net's `Cargo.toml`) and
   installing needs `REQUEST_INSTALL_PACKAGES` (`nsh.json`); CI reads both
   back from the packaged APK.
+- **Media browser (branch `claude/file-selection-architecture`,
+  ADR-009, docs/FILE_SELECTION.md):** on that branch phones browse their
+  photos, videos, audio and large files in the app (Android's MediaStore,
+  iOS's PhotoKit), several at once, and send them in place: nothing is
+  copied. Android's Files uses the document picker in place too. Not on
+  `main`, which keeps the pickers below until Google Play accepts the
+  photo and video permission declaration. iOS's provider is type-checked,
+  not yet run on a device; iOS documents are still copied.
 - **No media Recent on phones (ADR-008):** showing a phone's newest
   photos and videos takes a broad photo permission (Android's
   `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`, which Google Play restricts to

@@ -11,7 +11,8 @@ current whenever tests, selectors, CI jobs or timings change.
 
 | Layer | Command | Time | Covers |
 |---|---|---|---|
-| Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay, picked copies deleted once nothing selects or sends them (a send group's when its selection is cleared) |
+| Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay, picked copies deleted once nothing selects or sends them (a send group's when its selection is cleared); referenced items (docs/FILE_SELECTION.md) streamed from a provider that is not a file, uneven reads, nothing read to offer, pause and resume (`tests/assets.rs`); the Android bridge's lines and permissions (`src/assets.rs`), an APK sent in place under its name |
+| UI headless, media browser | `cargo test -p dexdrop-app --test library` | ~7 s | Send's media browser on Android (ADR-009) against a stand-in provider registered as `android-media`: photos chosen and added as references, nothing opened; a library of 5000 listed a page at a time (under 200 tiles exist); Videos, search, Large files; the permission card before listing (`DEXDROP_MEDIA_ACCESS=none`) |
 | UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default) |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640: Send's choices in thumb reach (`send_offers_its_choices_in_thumb_reach`: a row each at the foot of the screen above the tab bar, at least 48 pt, the heading clear of them; once a file is chosen, four side by side above Choose device, and the file's row shows its size once read), a selection of 130 files laid out in the page (120 rows, the rest counted, below Choose device's bar), Send in the icon's blue |
 | UI headless, toasts | `cargo test -p dexdrop-app --test toasts` | ~2 s | NSH's toast stack: an alert, timed out by the manager on the manual clock, Escape dismisses the newest before going back |
@@ -25,6 +26,17 @@ current whenever tests, selectors, CI jobs or timings change.
 | Performance budgets | `cargo test -p dexdrop-app --test perf` | ~7 s | mount items per step: idle screens send nothing, long lists cost what short ones do, tabs are not rebuilt |
 | Every platform, real app | `cd app && nsh test e2e/app.test.ts --target <linux\|macos\|windows\|ios\|android>` | 2–6 s a test once built (CI: Windows ~2 s, macOS 3–6 s, Linux under Xvfb ~27 s); building the development host takes 3–7 min on CI, ~0.5 s when reused | the development host through the platform's input, with the same `id:` selectors |
 | Cross-app, CI | `scripts/{android-emu,ios-sim,macos-ui}-check.sh` (agent-device) | 5–30 min | system pickers, the CLI as the other device, discovery over the network, the share sheet; Pause from the app (the chunk in flight lands, up to 4 MiB, then the received size must hold for 4 s) |
+
+The iOS provider (`crates/dexdrop-photos`) type-checks on Linux too,
+with a stand-in SDK for the C builds of `ring` and `blake3` (a
+`TargetConditionals.h`, `assert.h` and `string.h` of a few lines in
+`$SDK/usr/include`):
+
+```sh
+SDKROOT=$SDK CC_aarch64_apple_ios=clang \
+  CFLAGS_aarch64_apple_ios="-target arm64-apple-ios15 -ffreestanding" \
+  cargo clippy -p dexdrop-photos --target aarch64-apple-ios
+```
 
 Run the headless layers before every push (about 25 s together):
 
@@ -72,6 +84,7 @@ kebab-case:
 | `art-history`, `art-trusted`, `art-drop`, `art-devices`, `art-done`, `art-failed`, `art-waiting`, `art-apps` | the illustrations |
 | `kinds`, `recent` | Send's choices (phones: the dock at the foot of the screen; computers: the row at the top) and its Recent section (computers) |
 | `scan-qr` | the code page's "Scan QR" (phones with a camera) |
+| `library`, `library-search`, `library-sort`, `select-all`, `library-summary`, `library-add`, `allow-media` | the media browser (ADR-009): the page, its search and order, Select all, the count and size at the foot, Add, the permission card's button |
 | `pause-all`, `resume-all` | a group's progress |
 | `copy-invitation` | Receive |
 | `change-avatar`, `rename`, `save-to`, `save-to-downloads` | Settings |
@@ -136,9 +149,9 @@ Add an id when a test needs a control; add it to this table.
 | App UI tests (Linux) | `cargo test -p dexdrop-app` (iPhone, Android, performance) | — |
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
-| Package macOS and iOS | — (the e2e runs in its own job, below) | desktop check, agent-device macOS and iOS checks (publishing the simulator build for native-sim may fail, as GitHub's API did in run 92, without skipping them; the macOS check answers the runner's own local-network prompt before the Open panel); the iOS check also fails an app whose `Info.plist` declares `NSPhotoLibraryUsageDescription` or whose Send shows a photo library Recent (`08-send-kinds`, ADR-008) |
+| Package macOS and iOS | — (the e2e runs in its own job, below) | desktop check, agent-device macOS and iOS checks (publishing the simulator build for native-sim may fail, as GitHub's API did in run 92, without skipping them; the macOS check answers the runner's own local-network prompt before the Open panel); the iOS check also fails an app whose `Info.plist` lacks `NSPhotoLibraryUsageDescription`, then grants the simulator's photos and chooses them in the media browser (`08-library`, ADR-009; a warning, not a failure, if the browser does not open) |
 | App e2e (macOS, iOS simulator) | `nsh test … --target macos`, then `--target ios`, on a runner of its own beside packaging (45 min each): `nsh test` builds the app again for NSH's development host, which after an hour of packaging on the same runner did not finish within 25 and 30 min (run 91, NSH 0.7.0); on its own runner it takes 25.7 min on macOS and 22.8 min for the iOS simulator, building included (run 92, no cache yet); its own runner also keeps the e2e's local-network prompt away from the agent-device checks | — |
-| Package Android | the packaged APK's manifest read back with `aapt2` (`REQUEST_INSTALL_PACKAGES`, the launcher `<queries>`, the camera apps' `<queries>`, the share sheet's `SEND_MULTIPLE` filter, `FOREGROUND_SERVICE_DATA_SYNC` and `TransferService`, the launcher icon, the Java bridges' classes in the dex; and no photo, video or storage permission, ADR-008), then `scripts/android-checks.sh` (the agent-device part also checks the identity key is in the Android Keystore, reading the app's storage with the emulator image's `su` since the APK is not debuggable, `TransferService` runs in the foreground while sending, the installed app requests no photo, video or storage permission (`dumpsys package`) and Send shows no media Recent (`13-send-kinds`), and the app did not crash: a crash fails the check with the exception from logcat's crash buffer, as run 90's `ForegroundServiceDidNotStartInTimeException` did): `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon) | agent-device emulator check |
+| Package Android | the packaged APK's manifest read back with `aapt2` (`REQUEST_INSTALL_PACKAGES`, the launcher `<queries>`, the camera apps' `<queries>`, the share sheet's `SEND_MULTIPLE` filter, `FOREGROUND_SERVICE_DATA_SYNC` and `TransferService`, the launcher icon, the Java bridges' classes in the dex, `AssetsBridge` and `PickerActivity` included; the granular `READ_MEDIA_*` and never `MANAGE_EXTERNAL_STORAGE`, ADR-009), then `scripts/android-checks.sh` (the agent-device part also checks the identity key is in the Android Keystore, reading the app's storage with the emulator image's `su` since the APK is not debuggable, `TransferService` runs in the foreground while sending, the installed app requests `READ_MEDIA_IMAGES` and not `MANAGE_EXTERNAL_STORAGE` (`dumpsys package`), and a photo pushed into MediaStore is chosen in the media browser and added without a copy in the app's storage (`14-library`, `15-library-added`), and the app did not crash: a crash fails the check with the exception from logcat's crash buffer, as run 90's `ForegroundServiceDidNotStartInTimeException` did): `nsh test … --target android` on the emulator, then the agent-device check whatever the first did (the step fails if either did; free space and the host APK's size go in `device-storage.txt`; `launcher.png` shows the launcher's app list with the adaptive icon) | agent-device emulator check |
 
 JUnit reports (`--junit`) go in each job's check artifact
 (`desktop-check-*`, `e2e-apple`, `android-check`).

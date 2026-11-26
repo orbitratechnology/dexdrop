@@ -93,6 +93,10 @@ pub fn thumb(name: &str, preview: Option<&Path>, side: f32, radius: f32) -> View
 
 /// Opens a file: in its app on computers, through the share sheet on phones.
 pub fn open(path: PathBuf) {
+    // A referenced item (a photo in the library) is not a file to open.
+    if dexdrop_core::asset::is_reference(&path) {
+        return;
+    }
     // Videos play, and photos show, in the app.
     let name = path
         .file_name()
@@ -346,6 +350,26 @@ pub fn app_icon(icon: Option<&Path>, side: f32) -> View {
             ),
         None => ui::file_badge("app.apk", side, side * 0.24),
     }
+}
+
+/// Whether a selected path is a folder, and its size: a file's (links
+/// followed), or a referenced item's as its provider describes it
+/// (`dexdrop_core::asset`: nothing read). `(false, 0)` when unknown.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub fn stat_of(path: &std::path::Path) -> (bool, u64) {
+    if dexdrop_core::asset::is_reference(path) {
+        return dexdrop_core::source::stat(path).map_or((false, 0), |s| (s.is_dir, s.len));
+    }
+    std::fs::metadata(path).map_or((false, 0), |m| (m.is_dir(), m.len()))
+}
+
+/// The picture to show for a selected path: the file itself, or the
+/// thumbnail the browser made for a referenced item (none yet: its kind).
+pub fn preview(path: &Path) -> Option<PathBuf> {
+    if dexdrop_core::asset::is_reference(path) {
+        return crate::pages::library::thumb_of(path);
+    }
+    Some(path.to_path_buf())
 }
 
 #[cfg(test)]

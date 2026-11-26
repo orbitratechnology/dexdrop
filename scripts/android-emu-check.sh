@@ -420,22 +420,41 @@ else
   warn "the Apps page did not list apps"
 fi
 
-# 5. No media library (ADR-008): the installed app requests none of the
-#    photo, video or storage permissions Google Play restricts, and Send
-#    offers no Recent section.
+# 5. The media browser (ADR-009, docs/FILE_SELECTION.md): the app requests
+#    the granular media permissions and never all files; a photo put in the
+#    emulator's MediaStore is listed in the app, chosen and added to the
+#    selection without being copied into the app.
 requested=$(sh_ dumpsys package "$pkg" | sed -n '/requested permissions:/,/install permissions:/p' | tr -d '\r')
-for banned in READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_VISUAL_USER_SELECTED READ_EXTERNAL_STORAGE MANAGE_EXTERNAL_STORAGE; do
-  ! grep -q "android.permission.$banned\$" <<<"$requested" || fail "the app requests $banned (dumpsys package)"
+! grep -q "android.permission.MANAGE_EXTERNAL_STORAGE\$" <<<"$requested" || fail "the app requests MANAGE_EXTERNAL_STORAGE (dumpsys package)"
+grep -q "android.permission.READ_MEDIA_IMAGES\$" <<<"$requested" || fail "the app does not request READ_MEDIA_IMAGES (dumpsys package)"
+note "- Requests the granular media permissions, not all files (dumpsys package)"
+# A photo of the check's own, indexed by MediaStore.
+head -c 40000 /dev/urandom >"$out/dexdrop-check.jpg"
+adb -s "$serial" push "$out/dexdrop-check.jpg" /sdcard/Pictures/dexdrop-check.jpg >/dev/null
+sh_ "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/dexdrop-check.jpg" >/dev/null 2>&1 || true
+sh_ "content call --uri content://media --method scan_volume --arg external_primary" >/dev/null 2>&1 || true
+for p in READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO; do
+  sh_ pm grant "$pkg" "android.permission.$p" >/dev/null 2>&1 || true
 done
-note "- Requests no photo, video or storage permission (dumpsys package)"
 front
 tap_only Share || true
 tap_only "Navigate up" || true
 if tap_only Send && ad wait text "Files" 10000 >/dev/null 2>&1; then
   step 13-send-kinds
-  ! grep -q 'Show recent photos\|Recent photos and videos' "$out/13-send-kinds.txt" ||
-    fail "Send still shows a media Recent (13-send-kinds.txt)"
-  note "- Send offers Photos, Videos and Files through the system's pickers, with no Recent"
+  if tap_only Photos && ad wait text "Select all" 15000 >/dev/null 2>&1; then
+    step 14-library
+    if tap_only dexdrop-check.jpg && tap_only "Add 1 item" &&
+      ad wait text "Selected" 10000 >/dev/null 2>&1; then
+      step 15-library-added
+      copies=$(app_sh "find . -name dexdrop-check.jpg -type f" | tr -d '\r')
+      [ -z "$copies" ] || fail "the chosen photo was copied into the app: $copies"
+      note "- Photos lists the device's photos in the app; one chosen and added without a copy"
+    else
+      warn "could not choose the check's photo in the browser (14-library)"
+    fi
+  else
+    warn "Photos did not open the media browser (13-send-kinds)"
+  fi
 fi
 
 # A crash the steps above did not notice (the app restarted) fails too.

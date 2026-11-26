@@ -3,6 +3,33 @@
 pub mod apps;
 pub mod history;
 pub mod home;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod library;
+/// The browser preview has no device media: Send uses the pickers.
+#[cfg(target_arch = "wasm32")]
+pub mod library {
+    use nsh_core::prelude::*;
+
+    pub use crate::state::Category;
+
+    impl Category {
+        pub fn title(self) -> &'static str {
+            ""
+        }
+    }
+
+    pub fn offered() -> bool {
+        false
+    }
+
+    pub fn thumb_of(_path: &std::path::Path) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    pub fn page(_category: Category) -> impl IntoElement {
+        view()
+    }
+}
 pub mod profile;
 pub mod receive;
 #[cfg(not(target_arch = "wasm32"))]
@@ -57,6 +84,7 @@ pub fn page(tab: Tab, route: Route) -> (Title, AnyElement) {
             )
         }
         (_, Route::Apps) => (fixed("Apps"), apps::page().into_element()),
+        (_, Route::Library(c)) => (fixed(c.title()), library::page(c).into_element()),
         (_, Route::Avatar) => (fixed("Avatar"), profile::page().into_element()),
         (_, Route::Trusted) => (
             fixed("Trusted devices"),

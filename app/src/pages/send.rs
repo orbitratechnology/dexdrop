@@ -15,8 +15,8 @@ use crate::{
     bridge,
     pages::body,
     state::{
-        Picked, Route, Selection, desktop_platform, model, picked, platform_label, push, reset_to,
-        selection, toast,
+        Category, Picked, Route, Selection, desktop_platform, model, picked, platform_label, push,
+        reset_to, selection, toast,
     },
     ui::{self, Icon, Variant, muted, space},
 };
@@ -96,14 +96,7 @@ fn recount() {
             let stats: Vec<(PathBuf, (bool, u64))> = all
                 .iter()
                 .filter(|p| !known.contains_key(*p))
-                .map(|p| {
-                    let meta = std::fs::metadata(p).ok();
-                    let stat = (
-                        meta.as_ref().is_some_and(|m| m.is_dir()),
-                        meta.map_or(0, |m| m.len()),
-                    );
-                    (p.clone(), stat)
-                })
+                .map(|p| (p.clone(), crate::files::stat_of(p)))
                 .collect();
             let summary = dexdrop_core::manifest::Manifest::build(&all)
                 .map(|m| (m.files, m.folders, m.total_bytes));
@@ -174,8 +167,9 @@ pub fn choose_apks() {
     choose_staged(Kind::Apks);
 }
 
-/// Android: copies apps' APKs into staging under their names, then adds
-/// them to the selection; a card says so meanwhile.
+/// Android: adds apps under their names (one APK: sent where it is; split
+/// APKs: copied into staging), then to the selection; a card says so
+/// meanwhile.
 pub fn add_apps(apps: Vec<(crate::files::AppCard, Vec<PathBuf>)>) {
     if apps.is_empty() {
         return;
@@ -220,11 +214,51 @@ pub fn add_apps(apps: Vec<(crate::files::AppCard, Vec<PathBuf>)>) {
                     }
                     select(paths);
                 }
-                Ok(Err(err)) => toast(NoticeKind::Error, format!("Could not copy the app: {err}")),
+                Ok(Err(err)) => toast(NoticeKind::Error, format!("Could not add the app: {err}")),
                 Err(_) => {}
             }
         });
     }
+}
+
+/// Phones: the device's media browsed in the app when it has a provider
+/// (`pages::library`), else the system's picker.
+fn browse_or(category: Category, kind: Kind) {
+    if crate::pages::library::offered() {
+        push(Route::Library(category));
+    } else {
+        choose_staged(kind);
+    }
+}
+
+/// Phones' files: on Android the system's document picker, the documents
+/// sent from where they are (`dexdrop_net::assets`, nothing copied);
+/// elsewhere the picker that copies.
+fn choose_documents() {
+    #[cfg(target_os = "android")]
+    if crate::pages::library::offered() {
+        set_loading(Some("Getting your files…".into()));
+        let picking = blocking(|| dexdrop_net::assets::pick_documents(&[]));
+        detached(async move {
+            let picked = picking.await;
+            set_loading(None);
+            match picked {
+                Ok(Ok(items)) => select(
+                    items
+                        .iter()
+                        .map(dexdrop_core::asset::MediaItem::path)
+                        .collect(),
+                ),
+                Ok(Err(err)) => toast(
+                    NoticeKind::Error,
+                    format!("Could not open the files: {err}"),
+                ),
+                Err(_) => {}
+            }
+        });
+        return;
+    }
+    choose_staged(Kind::Files);
 }
 
 /// Phones give the bytes of picked files, not paths: they are copied to
@@ -536,21 +570,21 @@ fn sources() -> Vec<Source> {
             label: "Photos",
             detail: "From your photo library",
             colors: PHOTOS,
-            pick: || choose_staged(Kind::Photos),
+            pick: || browse_or(Category::Photos, Kind::Photos),
         },
         Source {
             icon: Icon::Video,
             label: "Videos",
             detail: "Any length, as they are",
             colors: VIDEOS,
-            pick: || choose_staged(Kind::Videos),
+            pick: || browse_or(Category::Videos, Kind::Videos),
         },
         Source {
             icon: Icon::File,
             label: "Files",
             detail: "Documents and anything else",
             colors: FILES,
-            pick: || choose_staged(Kind::Files),
+            pick: choose_documents,
         },
     ];
     if os() == nsh_core::platform::Os::Android {
@@ -1059,7 +1093,7 @@ fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
                 .active(|s| s.opacity(0.8))
                 .child(crate::files::thumb(
                     &pick.name,
-                    Some(&pick.path),
+                    crate::files::preview(&pick.path).as_deref(),
                     side,
                     14.0,
                 )),

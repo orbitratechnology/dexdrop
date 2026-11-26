@@ -57,17 +57,27 @@ libraries = ["android/nsd.dex"]
 # Send › Apps lists (src/apps.rs).
 queries = ['<intent><action android:name="android.intent.action.MAIN"/></intent>']
 # The foreground service: FOREGROUND_SERVICE and its data-sync type (Android
-# 14+). No permission to read the user's photos and videos: Google Play
-# restricts those to apps whose core use needs them (docs/ARCHITECTURE.md
-# ADR-008); the system's pickers need none.
+# 14+). The in-app media browser (src/assets.rs, docs/FILE_SELECTION.md)
+# reads MediaStore: the granular READ_MEDIA_* from Android 13, with
+# READ_MEDIA_VISUAL_USER_SELECTED for Android 14's partial access, and
+# READ_EXTERNAL_STORAGE before (ignored from 13). Google Play restricts READ_MEDIA_IMAGES
+# and READ_MEDIA_VIDEO to apps whose core use needs them (docs/ARCHITECTURE.md
+# ADR-008, ADR-009): sending one's photos and videos is this app's.
 permissions = [
     "FOREGROUND_SERVICE",
     "FOREGROUND_SERVICE_DATA_SYNC",
+    "READ_MEDIA_IMAGES",
+    "READ_MEDIA_VIDEO",
+    "READ_MEDIA_AUDIO",
+    "READ_MEDIA_VISUAL_USER_SELECTED",
+    "READ_EXTERNAL_STORAGE",
 ]
 # The service the system starts (src/android_service.rs): not exported, of
-# the data-sync type a file transfer is.
+# the data-sync type a file transfer is; the document picker's activity.
 application = [
     '<service android:name="dev.dexdrop.TransferService" android:exported="false" android:foregroundServiceType="dataSync"/>',
+    # The document picker's host (src/assets.rs): invisible, not exported.
+    '<activity android:name="dev.dexdrop.PickerActivity" android:exported="false" android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"/>',
 ]
 
 [lints.rust]

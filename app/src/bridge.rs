@@ -84,6 +84,11 @@ mod native {
         dexdrop_net::use_android_context();
         let platform = os().name();
         let (state, downloads) = dirs(platform);
+        // The device's media and documents, sent from where they are
+        // (docs/FILE_SELECTION.md); their thumbnails in the state's cache.
+        dexdrop_net::assets::register_platform(&state.join("cache"));
+        #[cfg(target_os = "ios")]
+        dexdrop_photos::register(&state.join("cache"));
         let mut config = EngineConfig::new(state, downloads, platform);
         config.discovery = std::env::var_os("DEXDROP_NO_DISCOVERY").is_none();
         // iOS and macOS ask before an app uses the local network: say why

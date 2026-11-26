@@ -111,18 +111,20 @@ fn parse_line(line: &str) -> Option<AppInfo> {
     })
 }
 
-/// Copies an app's APKs into `dir` under readable names and returns what
-/// to send: `"Maps 11.2.apk"`, or for an app installed as several APKs a
-/// folder `"Maps 11.2"` with `"Maps.apk"` and its splits (install it with
-/// an installer that takes split APKs).
+/// What to send for an app, under a readable name: `"Maps 11.2.apk"`, its
+/// APK read where it is (a reference, `dexdrop_core::asset::LocalFiles`:
+/// nothing copied); for an app installed as several APKs, a folder
+/// `"Maps 11.2"` copied into `dir` with `"Maps.apk"` and its splits (install
+/// it with an installer that takes split APKs).
 pub fn stage(app: &AppInfo, dir: &Path) -> io::Result<PathBuf> {
-    std::fs::create_dir_all(dir)?;
     let stem = app.file_stem();
     if !app.split() {
-        let to = dexdrop_core::naming::first_free(dir, &format!("{stem}.apk"));
-        std::fs::copy(&app.apks[0], &to)?;
-        return Ok(to);
+        return Ok(dexdrop_core::asset::LocalFiles::reference(
+            &app.apks[0],
+            &format!("{stem}.apk"),
+        ));
     }
+    std::fs::create_dir_all(dir)?;
     let folder = dexdrop_core::naming::first_free(dir, &stem);
     std::fs::create_dir_all(&folder)?;
     for (i, apk) in app.apks.iter().enumerate() {
@@ -148,62 +150,15 @@ pub fn stage(app: &AppInfo, dir: &Path) -> io::Result<PathBuf> {
 
 #[cfg(target_os = "android")]
 mod system {
-    use std::{
-        path::Path,
-        sync::{Mutex, OnceLock},
-    };
-
-    use jni::{
-        JavaVM,
-        objects::{GlobalRef, JString, JValue},
-    };
+    use std::path::Path;
 
     use super::{AppInfo, parse};
-    use crate::jvm::{describe, java_vm, new_bridge};
+    use crate::jvm::Bridge;
 
-    static BRIDGE: OnceLock<Mutex<Option<(JavaVM, GlobalRef)>>> = OnceLock::new();
+    static BRIDGE: Bridge = Bridge::new("dev.dexdrop.AppsBridge");
 
-    /// Calls `method(String…)` on the bridge, made once, and returns its
-    /// text.
     fn call(method: &str, args: &[&str]) -> Result<String, String> {
-        let mut slot = BRIDGE
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if slot.is_none() {
-            let vm = java_vm().ok_or("The system's app list is not reachable.")?;
-            let bridge = {
-                let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
-                let made = new_bridge(&mut env, "dev.dexdrop.AppsBridge")
-                    .and_then(|b| env.new_global_ref(b));
-                match made {
-                    Ok(b) => b,
-                    Err(err) => return Err(describe(&mut env, err)),
-                }
-            };
-            *slot = Some((vm, bridge));
-        }
-        let (vm, bridge) = slot.as_ref().expect("made above");
-        let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
-        let signature = format!(
-            "({})Ljava/lang/String;",
-            "Ljava/lang/String;".repeat(args.len())
-        );
-        let result = env.with_local_frame(16, |env| -> jni::errors::Result<String> {
-            let strings = args
-                .iter()
-                .map(|a| env.new_string(a))
-                .collect::<Result<Vec<_>, _>>()?;
-            let values: Vec<JValue> = strings.iter().map(|s| JValue::Object(s)).collect();
-            let out = env
-                .call_method(bridge.as_obj(), method, &signature, &values)?
-                .l()?;
-            if out.is_null() {
-                return Ok(String::new());
-            }
-            Ok(env.get_string(&JString::from(out))?.into())
-        });
-        result.map_err(|err| describe(&mut env, err))
+        BRIDGE.call(method, args)
     }
 
     pub fn installed(icon_dir: &Path) -> Result<Vec<AppInfo>, String> {
@@ -330,7 +285,13 @@ mod tests {
         .remove(0);
         let single = stage(&app, out.path()).unwrap();
         assert_eq!(single.file_name().unwrap(), "Maps- City-Road 2.0.apk");
-        assert_eq!(std::fs::read(&single).unwrap(), b"base");
+        // Sent from where it is: nothing copied.
+        assert!(dexdrop_core::asset::is_reference(&single));
+        assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0);
+        let mut read = Vec::new();
+        std::io::Read::read_to_end(&mut dexdrop_core::source::open(&single).unwrap(), &mut read)
+            .unwrap();
+        assert_eq!(read, b"base");
 
         app.apks.push(src.path().join("split_config.en.apk"));
         let folder = stage(&app, out.path()).unwrap();

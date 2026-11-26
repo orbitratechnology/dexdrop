@@ -76,11 +76,13 @@ working; everything that touches the bytes goes through `dexdrop_core::source`.
 
 ```rust
 pub trait AssetProvider: Send + Sync {
-    fn scheme(&self) -> &'static str;
-    fn metadata(&self, id: &AssetId) -> io::Result<MediaItem>;   // no read of the content
-    fn open(&self, id: &AssetId) -> io::Result<Box<dyn SourceReader>>; // Read + Seek + Send
-    fn list(&self, query: &Query) -> io::Result<Page>;          // paged
-    fn thumbnail(&self, id: &AssetId, px: u32) -> io::Result<PathBuf>; // cached file
+    fn scheme(&self) -> &str;
+    fn metadata(&self, id: &AssetId) -> io::Result<MediaItem>;          // no read of the content
+    fn open(&self, id: &AssetId) -> io::Result<Box<dyn SourceReader>>; // Read + Send + stat()
+    fn list(&self, query: &Query) -> io::Result<Page>;                 // paged (default: unsupported)
+    fn thumbnail(&self, id: &AssetId, px: u32) -> io::Result<Option<PathBuf>>; // cached file
+    fn albums(&self, kinds: &[MediaType]) -> io::Result<Vec<(String, usize)>>;
+    fn release(&self, id: &AssetId);                                   // e.g. a kept grant
 }
 ```
 
@@ -95,12 +97,37 @@ reference paths to their provider and everything else to `std::fs`.
 | `android-doc` (SAF) | the system picker (`ACTION_OPEN_DOCUMENT`, several, any type) | `OpenableColumns` + `COLUMN_LAST_MODIFIED` | as above; cloud providers that hand a pipe are read forward-only (resume restarts) | `DocumentsContract.getDocumentThumbnail` where offered |
 | `ios-photos` (PhotoKit) | paged `PHAsset` fetch (images, videos), newest first | asset dates, duration, pixel size; resource name and size | `PHAssetResourceManager.requestData(for:…)` into a bounded channel (backpressure blocks PhotoKit's delivery); forward seeks skip, backward seeks restart; iCloud allowed with progress | `PHCachingImageManager` at grid size, cached |
 | iOS documents | `UIDocumentPickerViewController(forOpeningContentTypes:asCopy: false)` | the file's | the provider's file in place, under security-scoped access kept while selected (coordinated read first for iCloud placeholders) | — |
-| `local` (desktops) | — | `std::fs` | `std::fs::File` | the file itself for photos |
+| `local` (built in) | — | `std::fs` | `std::fs::File` | — (a file sent under another name: an app's APK as `Maps 11.2.apk`, read where it is) |
 
 ### What changes for a 3 GB video
 
 Listing reads rows, not files. Selecting adds a reference path (no I/O).
 The manifest asks the provider for size and mtime. The transfer opens the
-original when the receiver accepts, reads 1 MiB chunks into a bounded
-channel, hashes and sends them; pausing drops the reader, resuming seeks.
-Nothing is copied; memory stays at `READ_AHEAD` chunks.
+original when the receiver accepts, reads chunks into a bounded channel,
+hashes and sends them; pausing drops the reader (PhotoKit's request is
+cancelled), resuming opens it again and reads forward, hashing the part the
+receiver already has. Nothing is copied; memory stays at `READ_AHEAD`
+chunks (plus PhotoKit's 8 pieces in flight on iOS).
+
+## 3. Implementation (branch `claude/file-selection-architecture`)
+
+| Milestone | State | Where |
+|---|---|---|
+| 1 Audit | done | §1 |
+| 2 Upstream issue (path picker in JS, no-copy option) | drafted, not filed | `docs/upstream/nsh-path-picker-js.md` |
+| 3 Core types and provider trait | done | `dexdrop-core/src/asset.rs`, `source.rs` |
+| 4 Android MediaStore | done: paged queries over images, videos and audio (`MediaStore.Files`, `QUERY_ARG_OFFSET`/`LIMIT` on 11+), search, sort, size floor, albums (buckets), `loadThumbnail`, originals by detached file descriptor | `dexdrop-net/android/dev/dexdrop/AssetsBridge.java`, `dexdrop-net/src/assets.rs` |
+| 4 Android documents (SAF) | done: `ACTION_OPEN_DOCUMENT` from an invisible activity, several of any type, `takePersistableUriPermission`, read by descriptor; Files on Android uses it | `PickerActivity.java`, `assets::pick_documents` |
+| 5 iOS PhotoKit | done, type-checked for `aarch64-apple-ios`, not yet run on a device: paged fetch (lazy `PHFetchResult`), albums, `PHCachingImageManager` thumbnails, streamed originals (`requestDataForAssetResource`, iCloud allowed, bounded, cancelled on drop), limited access with "choose more" | `crates/dexdrop-photos` |
+| 5 iOS documents in place | **not done**: `UIDocumentPicker` with `asCopy: false` and security-scoped access needs a delegate class (objc2 `define_class!`); Files on iOS still uses NSH's picker, which copies | — |
+| 6 Unified selection model | done: selections hold reference paths; Send's sizes come from the provider (`files::stat_of`) | `app/src/files.rs`, `pages/send.rs` |
+| 7 Streaming integration | done: the engine reads every source through `source::open`; tested with a non-file provider, uneven reads, pause and resume | `dexdrop-net/tests/assets.rs` |
+| 8 Media browser UI | done: Photos, Videos, Audio, Large files; virtualized grid (NSH `virtual_list`, columns) and lists, paged on scroll, lazy thumbnails (4 at a time, newest first), search, sort, albums, multi-select, select all, count and size, Add in thumb reach, permission card, limited-access row | `app/src/pages/library.rs`, `app/tests/library.rs` |
+| 9 Downloads / Documents / file browser | partial: documents through the system's picker (SAF) on Android; no in-app folder browser (Android grants no folder listing without `MANAGE_EXTERNAL_STORAGE`, which this app does not ask for) | — |
+| 10 Android apps | kept; a single-APK app is now sent in place under a readable name (`LocalFiles`), split APKs are still staged | `dexdrop-net/src/apps.rs` |
+| 11 Performance | headless: a library of 5000 lists only its first pages and keeps under 200 tiles; engine: 6 MiB and 24 MiB referenced items stream byte-identical | `app/tests/library.rs`, `dexdrop-net/tests/assets.rs` |
+| 12 Docs, CI | done on the branch: ADR-009, TESTING, the APK, emulator and simulator checks expect the browser | `docs/ARCHITECTURE.md`, `.github/workflows/ci.yml`, `scripts/*-check.sh` |
+
+Not measured yet: times to first thumbnail and to the first byte sent from
+a 3 GB video on real devices (the emulator and simulator checks run the
+browser, not timings).

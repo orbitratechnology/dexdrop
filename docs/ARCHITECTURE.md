@@ -500,3 +500,44 @@ emulator check reads the installed app's requested permissions back
 check fails an app whose `Info.plist` declares
 `NSPhotoLibraryUsageDescription`. Tests:
 `phones_show_no_recent_and_ask_for_no_photos` (`app/tests/recent.rs`).
+
+## ADR-009: Media browsed in the app, sent in place (experimental branch)
+
+Status: **experimental**, on branch `claude/file-selection-architecture`
+only. It reverses ADR-008 on that branch; `main` keeps ADR-008 until the
+store question below is settled.
+
+**Context.** The system's pickers copy what they hand over on phones
+(ADR-004, docs/FILE_SELECTION.md §1): a 3 GB video is read and written once
+before it is sent, and storage fills while it is selected. Transfer apps
+that browse the device's media in the app (photos, videos, audio, large
+files, several at once) avoid both, at the price of the broad media
+permissions ADR-008 dropped.
+
+**Decision.** Selections hold **reference paths**
+(`dexdrop-asset:<scheme>/<token>/<name>`) that an `AssetProvider` resolves:
+metadata for the manifest without reading, the original opened only when
+a transfer starts and streamed through the engine's bounded reader. Android:
+`android-media` (MediaStore, `READ_MEDIA_IMAGES`/`VIDEO`/`AUDIO`, Android 14's
+`READ_MEDIA_VISUAL_USER_SELECTED`, `READ_EXTERNAL_STORAGE` before 13) and
+`android-doc` (the document picker, no permission, grants kept); never
+`MANAGE_EXTERNAL_STORAGE`. iOS: `ios-photos` (PhotoKit, read access with
+`NSPhotoLibraryUsageDescription`; limited access works). The browser is
+`app/src/pages/library.rs`. A single-APK app is sent in place too
+(`LocalFiles`).
+
+**Consequences.** Nothing is copied for media or Android documents; the
+first byte of a large video leaves as soon as the receiver accepts.
+Google Play: `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO` need the Photo and
+Video Permissions declaration in Play Console, accepted only where broad
+access is the app's core use; sending one's photos and videos to one's own
+devices is arguably that for a transfer app (the category Google names as
+an example of apps that may qualify is file managers and similar), but it
+is Google's call at review: ship it only after the declaration is accepted,
+or keep `main`'s picker-only flow (ADR-008). App Store: photo library access
+with a purpose string is ordinary. iOS documents are still copied by NSH's
+picker (an in-place `UIDocumentPicker` is not built yet). CI on the branch
+requires the media permissions and the bridge classes in the APK and still
+fails `MANAGE_EXTERNAL_STORAGE`; the emulator and simulator checks browse,
+choose and add a photo, and the emulator check fails if it was copied into
+the app. Tests: `app/tests/library.rs`, `crates/dexdrop-net/tests/assets.rs`.

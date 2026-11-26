@@ -7,6 +7,8 @@
 //! The UI never owns sockets or files: it sends commands to the transfer
 //! engine (`dexdrop-net`) and renders the events it sends back.
 
+#[cfg(target_os = "android")]
+mod android;
 mod bridge;
 mod device;
 mod files;

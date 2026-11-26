@@ -111,3 +111,66 @@ pub(crate) fn describe(env: &mut JNIEnv<'_>, err: jni::errors::Error) -> String 
         .and_then(|s| env.get_string(&JString::from(s)).map(String::from))
         .unwrap_or_else(|_| err.to_string())
 }
+
+/// One of DexDrop's Java bridges (`dev.dexdrop.…`), made on first use and
+/// kept: its methods take and return strings. Calls run concurrently (a
+/// call that waits for the user does not hold up the others).
+pub(crate) struct Bridge {
+    class: &'static str,
+    made: std::sync::OnceLock<(JavaVM, jni::objects::GlobalRef)>,
+    making: std::sync::Mutex<()>,
+}
+
+impl Bridge {
+    pub(crate) const fn new(class: &'static str) -> Self {
+        Bridge {
+            class,
+            made: std::sync::OnceLock::new(),
+            making: std::sync::Mutex::new(()),
+        }
+    }
+
+    fn get(&self) -> Result<&(JavaVM, jni::objects::GlobalRef), String> {
+        if let Some(made) = self.made.get() {
+            return Ok(made);
+        }
+        let _one = self.making.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(made) = self.made.get() {
+            return Ok(made);
+        }
+        let vm = java_vm().ok_or("Android's services are not reachable.")?;
+        let bridge = {
+            let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+            match new_bridge(&mut env, self.class).and_then(|b| env.new_global_ref(b)) {
+                Ok(b) => b,
+                Err(err) => return Err(describe(&mut env, err)),
+            }
+        };
+        Ok(self.made.get_or_init(|| (vm, bridge)))
+    }
+
+    /// Calls `method(String…)` and returns its text (empty for `null`).
+    pub(crate) fn call(&self, method: &str, args: &[&str]) -> Result<String, String> {
+        let (vm, bridge) = self.get()?;
+        let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+        let signature = format!(
+            "({})Ljava/lang/String;",
+            "Ljava/lang/String;".repeat(args.len())
+        );
+        let result = env.with_local_frame(16, |env| -> jni::errors::Result<String> {
+            let strings = args
+                .iter()
+                .map(|a| env.new_string(a))
+                .collect::<Result<Vec<_>, _>>()?;
+            let values: Vec<JValue> = strings.iter().map(|s| JValue::Object(s)).collect();
+            let out = env
+                .call_method(bridge.as_obj(), method, &signature, &values)?
+                .l()?;
+            if out.is_null() {
+                return Ok(String::new());
+            }
+            Ok(env.get_string(&JString::from(out))?.into())
+        });
+        result.map_err(|err| describe(&mut env, err))
+    }
+}

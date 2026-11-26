@@ -55,6 +55,9 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
   no `READ_MEDIA_*`/storage permissions on Android, no photo library
   access on iOS; phones pick photos, videos and files with the system's
   pickers. CI's APK check and the simulator check fail otherwise.
+  Exception: branch `claude/file-selection-architecture` (ADR-009, an
+  in-app media browser with granular `READ_MEDIA_*` and PhotoKit; never
+  `MANAGE_EXTERNAL_STORAGE`), whose CI checks expect them.
 - System features with an NSH fake are tested headless through it
   (`nsh_extra::camera::set_backend` in `tests/camera.rs`).
 - On the desktops the root declares its window (`window().id("main")`);
