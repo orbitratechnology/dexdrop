@@ -256,6 +256,22 @@ if tap Photos; then
   # it lists something), its permission card, or a system picker.
   ad wait text "Select all" 20000 >/dev/null 2>&1 || true
   step 08-library
+  # The simctl grant does not reach PhotoKit on the iOS 26 simulator (as in
+  # CI run 86): the browser then shows its card, whose button asks with
+  # PhotoKit's prompt, answered "Allow Full Access" (the flow users see).
+  if grep -q "Allow access" "$out/08-library.txt"; then
+    tap "Allow access" || warn "could not tap Allow access"
+    if ad wait text "Allow Full Access" 20000 >/dev/null 2>&1; then
+      step 08-photos-prompt
+      tap "Allow Full Access" || ad alert accept >/dev/null 2>&1 || warn "could not answer the Photos prompt"
+      note "- The browser asked for the photo library with the system's prompt; answered Allow Full Access"
+    else
+      step 08-no-photos-prompt
+      warn "Allow access brought no Photos prompt (08-no-photos-prompt)"
+    fi
+    ad wait text "Select all" 20000 >/dev/null 2>&1 || true
+    step 08-library
+  fi
   if grep -q "Select all" "$out/08-library.txt"; then
     if tap "Select all" && tap Add && ad wait text "Selected" 10000 >/dev/null 2>&1; then
       step 08-library-added
@@ -264,7 +280,7 @@ if tap Photos; then
       warn "could not add the simulator's photos from the browser (08-library)"
     fi
   elif grep -q "Allow access" "$out/08-library.txt"; then
-    warn "the browser asks for access though it was granted (08-library)"
+    warn "the browser still asks for access after the prompt (08-library)"
   elif grep -q "Library" "$out/08-library.txt"; then
     warn "the browser opened and lists nothing (08-library)"
   else
