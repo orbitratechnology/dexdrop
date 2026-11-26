@@ -141,9 +141,10 @@ A run does only what it needs. Its first job, **Plan**
   `windows`, `linux`, `web`, `engine`, `app`, `all`) and `checks`; with
   checks off only that package is built and uploaded (its artifact, about
   10 minutes for Android).
-- **A commit message tag:** `[ci android]`, `[ci apple windows]`,
-  `[ci all]`, `[ci none]`; `build` in it skips the checks
-  (`[ci android build]`). GitHub's `[skip ci]` skips the run.
+- **A commit message tag**, in the subject line or on a line of its own
+  (a tag quoted inside a sentence is not one): `[ci android]`,
+  `[ci apple windows]`, `[ci all]`, `[ci none]`; `build` in it skips the
+  checks (`[ci android build]`). GitHub's `[skip ci]` skips the run.
 - **Otherwise the files changed** since the branch's last push (since
   `main` for a new branch): docs alone run nothing; engine crates run the
   engine tests on three OSes and the app UI tests; app code runs the app UI

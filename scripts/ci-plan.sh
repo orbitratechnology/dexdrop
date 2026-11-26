@@ -110,8 +110,15 @@ plan() {
     emit "$(normalize all)" true
     return
   fi
+  # A tag counts in the subject line or on a line of its own, not quoted in
+  # the body (a message describing the tags is not asking for one).
   local tag
-  tag=$(grep -oE '\[ci [a-z ,-]+\]' <<<"$message" | head -1 | sed -E 's/^\[ci (.*)\]$/\1/' || true)
+  tag=$( { head -1 <<<"$message"; grep -E '^[[:space:]]*\[ci [a-z ,-]+\][[:space:]]*$' <<<"$message" || true; } |
+    grep -oE '\[ci [a-z ,-]+\]' | head -1 | sed -E 's/^\[ci (.*)\]$/\1/' || true)
+  if [ -n "${TAG_ONLY:-}" ]; then # the self-test: the tag found, if any
+    echo "${tag:-none}"
+    return
+  fi
   if [ -n "$tag" ] && [ "$tag" != skip ]; then
     [[ " $tag " == *" build "* ]] && checks=false
     echo "reason=commit says [ci $tag]" >&2
@@ -175,6 +182,15 @@ self_test() {
   out=$(EVENT=push REF=refs/heads/x MESSAGE=$'Fix\n\n[ci apple build]' plan 2>/dev/null)
   grep -qx "apple=true" <<<"$out" && grep -qx "engine=false" <<<"$out" &&
     grep -qx "checks=false" <<<"$out" || { echo "FAIL: [ci apple build]" >&2; failed=1; }
+  # A tag quoted in a message's body is not a request (run 101 built only
+  # Android for a commit that described `[ci android]`).
+  out=$(EVENT=push REF=refs/heads/x BEFORE=none MESSAGE=$'CI: tags\n\n- a tag: [ci android], [ci all]' \
+    TAG_ONLY=1 plan 2>/dev/null)
+  [ "$out" = none ] || { echo "FAIL: a quoted tag was taken: $out" >&2; failed=1; }
+  out=$(EVENT=push REF=refs/heads/x MESSAGE=$'Fix the APK\n\n[ci android]' TAG_ONLY=1 plan 2>/dev/null)
+  [ "$out" = android ] || { echo "FAIL: a tag on its own line: $out" >&2; failed=1; }
+  out=$(EVENT=push REF=refs/heads/x MESSAGE='Fix the APK [ci android build]' TAG_ONLY=1 plan 2>/dev/null)
+  [ "$out" = "android build" ] || { echo "FAIL: a tag in the subject: $out" >&2; failed=1; }
   [ "$failed" = 0 ] && echo "ci-plan: rules hold"
   return "$failed"
 }
