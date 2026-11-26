@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NSH_VERSION: v0.7.0
+  NSH_VERSION: v0.7.1
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -52,7 +52,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      # GTK 4 only: since NSH 0.7.1 the Linux backend loads GStreamer at run
+      # time, so building needs none of its development files.
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang
       - run: cargo test -p dexdrop-app
 
   package-linux:
@@ -62,6 +64,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # GStreamer's development files stay here: `nsh package` links
+      # GStreamer into the runner of an app that plays video (the viewer's
+      # <Video>, NSH 0.7.1).
       - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb imagemagick
       - name: Install NSH
         run: |
@@ -111,8 +116,9 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       # The CLI describes the crate with a native helper, which links GTK;
-      # C code built for WebAssembly needs clang and llvm-ar.
-      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang llvm libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      # C code built for WebAssembly needs clang and llvm-ar. No GStreamer
+      # (NSH 0.7.1 loads it at run time).
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang llvm
       - name: Install NSH
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
@@ -138,7 +144,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      # The CLI's native helper links GTK; GStreamer is not needed since NSH
+      # 0.7.1.
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang
       # The runner image ships the Android SDK; add what NSH packages with.
       - run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true

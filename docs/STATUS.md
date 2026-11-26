@@ -213,7 +213,7 @@ Audited 2026-11-23 against the PRD's technology stack.
 
 | Layer | Recommended | DexDrop | Status |
 |---|---|---|---|
-| UI | NSH.dev | NSH 0.7.0, Rust-only; native tab bar, headers, pickers, video | Done |
+| UI | NSH.dev | NSH 0.7.1, Rust-only; native tab bar, headers, pickers, video | Done |
 | Core | Rust + Tokio, UI-independent | `dexdrop-core` (protocol, identity, manifest, journal; no I/O) and `dexdrop-net` (engine on Tokio); the app only sends commands and renders events | Done |
 | Separate modules | discovery / connection / orchestration / streaming | `discovery/`, `tls.rs` + `remote.rs` (connection), `engine.rs` (orchestration), `session.rs` (streaming); sessions run over any `AsyncRead + AsyncWrite` (`BoxLink`), so a transport is swappable | Done |
 | Discovery | mDNS + DNS-SD, Bonjour, Android NSD | Bonjour on Apple, NSD on Android, mdns-sd on Windows and Linux (not Avahi's API; it shares the port) | Done |

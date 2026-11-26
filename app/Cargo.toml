@@ -14,12 +14,12 @@ name = "dexdrop-app"
 path = "src/main.rs"
 
 [dependencies]
-nsh-core = { version = "=0.7.0", features = ["svg"] }
-nsh-base = "=0.7.0"
+nsh-core = { version = "=0.7.1", features = ["svg"] }
+nsh-base = "=0.7.1"
 # NSH's official modules (an nshm): `camera` scans another device's QR code
 # (FR-024). Its feature's [package.metadata.nsh] adds the camera's usage text
 # (iOS) and the camera apps' <queries> (Android) to the packages.
-nsh-extra = { version = "=0.7.0", features = ["camera"] }
+nsh-extra = { version = "=0.7.1", features = ["camera"] }
 dexdrop-core = { path = "../crates/dexdrop-core" }
 log = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -29,17 +29,17 @@ env_logger = "0.11"
 dexdrop-net = { path = "../crates/dexdrop-net" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "=0.7.0", default-features = false, features = ["svg"] }
+nsh-platform-linux = { version = "=0.7.1", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { version = "=0.7.0", default-features = false, features = ["svg"] }
+nsh-platform-macos = { version = "=0.7.1", default-features = false, features = ["svg"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { version = "=0.7.0", default-features = false, features = ["svg", "media"] }
+nsh-platform-windows = { version = "=0.7.1", default-features = false, features = ["svg", "media"] }
 
 [dev-dependencies]
-nsh-engine = "=0.7.0"
-nsh-testing = "=0.7.0"
+nsh-engine = "=0.7.1"
+nsh-testing = "=0.7.1"
 tempfile = "3"
 # Pictures of QR codes for the camera's fake (tests/camera.rs).
 image = { version = "0.25", default-features = false, features = ["png"] }
