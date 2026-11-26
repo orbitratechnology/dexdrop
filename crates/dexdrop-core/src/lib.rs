@@ -13,8 +13,11 @@
 //! - [`store`]: settings, trusted devices and history, stored locally.
 //! - [`avatar`]: a device's chosen emoji and color.
 //! - [`format`]: human-readable sizes, rates and durations.
+//! - [`asset`], [`source`]: selected items as references, and reading any
+//!   source (a file or a referenced item) to send.
 
 pub mod api;
+pub mod asset;
 pub mod avatar;
 pub mod format;
 pub mod fsutil;
@@ -27,6 +30,7 @@ pub mod manifest;
 pub mod naming;
 pub mod pathsafe;
 pub mod protocol;
+pub mod source;
 pub mod store;
 
 #[cfg(not(target_arch = "wasm32"))]

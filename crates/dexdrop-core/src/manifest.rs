@@ -60,8 +60,21 @@ impl Manifest {
         let mut manifest = Manifest::default();
         let mut top_names = HashSet::new();
         for path in paths {
+            let name_of = display_name(path);
+            // A referenced item (a photo in the library, a document of a
+            // provider): its provider says its size and time; it is read
+            // where it is when the transfer starts (crate::source).
+            if crate::asset::is_reference(path) {
+                let st = crate::source::stat(path).map_err(|source| ManifestError::Io {
+                    path: name_of.clone(),
+                    source,
+                })?;
+                let name = unique_top_name(&mut top_names, &name_of);
+                manifest.push_entry(path.clone(), name, st.len, st.mtime)?;
+                continue;
+            }
             let meta = fs::symlink_metadata(path).map_err(|source| ManifestError::Io {
-                path: display_name(path),
+                path: name_of,
                 source,
             })?;
             let name = unique_top_name(&mut top_names, &display_name(path));
@@ -138,15 +151,25 @@ impl Manifest {
         path: String,
         meta: &fs::Metadata,
     ) -> Result<(), ManifestError> {
+        self.push_entry(source, path, meta.len(), mtime_of(meta))
+    }
+
+    fn push_entry(
+        &mut self,
+        source: PathBuf,
+        path: String,
+        size: u64,
+        mtime: Option<u64>,
+    ) -> Result<(), ManifestError> {
         self.check_room()?;
         self.files += 1;
-        self.total_bytes += meta.len();
+        self.total_bytes += size;
         self.entries.push(SourceEntry {
             wire: WireEntry {
                 path,
                 kind: EntryKind::File,
-                size: meta.len(),
-                mtime: mtime_of(meta),
+                size,
+                mtime,
             },
             source: Some(source),
         });

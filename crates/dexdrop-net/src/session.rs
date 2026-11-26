@@ -18,7 +18,7 @@ use std::{
 
 use dexdrop_core::{
     journal::{FileProgress, FileState, JournalWriter, ReceiveJournal, RecordDir, partial_path},
-    manifest::{Manifest, mtime_of},
+    manifest::Manifest,
     naming::{self, ConflictPolicy},
     pathsafe,
     protocol::{
@@ -28,7 +28,7 @@ use dexdrop_core::{
     },
 };
 use tokio::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{Semaphore, mpsc, watch},
 };
@@ -591,14 +591,20 @@ async fn stream_file<W: AsyncWrite + Unpin>(
         return Ok(data.len() as u64);
     }
 
-    let file = match File::open(source).await {
-        Ok(file) => file,
-        Err(_) => {
+    // A file, or a referenced item read where it is (a photo in the
+    // library, a document of a provider): dexdrop_core::source.
+    let opened = {
+        let source = source.clone();
+        tokio::task::spawn_blocking(move || dexdrop_core::source::open(&source)).await
+    };
+    let file = match opened {
+        Ok(Ok(file)) => file,
+        _ => {
             wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
             return Ok(0);
         }
     };
-    if !unchanged(&file, entry).await {
+    if !unchanged(file.stat(), &entry.wire) {
         wire::send(wr, &fail(FileFailure::SourceChanged)).await?;
         return Ok(0);
     }
@@ -609,7 +615,6 @@ async fn stream_file<W: AsyncWrite + Unpin>(
     // READ_AHEAD chunks wait, so memory stays bounded.
     let (chunks, mut ready) = mpsc::channel::<ReadChunk>(READ_AHEAD);
     let reader = {
-        let file = file.into_std().await;
         let entry = entry.clone();
         tokio::task::spawn_blocking(move || read_chunks(file, &entry, offset, chunk, &chunks))
     };
@@ -706,7 +711,7 @@ enum ReadChunk {
 /// whole-file hash. Stops quietly when the sender stops taking chunks; a
 /// read error or a changed file ends the channel without `End`.
 fn read_chunks(
-    mut file: std::fs::File,
+    mut file: Box<dyn dexdrop_core::asset::SourceReader>,
     entry: &dexdrop_core::manifest::SourceEntry,
     offset: u64,
     chunk: u64,
@@ -739,10 +744,7 @@ fn read_chunks(
         }
         pos += n as u64;
     }
-    let same = file
-        .metadata()
-        .is_ok_and(|m| m.len() == size && mtime_of(&m) == entry.wire.mtime);
-    if same {
+    if unchanged(file.stat(), &entry.wire) {
         let _ = out.blocking_send(ReadChunk::End(*whole.finalize().as_bytes()));
     }
 }
@@ -801,13 +803,11 @@ impl Stop {
     }
 }
 
-/// Reads a small file whole, checking it still matches the manifest.
+/// Reads a small source whole, checking it still matches the manifest.
 fn read_small(source: &Path, expected: &WireEntry) -> Result<Vec<u8>, FileFailure> {
     use std::io::Read;
-    let matches =
-        |meta: &std::fs::Metadata| meta.len() == expected.size && mtime_of(meta) == expected.mtime;
-    let mut file = std::fs::File::open(source).map_err(|_| FileFailure::SourceChanged)?;
-    if !file.metadata().is_ok_and(|m| matches(&m)) {
+    let mut file = dexdrop_core::source::open(source).map_err(|_| FileFailure::SourceChanged)?;
+    if !unchanged(file.stat(), expected) {
         return Err(FileFailure::SourceChanged);
     }
     let mut data = Vec::with_capacity(expected.size as usize);
@@ -815,22 +815,21 @@ fn read_small(source: &Path, expected: &WireEntry) -> Result<Vec<u8>, FileFailur
         .take(expected.size + 1)
         .read_to_end(&mut data)
         .map_err(|_| FileFailure::SourceUnreadable)?;
-    if data.len() as u64 != expected.size || !file.metadata().is_ok_and(|m| matches(&m)) {
+    if data.len() as u64 != expected.size || !unchanged(file.stat(), expected) {
         return Err(FileFailure::SourceChanged);
     }
     Ok(data)
 }
 
-/// The BLAKE3 hash of a source file, if it still is as offered.
+/// The BLAKE3 hash of a source, if it still is as offered.
 fn source_hash(source: &Path, expected: &WireEntry) -> Option<[u8; 32]> {
-    let matches =
-        |meta: &std::fs::Metadata| meta.len() == expected.size && mtime_of(meta) == expected.mtime;
-    let file = std::fs::File::open(source).ok()?;
-    if !file.metadata().is_ok_and(|m| matches(&m)) {
+    let mut file = dexdrop_core::source::open(source).ok()?;
+    if !unchanged(file.stat(), expected) {
         return None;
     }
-    let hash = file_hash(&file)?;
-    file.metadata().is_ok_and(|m| matches(&m)).then_some(hash)
+    let mut hasher = blake3::Hasher::new();
+    hasher.update_reader(&mut file).ok()?;
+    unchanged(file.stat(), expected).then_some(*hasher.finalize().as_bytes())
 }
 
 /// The BLAKE3 hash of an open file's content.
@@ -852,11 +851,9 @@ fn existing_hash(path: &Path, size: u64) -> Option<[u8; 32]> {
     (file.metadata().ok()?.len() == size).then_some(hash)
 }
 
-async fn unchanged(file: &File, entry: &dexdrop_core::manifest::SourceEntry) -> bool {
-    match file.metadata().await {
-        Ok(meta) => meta.len() == entry.wire.size && mtime_of(&meta) == entry.wire.mtime,
-        Err(_) => false,
-    }
+/// Whether a source is still as the manifest offered it.
+fn unchanged(now: std::io::Result<dexdrop_core::asset::Stat>, expected: &WireEntry) -> bool {
+    now.is_ok_and(|s| !s.is_dir && s.len == expected.size && s.mtime == expected.mtime)
 }
 
 // ---------------------------------------------------------------- receiver
