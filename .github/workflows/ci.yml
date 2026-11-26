@@ -3,7 +3,19 @@ name: CI
 on:
   push:
   pull_request:
+  # "Run workflow" builds what is asked: one platform's package (with its
+  # checks, or without for just the artifact), or everything.
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: "What to run (auto: what the changes need)"
+        type: choice
+        default: auto
+        options: [auto, all, android, apple, windows, linux, web, engine, app]
+      checks:
+        description: "Run the tests and device checks (off: build the package only)"
+        type: boolean
+        default: true
 
 # A newer push to the same branch cancels the run still going for the older
 # commit, so packaging is not repeated for outdated commits.
@@ -16,9 +28,45 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Which jobs this run needs (scripts/ci-plan.sh): everything on main and
+  # pull requests; else what was asked (Run workflow, `[ci android]` in the
+  # commit message) or what the changed files touch. Its summary says why.
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      engine: ${{ steps.plan.outputs.engine }}
+      app: ${{ steps.plan.outputs.app }}
+      linux: ${{ steps.plan.outputs.linux }}
+      web: ${{ steps.plan.outputs.web }}
+      android: ${{ steps.plan.outputs.android }}
+      apple: ${{ steps.plan.outputs.apple }}
+      windows: ${{ steps.plan.outputs.windows }}
+      checks: ${{ steps.plan.outputs.checks }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: scripts/ci-plan.sh --self-test
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          PLATFORMS: ${{ inputs.platforms }}
+          CHECKS: ${{ inputs.checks }}
+        run: |
+          git fetch -q origin main || true
+          scripts/ci-plan.sh 2> reason.txt | tee -a "$GITHUB_OUTPUT" > plan.txt
+          { echo "### Plan"; echo; sed 's/^reason=//' reason.txt; echo; echo '```'; cat plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   # The engine and protocol on every desktop OS: no UI toolkit needed.
   engine:
     name: Engine tests (${{ matrix.os }})
+    needs: plan
+    if: needs.plan.outputs.engine == 'true' && needs.plan.outputs.checks == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +95,8 @@ jobs:
   # The NSH app's headless UI tests (GTK 4 is needed to link the desktop crate).
   app-tests:
     name: App UI tests (Linux)
+    needs: plan
+    if: needs.plan.outputs.app == 'true' && needs.plan.outputs.checks == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -59,6 +109,8 @@ jobs:
 
   package-linux:
     name: Package Linux
+    needs: plan
+    if: needs.plan.outputs.linux == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +138,7 @@ jobs:
       # The real GTK app driven by NSH's test runner (app/e2e): the same
       # selectors as the headless tests, through the platform's input.
       - name: App e2e (nsh test, Linux)
+        if: needs.plan.outputs.checks == 'true'
         env:
           GSK_RENDERER: cairo
           CARGO_PROFILE_DEV_DEBUG: "0"
@@ -94,6 +147,7 @@ jobs:
           mkdir -p dist/desktop-check
           cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/app.test.ts --target linux --junit ../dist/desktop-check/e2e-linux.xml
       - name: Desktop app check
+        if: needs.plan.outputs.checks == 'true'
         env:
           GSK_RENDERER: cairo
         run: >
@@ -101,13 +155,15 @@ jobs:
           python3 scripts/desktop-check.py --require-discovery
           --app dist/linux/DexDrop/DexDrop --cli target/release/dexdrop --out dist/desktop-check
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.plan.outputs.checks == 'true'
         with:
           name: desktop-check-linux
           path: dist/desktop-check
 
   package-web:
     name: Package web preview
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +187,8 @@ jobs:
 
   package-android:
     name: Package Android
+    needs: plan
+    if: needs.plan.outputs.android == 'true'
     runs-on: ubuntu-24.04
     env:
       NDK_VERSION: 27.2.12479018
@@ -204,7 +262,9 @@ jobs:
           name: dexdrop-android
           path: dist/android/*.apk
       # The CLI for the emulator: the check runs it inside, next to the app.
+      # The checks below: skipped for a build-only run.
       - name: Build the CLI for the emulator
+        if: needs.plan.outputs.checks == 'true'
         run: |
           bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$bin/x86_64-linux-android26-clang"
@@ -212,17 +272,21 @@ jobs:
           export AR_x86_64_linux_android="$bin/llvm-ar"
           cargo build --release -p dexdrop-cli --target x86_64-linux-android
       - name: Enable KVM for the emulator
+        if: needs.plan.outputs.checks == 'true'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - uses: actions/setup-node@v4
+        if: needs.plan.outputs.checks == 'true'
         with:
           node-version: "22"
       - run: npm install -g agent-device@latest && sudo apt-get install -y zbar-tools
+        if: needs.plan.outputs.checks == 'true'
       # NSH's runner first (app/e2e on the emulator), then what crosses
       # apps (system pickers, the CLI as the other device) with agent-device.
       - name: Android emulator checks (nsh test, then agent-device)
+        if: needs.plan.outputs.checks == 'true'
         timeout-minutes: 50
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -236,13 +300,15 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash scripts/android-checks.sh "$(ls dist/android/*.apk | head -1)" target/x86_64-linux-android/release/dexdrop dist/android-check
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
         with:
           name: android-check
           path: dist/android-check
 
   package-windows:
     name: Package Windows
+    needs: plan
+    if: needs.plan.outputs.windows == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -262,6 +328,7 @@ jobs:
             dist/windows
             target/release/dexdrop.exe
       - name: App e2e (nsh test, Windows)
+        if: needs.plan.outputs.checks == 'true'
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
         shell: bash
@@ -269,9 +336,10 @@ jobs:
           mkdir -p dist/desktop-check
           cd app && nsh test e2e/app.test.ts --target windows --junit ../dist/desktop-check/e2e-windows.xml
       - name: Desktop app check
+        if: needs.plan.outputs.checks == 'true'
         run: python scripts/desktop-check.py --app dist/windows/DexDrop/DexDrop.exe --cli target/release/dexdrop.exe --out dist/desktop-check
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.plan.outputs.checks == 'true'
         with:
           name: desktop-check-windows
           path: dist/desktop-check
@@ -280,6 +348,8 @@ jobs:
   # membership is needed for either (PRD 1.1, 8.2).
   package-apple:
     name: Package macOS and iOS simulator
+    needs: plan
+    if: needs.plan.outputs.apple == 'true'
     runs-on: macos-15
     permissions:
       # The simulator build goes to the native-sim-build release.
@@ -342,10 +412,10 @@ jobs:
           done
           exit 1
       - name: Desktop app check (macOS)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
         run: python3 scripts/desktop-check.py --require-discovery --app dist/macos/DexDrop.app --cli target/release/dexdrop --out dist/desktop-check
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.plan.outputs.checks == 'true'
         with:
           name: desktop-check-macos
           path: dist/desktop-check
@@ -353,35 +423,35 @@ jobs:
       # and receive a file sent by the CLI on the same Mac (no stream, no
       # tunnel: the runner itself hosts the simulator).
       - uses: actions/setup-node@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
         with:
           node-version: 22
       - uses: actions/cache@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
         with:
           path: ~/.agent-device/apple-runner/derived
           key: agent-device-runner-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
           restore-keys: agent-device-runner-${{ runner.os }}-
       - run: npm install -g agent-device@latest
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
       # The packaged macOS app through its own UI: sections, discovery, a
       # code transfer accepted in the app, and sending from the app with
       # Pause and Resume.
       - name: macOS app check (agent-device)
         timeout-minutes: 20
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
         run: scripts/macos-ui-check.sh dist/macos/DexDrop.app target/release/dexdrop dist/macos-ui
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.plan.outputs.checks == 'true'
         with:
           name: macos-ui-check
           path: dist/macos-ui
       - name: iOS Simulator check (agent-device)
         timeout-minutes: 30
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.plan.outputs.checks == 'true' }}
         run: scripts/ios-sim-check.sh dist/ios-simulator target/release/dexdrop dist/ios-screens
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.plan.outputs.checks == 'true'
         with:
           name: ios-simulator-screens
           path: dist/ios-screens
@@ -395,6 +465,8 @@ jobs:
   # the agent-device checks, and its own cache keeps its debug builds.
   e2e-apple:
     name: App e2e (macOS, iOS simulator)
+    needs: plan
+    if: needs.plan.outputs.apple == 'true' && needs.plan.outputs.checks == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
