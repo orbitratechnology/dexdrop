@@ -244,20 +244,34 @@ app_dir=$(find "$dist" -maxdepth 2 -name '*.app' -type d | head -1)
   fail "Info.plist lacks NSPhotoLibraryUsageDescription"
 bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_dir/Info.plist")
 xcrun simctl privacy "$udid" grant photos "$bundle" >/dev/null 2>&1 || true
+# A photo of the check's own in the library (a new simulator may have none).
+xcrun simctl addmedia "$udid" "$(cd "$(dirname "$0")" && pwd)/fixtures/dexdrop-check.jpg" >/dev/null 2>&1 ||
+  warn "could not add the check's photo to the simulator's library"
 tap Share || true
 tap Send || fail "could not open Send"
 ad wait text "Files" 20000 >/dev/null 2>&1 || { step 08-no-send; fail "Send does not show its choices"; }
 step 08-send-kinds
-if tap Photos && ad wait text "Select all" 20000 >/dev/null 2>&1; then
+if tap Photos; then
+  # What Photos opened, whatever it is: the browser (its "Select all" once
+  # it lists something), its permission card, or a system picker.
+  ad wait text "Select all" 20000 >/dev/null 2>&1 || true
   step 08-library
-  if tap "Select all" && tap Add && ad wait text "Selected" 10000 >/dev/null 2>&1; then
-    step 08-library-added
-    note "- Photos lists the library in the app; all chosen and added (references, nothing exported)"
+  if grep -q "Select all" "$out/08-library.txt"; then
+    if tap "Select all" && tap Add && ad wait text "Selected" 10000 >/dev/null 2>&1; then
+      step 08-library-added
+      note "- Photos lists the library in the app; all chosen and added (references, nothing exported)"
+    else
+      warn "could not add the simulator's photos from the browser (08-library)"
+    fi
+  elif grep -q "Allow access" "$out/08-library.txt"; then
+    warn "the browser asks for access though it was granted (08-library)"
+  elif grep -q "Library" "$out/08-library.txt"; then
+    warn "the browser opened and lists nothing (08-library)"
   else
-    warn "could not add the simulator's photos from the browser (08-library)"
+    warn "Photos did not open the media browser (08-library)"
   fi
 else
-  warn "Photos did not open the media browser (08-send-kinds)"
+  warn "could not tap Photos (08-send-kinds)"
 fi
 
 ad close >/dev/null 2>&1 || true

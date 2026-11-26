@@ -429,7 +429,8 @@ requested=$(sh_ dumpsys package "$pkg" | sed -n '/requested permissions:/,/insta
 grep -q "android.permission.READ_MEDIA_IMAGES\$" <<<"$requested" || fail "the app does not request READ_MEDIA_IMAGES (dumpsys package)"
 note "- Requests the granular media permissions, not all files (dumpsys package)"
 # A photo of the check's own, indexed by MediaStore.
-head -c 40000 /dev/urandom >"$out/dexdrop-check.jpg"
+# A real JPEG (scripts/fixtures), so the system can make its thumbnail.
+cp "$(cd "$(dirname "$0")" && pwd)/fixtures/dexdrop-check.jpg" "$out/dexdrop-check.jpg"
 adb -s "$serial" push "$out/dexdrop-check.jpg" /sdcard/Pictures/dexdrop-check.jpg >/dev/null
 sh_ "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/dexdrop-check.jpg" >/dev/null 2>&1 || true
 sh_ "content call --uri content://media --method scan_volume --arg external_primary" >/dev/null 2>&1 || true
@@ -446,7 +447,9 @@ if tap_only Send && ad wait text "Files" 10000 >/dev/null 2>&1; then
     if tap_only dexdrop-check.jpg && tap_only "Add 1 item" &&
       ad wait text "Selected" 10000 >/dev/null 2>&1; then
       step 15-library-added
-      copies=$(app_sh "find . -name dexdrop-check.jpg -type f" | tr -d '\r')
+      # The app's own storage only: the original stays in shared storage
+      # (/sdcard/Pictures, and the paths that mount it), where it belongs.
+      copies=$(app_sh "find /data/data/$pkg /data/user/0/$pkg /sdcard/Android/data/$pkg -name dexdrop-check.jpg -type f 2>/dev/null" | tr -d '\r')
       [ -z "$copies" ] || fail "the chosen photo was copied into the app: $copies"
       note "- Photos lists the device's photos in the app; one chosen and added without a copy"
     else
