@@ -72,8 +72,9 @@ every action, and the platform's own controls where NSH has them.
   `main`, which keeps the pickers below until Google Play accepts the
   photo and video permission declaration. CI runs the browser on the
   Android emulator and the iOS simulator (list, thumbnails, add without a
-  copy; runs 103 and 105); not yet on a phone. iOS documents are still
-  copied.
+  copy; runs 103 and 105); not yet on a phone. Files on iPhone opens
+  documents in place too (bookmarks, security scope; type-checked, checked
+  on the simulator from the next CI run).
 - **No media Recent on phones (ADR-008):** showing a phone's newest
   photos and videos takes a broad photo permission (Android's
   `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`, which Google Play restricts to

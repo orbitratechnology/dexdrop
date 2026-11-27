@@ -231,14 +231,39 @@ fn browse_or(category: Category, kind: Kind) {
     }
 }
 
-/// Phones' files: on Android the system's document picker, the documents
-/// sent from where they are (`dexdrop_net::assets`, nothing copied);
-/// elsewhere the picker that copies.
+/// Phones' files: the system's document picker, the documents sent from
+/// where they are, nothing copied (Android: `dexdrop_net::assets`; iPhone:
+/// `dexdrop_photos`' `ios-doc`); elsewhere the picker that copies.
 fn choose_documents() {
     #[cfg(target_os = "android")]
     if crate::pages::library::offered() {
         set_loading(Some("Getting your files…".into()));
         let picking = blocking(|| dexdrop_net::assets::pick_documents(&[]));
+        detached(async move {
+            let picked = picking.await;
+            set_loading(None);
+            match picked {
+                Ok(Ok(items)) => select(
+                    items
+                        .iter()
+                        .map(dexdrop_core::asset::MediaItem::path)
+                        .collect(),
+                ),
+                Ok(Err(err)) => toast(
+                    NoticeKind::Error,
+                    format!("Could not open the files: {err}"),
+                ),
+                Err(_) => {}
+            }
+        });
+        return;
+    }
+    // iPhone: the document picker in open mode, the files read where they
+    // are (dexdrop-photos' `ios-doc`, nothing copied).
+    #[cfg(target_os = "ios")]
+    if dexdrop_core::asset::provider(dexdrop_photos::DOC_SCHEME).is_some() {
+        set_loading(Some("Getting your files…".into()));
+        let picking = blocking(dexdrop_photos::pick_documents);
         detached(async move {
             let picked = picking.await;
             set_loading(None);

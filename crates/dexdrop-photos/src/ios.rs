@@ -98,7 +98,7 @@ pub fn choose_more() {
 }
 
 /// Runs `work` on the main thread (GCD's main queue).
-fn run_on_main(work: impl FnOnce() + Send + 'static) {
+pub(crate) fn run_on_main(work: impl FnOnce() + Send + 'static) {
     unsafe extern "C" {
         static _dispatch_main_q: AnyObject;
         fn dispatch_async_f(
@@ -126,7 +126,7 @@ fn run_on_main(work: impl FnOnce() + Send + 'static) {
 
 /// The view controller in front: the key window's root, then what it
 /// presents. Main thread only.
-unsafe fn front_controller() -> Option<Retained<AnyObject>> {
+pub(crate) unsafe fn front_controller() -> Option<Retained<AnyObject>> {
     let app_class = AnyClass::get(c"UIApplication")?;
     // SAFETY (whole function): documented UIKit messages on the main
     // thread, each result checked for nil.

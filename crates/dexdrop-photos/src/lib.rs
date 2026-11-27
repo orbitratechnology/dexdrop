@@ -13,16 +13,25 @@
 //!   bounded channel the engine reads from; dropping the reader cancels the
 //!   request. Nothing is exported to a file.
 //!
+//! - **documents** (`ios-doc`, `docs.rs`) are picked in place with the
+//!   system's document picker (`asCopy: false`), kept as bookmarks and read
+//!   inside their security scope: no copy.
+//!
 //! Elsewhere there is no library: [`register`] does nothing and [`access`]
 //! says [`Access::NotNeeded`].
 
 use std::path::Path;
 
 #[cfg(target_os = "ios")]
+mod docs;
+#[cfg(target_os = "ios")]
 mod ios;
 
 /// The scheme of this provider's ids.
 pub const SCHEME: &str = "ios-photos";
+
+/// The scheme of documents picked in place (`pick_documents`).
+pub const DOC_SCHEME: &str = "ios-doc";
 
 /// What the app may read of the library.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,14 +71,29 @@ pub fn choose_more() {
     ios::choose_more();
 }
 
-/// Registers the `ios-photos` provider; thumbnails go to `cache`.
+/// Registers the `ios-photos` and `ios-doc` providers; thumbnails go to
+/// `cache`.
 pub fn register(cache: &Path) {
     #[cfg(target_os = "ios")]
-    dexdrop_core::asset::register(std::sync::Arc::new(ios::Photos::new(
-        cache.join("thumbnails"),
-    )));
+    {
+        dexdrop_core::asset::register(std::sync::Arc::new(ios::Photos::new(
+            cache.join("thumbnails"),
+        )));
+        docs::register_docs();
+    }
     #[cfg(not(target_os = "ios"))]
     let _ = cache;
+}
+
+/// Shows the system's document picker in open mode (several, any type)
+/// and waits for the user: the documents picked, read in place (no copy);
+/// none when cancelled. Blocks: call it off the main thread. Elsewhere:
+/// unsupported.
+pub fn pick_documents() -> std::io::Result<Vec<dexdrop_core::asset::MediaItem>> {
+    #[cfg(target_os = "ios")]
+    return docs::pick();
+    #[cfg(not(target_os = "ios"))]
+    Err(std::io::ErrorKind::Unsupported.into())
 }
 
 /// A file name for a thumbnail of the asset `id` (local identifiers hold
@@ -95,6 +119,24 @@ pub fn sanitize(name: &str) -> String {
     }
 }
 
+/// `bytes` as lowercase hex (a document's bookmark as its token).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The bytes `text` holds as hex; `None` when it is not hex.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,7 +150,19 @@ mod tests {
     }
 
     #[test]
+    fn bookmarks_round_trip_as_tokens() {
+        let bytes: Vec<u8> = (0..=255).collect();
+        let token = hex(&bytes);
+        assert_eq!(token.len(), 512);
+        assert!(!token.contains('/'));
+        assert_eq!(unhex(&token), Some(bytes));
+        assert_eq!(unhex("abc"), None);
+        assert_eq!(unhex("zz"), None);
+    }
+
+    #[test]
     fn elsewhere_there_is_no_library() {
+        assert!(pick_documents().is_err());
         assert_eq!(access(), Access::NotNeeded);
         register(Path::new("/nowhere"));
         assert!(dexdrop_core::asset::provider(SCHEME).is_none());

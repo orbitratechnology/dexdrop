@@ -550,8 +550,9 @@ devices is arguably that for a transfer app (the category Google names as
 an example of apps that may qualify is file managers and similar), but it
 is Google's call at review: ship it only after the declaration is accepted,
 or keep `main`'s picker-only flow (ADR-008). App Store: photo library access
-with a purpose string is ordinary. iOS documents are still copied by NSH's
-picker (an in-place `UIDocumentPicker` is not built yet). CI on the branch
+with a purpose string is ordinary. iOS documents are picked in place too
+(`ios-doc`: `UIDocumentPicker` in open mode, kept as bookmarks, read inside
+their security scope), which needs no permission. CI on the branch
 requires the media permissions and the bridge classes in the APK and still
 fails `MANAGE_EXTERNAL_STORAGE`; the emulator and simulator checks browse,
 choose and add a photo, and the emulator check fails if it was copied into

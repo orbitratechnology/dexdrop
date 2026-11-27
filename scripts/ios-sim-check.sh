@@ -294,6 +294,43 @@ else
   warn "could not tap Photos (08-send-kinds)"
 fi
 
+# 4. Files in place (dexdrop-photos' ios-doc): the system's document picker
+#    in open mode; note.bin, received above into the app's Documents, picked
+#    from On My iPhone › DexDrop and added to Send with no copy of it in the
+#    app's container (the copying picker puts one in tmp/…-Inbox). Best
+#    effort: the picker's own screens differ between iOS versions.
+tap Share || true
+tap Send || true
+if tap Files && ad wait text "Browse" 20000 >/dev/null 2>&1; then
+  step 09-doc-picker
+  tap Browse || true
+  tap "On My iPhone" || true
+  tap DexDrop || true
+  if ad wait text "note.bin" 10000 >/dev/null 2>&1; then
+    tap note.bin || true
+    # Several may be picked: an Open button confirms, when there is one.
+    tap Open >/dev/null 2>&1 || true
+    if ad wait 'label="Remove note.bin"' 15000 >/dev/null 2>&1; then
+      step 09-doc-added
+      copies=$(find "$container" -name note.bin -type f | wc -l | tr -d ' ')
+      if [ "$copies" = 1 ]; then
+        note "- Files: note.bin picked in the document picker (open mode) and added in place: one note.bin in the app's container"
+      else
+        warn "note.bin added, but the app's container holds $copies of it (09-doc-added)"
+      fi
+    else
+      step 09-doc-not-added
+      warn "note.bin was not added from the document picker (09-doc-not-added)"
+    fi
+  else
+    step 09-doc-browse
+    warn "the document picker did not show DexDrop's note.bin (09-doc-browse)"
+  fi
+else
+  step 09-no-doc-picker
+  warn "Files did not open the document picker (09-no-doc-picker)"
+fi
+
 ad close >/dev/null 2>&1 || true
 note ""
 note "Passed in $(($(date +%s) - t0)) s."
