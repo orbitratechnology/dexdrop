@@ -11,10 +11,11 @@ use dexdrop_core::{
 use nsh_base::theme;
 use nsh_core::{prelude::*, share::ShareRequest};
 
+use crate::state::engine;
 use crate::{
     bridge,
     pages::body,
-    state::{Route, desktop_platform, model, reset_to, toast},
+    state::{Route, desktop_platform, reset_to, toast},
     ui::{self, Icon, Tone, Variant, muted, space},
 };
 
@@ -138,10 +139,9 @@ pub fn one_line(t: &TransferSnapshot) -> String {
 
 /// The transfer a route shows: by id, or the newest outgoing one.
 fn find(id: Option<TransferId>) -> Option<TransferSnapshot> {
-    model().with(|m| match id {
-        Some(id) => m.transfers.iter().find(|t| t.id == id).cloned(),
-        None => m
-            .transfers
+    engine::transfers().with(|engine::Transfers(transfers)| match id {
+        Some(id) => transfers.iter().find(|t| t.id == id).cloned(),
+        None => transfers
             .iter()
             .find(|t| t.direction == Direction::Outgoing)
             .cloned(),
@@ -184,17 +184,14 @@ enum Shown {
 }
 
 fn group_size(group: TransferId) -> usize {
-    model().with(|m| {
-        m.transfers
-            .iter()
-            .filter(|t| t.group == Some(group))
-            .count()
+    engine::transfers().with(|engine::Transfers(transfers)| {
+        transfers.iter().filter(|t| t.group == Some(group)).count()
     })
 }
 
 fn in_group(group: TransferId) -> Vec<TransferSnapshot> {
-    model().with(|m| {
-        m.transfers
+    engine::transfers().with(|engine::Transfers(transfers)| {
+        transfers
             .iter()
             .filter(|t| t.group == Some(group))
             .cloned()
@@ -629,7 +626,9 @@ fn after(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElement 
 /// model's other changes (progress, peers) leave it and the user's choices
 /// in it (trust, conflicts, options) alone. Escape and back decline it.
 pub fn request_overlay() -> impl IntoElement {
-    let shown = computed(move || model().with(|m| m.requests.first().map(|r| r.id)));
+    let shown = computed(move || {
+        engine::requests().with(|engine::Requests(requests)| requests.first().map(|r| r.id))
+    });
     ui::sheet(
         "Incoming files",
         move || shown.get().is_some(),
@@ -640,8 +639,10 @@ pub fn request_overlay() -> impl IntoElement {
         },
         dynamic(move || {
             let id = shown.get()?;
-            model()
-                .with_untracked(|m| m.requests.iter().find(|r| r.id == id).cloned())
+            engine::requests()
+                .with_untracked(|engine::Requests(requests)| {
+                    requests.iter().find(|r| r.id == id).cloned()
+                })
                 .map(request_sheet)
         }),
     )
@@ -691,8 +692,8 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
     let name = r.peer_name.clone();
     let field = move |f: fn(&IncomingRequest) -> String| {
         move || {
-            model().with(|m| {
-                m.requests
+            engine::requests().with(|engine::Requests(requests)| {
+                requests
                     .iter()
                     .find(|x| x.id == id)
                     .map(f)
@@ -704,8 +705,8 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
         field(|r| r.peer_name.clone()),
         field(|r| r.peer_platform.clone()),
         move || {
-            model().with(|m| {
-                m.requests
+            engine::requests().with(|engine::Requests(requests)| {
+                requests
                     .iter()
                     .find(|x| x.id == id)
                     .and_then(|r| r.peer_avatar.clone())

@@ -12,9 +12,10 @@ use nsh_core::{
     prelude::*,
 };
 
+use crate::state::engine;
 use crate::{
     bridge, pages,
-    state::{Route, Sheet, Tab, model, pop, set_tab, sheet, stack, tab, toasts, truncate, wide},
+    state::{Route, Sheet, Tab, pop, set_tab, sheet, stack, tab, toasts, truncate, wide},
     ui::{self, Icon, Tone, Variant, muted, space},
 };
 
@@ -172,7 +173,7 @@ pub fn shell() -> impl IntoElement {
 /// Whether the page is all there is: no request's sheet, dialog or toast
 /// over it.
 fn nothing_over_the_page() -> bool {
-    model().with(|m| m.requests.is_empty())
+    engine::requests().with(|engine::Requests(requests)| requests.is_empty())
         && sheet().with(|s| *s == Sheet::None)
         && toasts().with(|t| t.showing == 0)
 }
@@ -189,8 +190,12 @@ fn escape_goes_back() -> impl IntoElement {
 /// (FR-004): on iOS and macOS, once, after the engine has started.
 fn needs_local_network_intro() -> bool {
     matches!(nsh_core::element::os().name(), "ios" | "macos")
-        && model().with(|m| {
-            m.status.is_some() && m.offline.is_none() && !m.settings.local_network_explained
+        && engine::status().with(|engine::EngineStatus(status)| {
+            engine::offline().with(|engine::Offline(offline)| {
+                engine::settings().with(|engine::SettingsState(settings)| {
+                    status.is_some() && offline.is_none() && !settings.local_network_explained
+                })
+            })
         })
 }
 
@@ -223,12 +228,14 @@ fn local_network_intro() -> impl IntoElement {
 
 /// Requests waiting for an answer and transfers running.
 fn activity() -> usize {
-    model().with(|m| {
-        m.requests.len()
-            + m.transfers
-                .iter()
-                .filter(|t| !t.state.is_finished() && t.state != TransferState::Requested)
-                .count()
+    engine::requests().with(|engine::Requests(requests)| {
+        engine::transfers().with(|engine::Transfers(transfers)| {
+            requests.len()
+                + transfers
+                    .iter()
+                    .filter(|t| !t.state.is_finished() && t.state != TransferState::Requested)
+                    .count()
+        })
     })
 }
 
@@ -676,23 +683,27 @@ fn nav_item(t: Tab) -> impl IntoElement {
 /// This device, visible or not, at the foot of the sidebar.
 fn device_chip() -> impl IntoElement {
     let name = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.device_name.clone())
                 .unwrap_or_default()
         })
     };
     let platform = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.platform.clone())
                 .unwrap_or_default()
         })
     };
     let visible = move || {
-        model().with(|m| m.status.as_ref().is_some_and(|s| s.visible) && m.offline.is_none())
+        engine::status().with(|engine::EngineStatus(status)| {
+            engine::offline().with(|engine::Offline(offline)| {
+                status.as_ref().is_some_and(|s| s.visible) && offline.is_none()
+            })
+        })
     };
     ui::pressable()
         .accessibility_label(move || {

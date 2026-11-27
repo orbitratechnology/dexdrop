@@ -8,11 +8,12 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 
 use crate::state::desktop_platform;
+use crate::state::engine;
 
 use crate::{
     bridge,
     pages::{body, home, transfer},
-    state::{Route, model, push},
+    state::{Route, push},
     ui::{self, Icon, Tone, Variant, muted, space},
 };
 
@@ -43,8 +44,8 @@ impl Filter {
 pub fn page() -> impl IntoElement {
     let filter = signal(Filter::All);
     let active = move || {
-        model().with(|m| {
-            m.transfers
+        engine::transfers().with(|engine::Transfers(transfers)| {
+            transfers
                 .iter()
                 .filter(|t| filter.get().keeps(t.direction))
                 .cloned()
@@ -55,8 +56,8 @@ pub fn page() -> impl IntoElement {
     // Which transfers run now: a memo, so the history below is filtered
     // again when one starts or ends, not on every progress update.
     let live = computed(move || {
-        model().with(|m| {
-            m.transfers
+        engine::transfers().with(|engine::Transfers(transfers)| {
+            transfers
                 .iter()
                 .map(|t| dexdrop_core::hex(&t.id))
                 .collect::<Vec<_>>()

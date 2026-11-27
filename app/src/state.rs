@@ -4,36 +4,75 @@
 
 use std::path::PathBuf;
 
-use dexdrop_core::{
-    PeerId,
-    api::{IncomingRequest, InvitationView, NoticeKind, PeerInfo, Status, TransferSnapshot},
-    store::{HistoryEntry, Settings, TrustedPeer},
-};
+use dexdrop_core::{PeerId, api::NoticeKind, store::HistoryEntry};
 use nsh_core::prelude::*;
 
-/// The engine's view of the world.
-#[derive(Clone, Default, PartialEq)]
-pub struct Model {
-    pub status: Option<Status>,
-    pub settings: Settings,
-    pub peers: Vec<PeerInfo>,
-    /// Newest first.
-    pub transfers: Vec<TransferSnapshot>,
-    pub requests: Vec<IncomingRequest>,
-    pub invitation: Option<InvitationView>,
-    pub code: Option<(String, u64)>,
-    pub trusted: Vec<TrustedPeer>,
-    /// Why the engine is not running (the web preview, a startup error).
-    pub offline: Option<String>,
-}
+/// The engine's view of the world, one signal per concern (NSH's Coding
+/// Guides: one signal holding unrelated state wakes everything that reads
+/// any of it). A transfer's progress, several times a second, wakes only
+/// what reads transfers; peers, status and settings wake their readers.
+/// Only the bridge writes them.
+pub mod engine {
+    use dexdrop_core::{
+        api::{IncomingRequest, InvitationView, PeerInfo, Status, TransferSnapshot},
+        store::{Settings, TrustedPeer},
+    };
+    use nsh_core::prelude::*;
 
-pub fn model() -> Signal<Model> {
-    global::<Model>()
+    macro_rules! concern {
+        ($(#[doc = $doc:literal])* $name:ident($ty:ty), $get:ident) => {
+            $(#[doc = $doc])*
+            #[derive(Clone, Default, PartialEq)]
+            pub struct $name(pub $ty);
+
+            pub fn $get() -> Signal<$name> {
+                global::<$name>()
+            }
+        };
+    }
+
+    concern!(
+        /// What the engine says about itself (none until it runs).
+        EngineStatus(Option<Status>), status
+    );
+    concern!(
+        /// The user's settings, as the engine saved them.
+        SettingsState(Settings),
+        settings
+    );
+    concern!(
+        /// Devices nearby and known.
+        Peers(Vec<PeerInfo>), peers
+    );
+    concern!(
+        /// Transfers, newest first.
+        Transfers(Vec<TransferSnapshot>), transfers
+    );
+    concern!(
+        /// Requests waiting for an answer.
+        Requests(Vec<IncomingRequest>), requests
+    );
+    concern!(
+        /// The invitation Receive shows.
+        Invitation(Option<InvitationView>), invitation
+    );
+    concern!(
+        /// The pairing code Receive shows, and when it expires.
+        Code(Option<(String, u64)>), code
+    );
+    concern!(
+        /// Trusted devices.
+        Trusted(Vec<TrustedPeer>), trusted
+    );
+    concern!(
+        /// Why the engine is not running (the web preview, a startup error).
+        Offline(Option<String>), offline
+    );
 }
 
 /// This device's chosen avatar.
 pub fn my_avatar() -> Option<String> {
-    model().with(|m| m.settings.avatar.clone())
+    engine::settings().with(|engine::SettingsState(settings)| settings.avatar.clone())
 }
 
 /// The transfer history, newest first: a signal of its own, so what reads
@@ -90,7 +129,7 @@ pub fn tab() -> Tab {
 pub fn showing(tab: Tab, route: impl Fn(&Route) -> bool) -> bool {
     tab_untracked() == tab
         && global::<Stacks>().with_untracked(|s| s.0[tab.index()].last().is_some_and(&route))
-        && model().with_untracked(|m| m.requests.is_empty())
+        && engine::requests().with_untracked(|engine::Requests(requests)| requests.is_empty())
 }
 
 pub fn tab_untracked() -> Tab {

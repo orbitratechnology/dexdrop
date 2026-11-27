@@ -17,7 +17,8 @@ use nsh_core::{
     prelude::*,
 };
 
-use crate::{bridge, state::model};
+use crate::bridge;
+use crate::state::engine;
 
 /// Starts watching; called once by the shell.
 pub fn watch() {
@@ -76,8 +77,8 @@ fn reconnect_on_return() {
 /// Looks for devices again and retries the transfers that stopped retrying.
 fn reconnect() {
     bridge::send(Command::RefreshDiscovery);
-    let stalled: Vec<_> = model().with_untracked(|m| {
-        m.transfers
+    let stalled: Vec<_> = engine::transfers().with_untracked(|engine::Transfers(transfers)| {
+        transfers
             .iter()
             .filter(|t| {
                 matches!(
@@ -156,7 +157,9 @@ pub fn service_status(transfers: &[TransferSnapshot]) -> Option<ServiceStatus> {
 fn transfer_service() {
     #[cfg(target_os = "android")]
     {
-        let shown = computed(|| model().with(|m| service_status(&m.transfers)));
+        let shown = computed(|| {
+            engine::transfers().with(|engine::Transfers(transfers)| service_status(&transfers))
+        });
         effect(move || match shown.get() {
             Some(status) => {
                 let status = dexdrop_net::android_service::Status {
@@ -191,8 +194,8 @@ fn warn_backgrounded() {
     if !crate::ui::mobile() || SERVICE_RUNNING.get() {
         return;
     }
-    let moving: Vec<String> = model().with_untracked(|m| {
-        m.transfers
+    let moving: Vec<String> = engine::transfers().with_untracked(|engine::Transfers(transfers)| {
+        transfers
             .iter()
             .filter(|t| moving(&t.state))
             .map(|t| t.label.clone())
@@ -269,7 +272,9 @@ fn taskbar_progress() {
     if !is_desktop() {
         return;
     }
-    let shown = computed(|| model().with(|m| progress_of(&m.transfers)));
+    let shown = computed(|| {
+        engine::transfers().with(|engine::Transfers(transfers)| progress_of(transfers))
+    });
     // The window this renders in (the app's "main"): the app host
     // (`main_window`) has no taskbar button or Dock tile of its own.
     let window = current_window();
@@ -289,7 +294,8 @@ fn taskbar_progress() {
 /// The app's icon counts the requests waiting for an answer (the Dock, the
 /// taskbar, iOS's home screen; Android launchers only mark the app).
 fn badge() {
-    let waiting = computed(|| model().with(|m| m.requests.len() as u32));
+    let waiting =
+        computed(|| engine::requests().with(|engine::Requests(requests)| requests.len() as u32));
     effect(move || set_badge(waiting.get()));
 }
 

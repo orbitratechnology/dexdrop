@@ -5,10 +5,10 @@ use dexdrop_core::{api::Command, avatar::Avatar};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
+use crate::state::engine;
 use crate::{
     bridge,
     pages::body,
-    state::model,
     ui::{self, Icon, muted, space},
 };
 
@@ -19,7 +19,7 @@ const EMOJI: &[&str] = &[
 ];
 
 fn name() -> String {
-    model().with(|m| m.settings.device_name.clone())
+    engine::settings().with(|engine::SettingsState(settings)| settings.device_name.clone())
 }
 
 fn chosen() -> Option<Avatar> {

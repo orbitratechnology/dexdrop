@@ -11,11 +11,12 @@ use dexdrop_core::{
 use nsh_base::theme;
 use nsh_core::{file_dialog::OpenDialog, prelude::*};
 
+use crate::state::engine;
 use crate::{
     bridge,
     pages::body,
     state::{
-        Category, Picked, Route, Selection, desktop_platform, model, picked, platform_label, push,
+        Category, Picked, Route, Selection, desktop_platform, picked, platform_label, push,
         reset_to, selection, toast,
     },
     ui::{self, Icon, Variant, muted, space},
@@ -523,7 +524,7 @@ fn summary() -> String {
 /// The device picked before the files, if it is still nearby.
 fn picked_peer() -> Option<PeerInfo> {
     let id = picked().get().0?;
-    model().with(|m| m.peers.iter().find(|p| p.peer_id == id).cloned())
+    engine::peers().with(|engine::Peers(peers)| peers.iter().find(|p| p.peer_id == id).cloned())
 }
 
 // ---------------------------------------------------------------- send page
@@ -1214,18 +1215,18 @@ pub fn devices_page() -> impl IntoElement {
     // sent to at once while the list stays, tap another and it is sent to
     // as well (the engine reads the selection once for all of them).
     let group = new_group();
-    let peers = move || model().with(|m| m.peers.clone());
+    let peers = move || engine::peers().with(|engine::Peers(peers)| peers.clone());
     let me = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.device_name.clone())
                 .unwrap_or_default()
         })
     };
     let my_platform = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.platform.clone())
                 .unwrap_or_default()
@@ -1233,20 +1234,25 @@ pub fn devices_page() -> impl IntoElement {
     };
     // Nearby devices not sent to yet: "Send to all" sends to these.
     let unsent = move || {
-        model().with(|m| {
-            m.peers
-                .iter()
-                .filter(|p| p.nearby)
-                .filter(|p| {
-                    !m.transfers
-                        .iter()
-                        .any(|t| t.group == Some(group) && t.peer_id == Some(p.peer_id))
-                })
-                .map(|p| p.peer_id)
-                .collect::<Vec<_>>()
+        engine::peers().with(|engine::Peers(peers)| {
+            engine::transfers().with(|engine::Transfers(transfers)| {
+                peers
+                    .iter()
+                    .filter(|p| p.nearby)
+                    .filter(|p| {
+                        !transfers
+                            .iter()
+                            .any(|t| t.group == Some(group) && t.peer_id == Some(p.peer_id))
+                    })
+                    .map(|p| p.peer_id)
+                    .collect::<Vec<_>>()
+            })
         })
     };
-    let sent_any = move || model().with(|m| m.transfers.iter().any(|t| t.group == Some(group)));
+    let sent_any = move || {
+        engine::transfers()
+            .with(|engine::Transfers(transfers)| transfers.iter().any(|t| t.group == Some(group)))
+    };
     // The keyboard: Up and Down move a highlight through the devices,
     // Return sends to the highlighted one (else the first), A to all nearby.
     // The highlight is a device, not a place in the list: discovery
@@ -1254,8 +1260,11 @@ pub fn devices_page() -> impl IntoElement {
     let focus = signal(None::<dexdrop_core::identity::PeerId>);
     let mine = crate::state::tab_untracked();
     let here = move || crate::state::showing(mine, |r| *r == Route::Devices);
-    let ids =
-        move || model().with_untracked(|m| m.peers.iter().map(|p| p.peer_id).collect::<Vec<_>>());
+    let ids = move || {
+        engine::peers().with_untracked(|engine::Peers(peers)| {
+            peers.iter().map(|p| p.peer_id).collect::<Vec<_>>()
+        })
+    };
     // The device `step` places from the highlighted one, held to the list.
     let moved = move |step: isize| {
         let ids = ids();
@@ -1326,7 +1335,9 @@ pub fn devices_page() -> impl IntoElement {
                             ),
                         ))
                         .child(muted(move || {
-                            let n = model().with(|m| m.peers.iter().filter(|p| p.nearby).count());
+                            let n = engine::peers().with(|engine::Peers(peers)| {
+                                peers.iter().filter(|p| p.nearby).count()
+                            });
                             match n {
                                 0 => "Looking for devices…".to_owned(),
                                 1 => "1 device nearby".to_owned(),
@@ -1335,7 +1346,7 @@ pub fn devices_page() -> impl IntoElement {
                         })),
                 )
                 .child(when(
-                    move || model().with(|m| !m.peers.is_empty()),
+                    move || engine::peers().with(|engine::Peers(peers)| !peers.is_empty()),
                     move || {
                         ui::group().child(each(
                             peers,
@@ -1409,9 +1420,9 @@ fn costs_data(targets: &[Target]) -> bool {
     if !(net.expensive || net.constrained) {
         return false;
     }
-    model().with_untracked(|m| {
+    engine::peers().with_untracked(|engine::Peers(peers)| {
         targets.iter().any(|t| match t {
-            Target::Peer(id) => m.peers.iter().any(|p| p.peer_id == *id && !p.nearby),
+            Target::Peer(id) => peers.iter().any(|p| p.peer_id == *id && !p.nearby),
             _ => false,
         })
     })
@@ -1468,8 +1479,8 @@ fn start_group(group: TransferId, targets: Vec<Target>) {
 
 /// The latest transfer of `group` to `peer`.
 fn sent_to(group: TransferId, peer: dexdrop_core::identity::PeerId) -> Option<TransferSnapshot> {
-    model().with(|m| {
-        m.transfers
+    engine::transfers().with(|engine::Transfers(transfers)| {
+        transfers
             .iter()
             .find(|t| t.group == Some(group) && t.peer_id == Some(peer))
             .cloned()
@@ -1494,13 +1505,14 @@ fn progress_bar(group: TransferId) -> impl IntoElement {
                 .max_w(px(420.0))
                 .shadow_lg()
                 .on_press(move || {
-                    let ids: Vec<TransferId> = model().with_untracked(|m| {
-                        m.transfers
-                            .iter()
-                            .filter(|t| t.group == Some(group))
-                            .map(|t| t.id)
-                            .collect()
-                    });
+                    let ids: Vec<TransferId> =
+                        engine::transfers().with_untracked(|engine::Transfers(transfers)| {
+                            transfers
+                                .iter()
+                                .filter(|t| t.group == Some(group))
+                                .map(|t| t.id)
+                                .collect()
+                        });
                     selection().set(Selection::default());
                     picked().set(Picked(None));
                     reset_to(Route::Transfer(match ids.as_slice() {

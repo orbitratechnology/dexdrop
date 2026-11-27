@@ -8,7 +8,7 @@
 use dexdrop_core::api::{Command, Event, NoticeKind};
 use nsh_core::prelude::*;
 
-use crate::state::{model, toast};
+use crate::state::{engine, toast};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
@@ -207,7 +207,7 @@ pub fn start() {
                 }
                 let generation = global::<Generation>().with_untracked(|g| g.0 + 1);
                 global::<Generation>().set(Generation(generation));
-                model().update(|m| m.offline = None);
+                engine::offline().set(engine::Offline(None));
                 while let Some(event) = events.recv().await {
                     if global::<Generation>().with_untracked(|g| g.0) != generation {
                         break;
@@ -216,20 +216,18 @@ pub fn start() {
                 }
             }
             Err(err) => {
-                model().update(|m| {
-                    m.offline = Some(format!("The transfer service could not start: {err}"))
-                });
+                engine::offline().set(engine::Offline(Some(format!(
+                    "The transfer service could not start: {err}"
+                ))));
             }
         }
     });
     #[cfg(target_arch = "wasm32")]
-    model().update(|m| {
-        m.offline = Some(
-            "This is the browser preview. Browsers cannot discover nearby devices or open direct \
-             connections, so transfers need the DexDrop app on Android, Windows, macOS or Linux."
-                .into(),
-        )
-    });
+    engine::offline().set(engine::Offline(Some(
+        "This is the browser preview. Browsers cannot discover nearby devices or open direct \
+         connections, so transfers need the DexDrop app on Android, Windows, macOS or Linux."
+            .into(),
+    )));
 }
 
 /// Gives this device a new identity (PRD 9.9): stops the engine, replaces
@@ -274,11 +272,11 @@ pub fn set_internet(on: bool) {
 fn restart(between: impl FnOnce() -> Option<(NoticeKind, String)> + Send + 'static) {
     // The old engine's last events ("stopped") no longer count.
     global::<Generation>().update(|g| g.0 += 1);
-    model().update(|m| {
-        m.status = None;
-        m.peers.clear();
-        m.invitation = None;
-        m.code = None;
+    batch(|| {
+        engine::status().set(engine::EngineStatus(None));
+        engine::peers().set(engine::Peers(Vec::new()));
+        engine::invitation().set(engine::Invitation(None));
+        engine::code().set(engine::Code(None));
     });
     // Not owned by the page that asked, which may close now: the restarted
     // engine's event loop must outlive it.
@@ -339,33 +337,38 @@ pub fn state_dir(name: &str) -> std::path::PathBuf {
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn apply(event: Event) {
     match event {
-        Event::Status(status) => model().update(|m| m.status = Some(status)),
-        Event::Settings(settings) => model().update(|m| m.settings = settings),
-        Event::Peers(peers) => model().update(|m| m.peers = peers),
+        Event::Status(status) => engine::status().set(engine::EngineStatus(Some(status))),
+        Event::Settings(settings) => engine::settings().set(engine::SettingsState(settings)),
+        Event::Peers(peers) => engine::peers().set(engine::Peers(peers)),
         Event::Transfer(t) => {
-            let was_finished = model().with_untracked(|m| {
-                m.transfers
-                    .iter()
-                    .find(|x| x.id == t.id)
-                    .map(|x| x.state.is_finished())
-            });
+            let was_finished =
+                engine::transfers().with_untracked(|engine::Transfers(transfers)| {
+                    transfers
+                        .iter()
+                        .find(|x| x.id == t.id)
+                        .map(|x| x.state.is_finished())
+                });
             // A system notification when a transfer ends (P4-006), useful
             // while the window is in the background; not for transfers
             // already finished when the app started.
             if was_finished == Some(false) && t.state.is_finished() {
                 notify_finished(&t);
             }
-            model().update(|m| match m.transfers.iter_mut().find(|x| x.id == t.id) {
-                Some(slot) => *slot = t,
-                None => m.transfers.insert(0, t),
+            engine::transfers().update(|engine::Transfers(all)| {
+                match all.iter_mut().find(|x| x.id == t.id) {
+                    Some(slot) => *slot = t,
+                    None => all.insert(0, t),
+                }
             })
         }
-        Event::TransferRemoved(id) => model().update(|m| m.transfers.retain(|t| t.id != id)),
+        Event::TransferRemoved(id) => {
+            engine::transfers().update(|engine::Transfers(all)| all.retain(|t| t.id != id))
+        }
         Event::Request(request) => {
             let text = format!("{} wants to send you {}.", request.peer_name, request.label);
-            model().update(|m| {
-                m.requests.retain(|r| r.id != request.id);
-                m.requests.push(request);
+            engine::requests().update(|engine::Requests(all)| {
+                all.retain(|r| r.id != request.id);
+                all.push(request);
             });
             crate::device::buzz(crate::device::Buzz::Request);
             // A system notification, for when the window is in the background.
@@ -379,36 +382,36 @@ fn apply(event: Event) {
                 ),
             ));
         }
-        Event::RequestClosed(id) => model().update(|m| m.requests.retain(|r| r.id != id)),
-        Event::Invitation(view) => model().update(|m| m.invitation = Some(view)),
-        Event::Code { code, expires } => model().update(|m| m.code = Some((code, expires))),
+        Event::RequestClosed(id) => {
+            engine::requests().update(|engine::Requests(all)| all.retain(|r| r.id != id))
+        }
+        Event::Invitation(view) => engine::invitation().set(engine::Invitation(Some(view))),
+        Event::Code { code, expires } => engine::code().set(engine::Code(Some((code, expires)))),
         Event::PairingUsed { code, by } => {
-            model().update(|m| {
-                if code {
-                    m.code = None;
-                } else {
-                    m.invitation = None;
-                }
-            });
+            if code {
+                engine::code().set(engine::Code(None));
+            } else {
+                engine::invitation().set(engine::Invitation(None));
+            }
             let what = if code { "code" } else { "invitation" };
             toast(
                 NoticeKind::Info,
                 format!("{by} used your {what}. You'll be asked before anything is saved."),
             );
         }
-        Event::InvitationsClosed => model().update(|m| {
-            m.invitation = None;
-            m.code = None;
+        Event::InvitationsClosed => batch(|| {
+            engine::invitation().set(engine::Invitation(None));
+            engine::code().set(engine::Code(None));
         }),
-        Event::Trusted(trusted) => model().update(|m| m.trusted = trusted),
+        Event::Trusted(trusted) => engine::trusted().set(engine::Trusted(trusted)),
         Event::History(entries) => crate::state::history().set(crate::state::HistoryList(entries)),
         Event::Notice { kind, text } => toast(kind, text),
         Event::Diagnostics(report) => {
             crate::state::sheet().set(crate::state::Sheet::Diagnostics(report))
         }
-        Event::Stopped => {
-            model().update(|m| m.offline = Some("The transfer service stopped.".into()))
-        }
+        Event::Stopped => engine::offline().set(engine::Offline(Some(
+            "The transfer service stopped.".into(),
+        ))),
     }
 }
 

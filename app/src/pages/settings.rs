@@ -8,15 +8,16 @@ use dexdrop_core::{
 use nsh_base::theme;
 use nsh_core::{file_dialog::OpenDialog, prelude::*};
 
+use crate::state::engine;
 use crate::{
     bridge,
     pages::body,
-    state::{Route, desktop_platform, model, platform_label, push, toast},
+    state::{Route, desktop_platform, platform_label, push, toast},
     ui::{self, Icon, Variant, muted, space},
 };
 
 fn settings() -> dexdrop_core::store::Settings {
-    model().with(|m| m.settings.clone())
+    engine::settings().with(|engine::SettingsState(settings)| settings.clone())
 }
 
 fn g(i: Icon) -> View {
@@ -55,8 +56,8 @@ fn device() -> impl IntoElement {
     };
     let name = move || settings().device_name;
     let platform = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.platform.clone())
                 .unwrap_or_default()
@@ -128,8 +129,8 @@ fn device() -> impl IntoElement {
         )
         .child(
             muted(move || {
-                model().with(|m| {
-                    m.status
+                engine::status().with(|engine::EngineStatus(status)| {
+                    status
                         .as_ref()
                         .map(|s| format!("{} · {}", platform_label(&s.platform), s.fingerprint))
                         .unwrap_or_default()
@@ -143,8 +144,8 @@ fn device() -> impl IntoElement {
 /// Where received files go now: the folder chosen in Settings, else the
 /// platform's default (the system's Downloads).
 fn save_dir() -> Option<std::path::PathBuf> {
-    model()
-        .with(|m| m.settings.download_dir.clone())
+    engine::settings()
+        .with(|engine::SettingsState(settings)| settings.download_dir.clone())
         .or_else(default_dir)
 }
 
@@ -152,7 +153,8 @@ fn save_dir() -> Option<std::path::PathBuf> {
 /// "Downloads" on Android, "Files › On My iPhone › DexDrop" on iOS
 /// (FR-041, FR-042).
 pub fn save_place() -> String {
-    let custom = model().with(|m| m.settings.download_dir.is_some());
+    let custom =
+        engine::settings().with(|engine::SettingsState(settings)| settings.download_dir.is_some());
     let dir = save_dir();
     match os().name() {
         "ios" if !custom => {
@@ -303,7 +305,7 @@ fn internet() -> impl IntoElement {
 
 fn trust() -> impl IntoElement {
     let count = move || {
-        let n = model().with(|m| m.trusted.len());
+        let n = engine::trusted().with(|engine::Trusted(trusted)| trusted.len());
         if n == 0 {
             "None".to_owned()
         } else {
@@ -369,8 +371,10 @@ fn privacy() -> impl IntoElement {
 /// Asks, with the system's alert, before giving this device a new
 /// identity (PRD 9.9).
 fn reset_identity() {
-    let busy = model().with_untracked(|m| {
-        m.transfers.iter().any(|t| !t.state.is_finished()) || !m.requests.is_empty()
+    let busy = engine::transfers().with_untracked(|engine::Transfers(transfers)| {
+        engine::requests().with_untracked(|engine::Requests(requests)| {
+            transfers.iter().any(|t| !t.state.is_finished()) || !requests.is_empty()
+        })
     });
     if busy {
         toast(
@@ -393,7 +397,7 @@ fn reset_identity() {
 // ---------------------------------------------------------------- trusted
 
 pub fn trusted_page() -> impl IntoElement {
-    let empty = move || model().with(|m| m.trusted.is_empty());
+    let empty = move || engine::trusted().with(|engine::Trusted(trusted)| trusted.is_empty());
     body(
         when(empty, || {
             ui::empty(
@@ -405,7 +409,9 @@ pub fn trusted_page() -> impl IntoElement {
             view()
                 .gap(px(space::S))
                 .child(ui::group().child({
-                    let trusted = computed(move || model().with(|m| m.trusted.clone()));
+                    let trusted = computed(move || {
+                        engine::trusted().with(|engine::Trusted(trusted)| trusted.clone())
+                    });
                     // Virtualized (NSH lists), in the page's scroll view.
                     virtual_list(
                         move || trusted.with(Vec::len),

@@ -9,10 +9,11 @@ use dexdrop_core::{
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
+use crate::state::engine;
 use crate::{
     bridge,
     pages::{body, history, send, transfer},
-    state::{Picked, Route, Tab, model, open, picked, push, set_tab},
+    state::{Picked, Route, Tab, open, picked, push, set_tab},
     ui::{self, Icon, Tone, Variant, muted, space},
 };
 
@@ -32,7 +33,11 @@ pub fn page() -> impl IntoElement {
                 .gap(px(space::XXL))
                 .child(status())
                 .child(when(
-                    move || model().with(|m| m.transfers.iter().any(|t| !t.state.is_finished())),
+                    move || {
+                        engine::transfers().with(|engine::Transfers(transfers)| {
+                            transfers.iter().any(|t| !t.state.is_finished())
+                        })
+                    },
                     active,
                 ))
                 .child(nearby())
@@ -61,17 +66,21 @@ const ACTION: f32 = ui::HERO;
 /// "Visible as Pixel 8": this device, and whether others can see it.
 fn status() -> impl IntoElement {
     let line = move || {
-        model().with(|m| match (&m.status, &m.offline) {
-            (_, Some(_)) => "Preview — open the app to share".to_owned(),
-            (Some(s), _) if s.visible => format!("Visible as {}", s.device_name),
-            (Some(s), _) => format!("{} · hidden", s.device_name),
-            (None, _) => "Starting…".to_owned(),
+        engine::status().with(|engine::EngineStatus(status)| {
+            engine::offline().with(|engine::Offline(offline)| match (&status, &offline) {
+                (_, Some(_)) => "Preview — open the app to share".to_owned(),
+                (Some(s), _) if s.visible => format!("Visible as {}", s.device_name),
+                (Some(s), _) => format!("{} · hidden", s.device_name),
+                (None, _) => "Starting…".to_owned(),
+            })
         })
     };
     let tone = move || {
-        model().with(|m| match &m.status {
-            Some(s) if s.visible && m.offline.is_none() => Tone::Success,
-            _ => Tone::Neutral,
+        engine::status().with(|engine::EngineStatus(status)| {
+            engine::offline().with(|engine::Offline(offline)| match &status {
+                Some(s) if s.visible && offline.is_none() => Tone::Success,
+                _ => Tone::Neutral,
+            })
         })
     };
     ui::pressable()
@@ -146,8 +155,8 @@ fn action(
 /// Transfers running now, each a tap away from its progress.
 fn active() -> impl IntoElement {
     let running = move || {
-        model().with(|m| {
-            m.transfers
+        engine::transfers().with(|engine::Transfers(transfers)| {
+            transfers
                 .iter()
                 .filter(|t| !t.state.is_finished())
                 .cloned()
@@ -197,15 +206,16 @@ fn active_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
 
 fn nearby() -> impl IntoElement {
     let peers = move || {
-        model().with(|m| {
-            m.peers
+        engine::peers().with(|engine::Peers(peers)| {
+            peers
                 .iter()
                 .filter(|p| p.nearby)
                 .cloned()
                 .collect::<Vec<_>>()
         })
     };
-    let empty = move || model().with(|m| !m.peers.iter().any(|p| p.nearby));
+    let empty =
+        move || engine::peers().with(|engine::Peers(peers)| !peers.iter().any(|p| p.nearby));
     view()
         .gap(px(space::M))
         // "Nearby" centered, over the centered radar; Look again (computers)
@@ -242,8 +252,8 @@ fn nearby() -> impl IntoElement {
 /// the internet.
 fn far_devices() -> impl IntoElement {
     let far = move || {
-        model().with(|m| {
-            m.peers
+        engine::peers().with(|engine::Peers(peers)| {
+            peers
                 .iter()
                 .filter(|p| !p.nearby)
                 .cloned()
@@ -251,7 +261,7 @@ fn far_devices() -> impl IntoElement {
         })
     };
     when(
-        move || model().with(|m| m.peers.iter().any(|p| !p.nearby)),
+        move || engine::peers().with(|engine::Peers(peers)| peers.iter().any(|p| !p.nearby)),
         move || {
             view()
                 .gap(px(space::M))
@@ -341,8 +351,8 @@ fn looking() -> impl IntoElement {
     let waited = signal(false);
     set_timeout(std::time::Duration::from_secs(8), move || waited.set(true));
     let line = move || {
-        model().with(|m| match m.status.as_ref().map(|s| &s.discovery) {
-            _ if m.offline.is_some() => "Nearby devices show up in the app".to_owned(),
+        engine::status().with(|engine::EngineStatus(status)| engine::offline().with(|engine::Offline(offline)| match status.as_ref().map(|s| &s.discovery) {
+            _ if offline.is_some() => "Nearby devices show up in the app".to_owned(),
             Some(dexdrop_core::api::DiscoveryStatus::Unavailable(_)) => {
                 "This network doesn't let devices find each other. Tap Receive on the other device and use its code.".to_owned()
             }
@@ -350,7 +360,7 @@ fn looking() -> impl IntoElement {
                 "Not here yet? Open DexDrop on the other device, on the same Wi‑Fi. Or tap Receive there and use its code.".to_owned()
             }
             _ => "Looking for devices on this Wi‑Fi…".to_owned(),
-        })
+        }))
     };
     // The radar centered, the Wi‑Fi mark large in it, the words below; a
     // plain white card, no shadow.

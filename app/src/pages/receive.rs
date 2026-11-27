@@ -5,10 +5,10 @@ use dexdrop_core::api::Command;
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
+use crate::state::engine;
 use crate::{
     bridge,
     pages::body,
-    state::model,
     ui::{self, Icon, Variant, muted, space},
 };
 
@@ -35,22 +35,25 @@ pub fn page() -> impl IntoElement {
     });
     cleanup(|| bridge::send(Command::CloseInvitations));
     let me = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.device_name.clone())
                 .unwrap_or_default()
         })
     };
     let platform = move || {
-        model().with(|m| {
-            m.status
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
                 .as_ref()
                 .map(|s| s.platform.clone())
                 .unwrap_or_default()
         })
     };
-    let visible = move || model().with(|m| m.status.as_ref().is_some_and(|s| s.visible));
+    let visible = move || {
+        engine::status()
+            .with(|engine::EngineStatus(status)| status.as_ref().is_some_and(|s| s.visible))
+    };
     body(
         view()
             .gap(px(space::XL))
@@ -97,14 +100,14 @@ pub fn page() -> impl IntoElement {
 /// The code to type and the QR to scan.
 fn code_card() -> impl IntoElement {
     let code = move || {
-        model().with(|m| {
-            m.code
-                .as_ref()
+        engine::code().with(|engine::Code(code)| {
+            code.as_ref()
                 .map(|(c, _)| dexdrop_core::invitation::display_code(c))
                 .unwrap_or_else(|| "····-····".into())
         })
     };
-    let invitation = move || model().with(|m| m.invitation.clone());
+    let invitation =
+        move || engine::invitation().with(|engine::Invitation(invitation)| invitation.clone());
     ui::tile()
         .self_stretch()
         .items_center()
@@ -129,7 +132,7 @@ fn code_card() -> impl IntoElement {
         )
         // A code works once: after it is used, offer a fresh one.
         .child(when(
-            move || model().with(|m| m.code.is_none()),
+            move || engine::code().with(|engine::Code(code)| code.is_none()),
             || {
                 ui::icon_btn(Icon::Refresh, "New code", Variant::Secondary)
                     .on_press(|| bridge::send(Command::CreateCode))
