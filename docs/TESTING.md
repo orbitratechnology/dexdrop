@@ -172,8 +172,9 @@ A run does only what it needs. Its first job, **Plan**
   (a tag quoted inside a sentence is not one): `[ci android]`,
   `[ci apple windows]`, `[ci all]`, `[ci none]`; `build` in it skips the
   checks (`[ci android build]`). GitHub's `[skip ci]` skips the run.
-- **Otherwise the files changed** since the branch's last push (since
-  `main` for a new branch): docs alone run nothing; engine crates run the
+- **Otherwise the files changed** since the branch's last successful
+  run (so a run cancelled by the next push is not skipped; else since the
+  last push, and since `main` for a new branch): docs alone run nothing; engine crates run the
   engine tests on three OSes and the app UI tests; app code runs the app UI
   tests; a platform's own code runs its package and checks (Android: the
   Java bridges, `jvm.rs`, `apps.rs`, `assets.rs`, `nsd.rs`,
