@@ -1,6 +1,7 @@
 # File selection and media browsing: audit and design
 
-Branch `claude/file-selection-architecture` (experimental). Goal: browse and
+Built on branch `claude/file-selection-architecture`, merged into `main`
+(ADR-009). Goal: browse and
 select photos, videos, audio, documents and apps inside DexDrop, as
 references, and stream the originals into the transfer engine only when a
 transfer starts: no copy for selection, no whole file in memory.
@@ -109,7 +110,7 @@ cancelled), resuming opens it again and reads forward, hashing the part the
 receiver already has. Nothing is copied; memory stays at `READ_AHEAD`
 chunks (plus PhotoKit's 8 pieces in flight on iOS).
 
-## 3. Implementation (branch `claude/file-selection-architecture`)
+## 3. Implementation
 
 | Milestone | State | Where |
 |---|---|---|

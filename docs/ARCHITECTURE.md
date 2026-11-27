@@ -481,7 +481,7 @@ sending, and went through the system's photo prompt; the simulator check
 picked a library photo (both until ADR-008 took the phones' Recent out). Camera scanning is tested headless with a fake
 camera; the simulator and emulator have no camera to photograph a code.
 
-## ADR-008: No broad photo permission — no media Recent on phones
+## ADR-008: No broad photo permission — no media Recent on phones (superseded by ADR-009)
 
 **Context.** Send's Recent on phones (ADR-005) showed the newest photos and
 videos, which takes a broad photo permission: on Android
@@ -516,11 +516,12 @@ check fails an app whose `Info.plist` declares
 `NSPhotoLibraryUsageDescription`. Tests:
 `phones_show_no_recent_and_ask_for_no_photos` (`app/tests/recent.rs`).
 
-## ADR-009: Media browsed in the app, sent in place (experimental branch)
+## ADR-009: Media browsed in the app, sent in place
 
-Status: **experimental**, on branch `claude/file-selection-architecture`
-only. It reverses ADR-008 on that branch; `main` keeps ADR-008 until the
-store question below is settled.
+Status: **accepted**, built on branch `claude/file-selection-architecture`
+and merged into `main`. It supersedes ADR-008's picker-only flow on
+phones. Open: Google Play's photo and video permission declaration (below)
+must be accepted before a Play Store release.
 
 **Context.** The system's pickers copy what they hand over on phones
 (ADR-004, docs/FILE_SELECTION.md §1): a 3 GB video is read and written once
@@ -552,7 +553,7 @@ is Google's call at review: ship it only after the declaration is accepted,
 or keep `main`'s picker-only flow (ADR-008). App Store: photo library access
 with a purpose string is ordinary. iOS documents are picked in place too
 (`ios-doc`: `UIDocumentPicker` in open mode, kept as bookmarks, read inside
-their security scope), which needs no permission. CI on the branch
+their security scope), which needs no permission. CI
 requires the media permissions and the bridge classes in the APK and still
 fails `MANAGE_EXTERNAL_STORAGE`; the emulator and simulator checks browse,
 choose and add a photo, and the emulator check fails if it was copied into

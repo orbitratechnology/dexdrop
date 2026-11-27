@@ -51,13 +51,14 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
   Keystore) read it from then on. After changing the Java in
   `crates/dexdrop-net/android/`, run `scripts/build-nsd-dex.sh` and commit
   `nsd.dex`.
-- No broad photo permission on phones (`docs/ARCHITECTURE.md` ADR-008):
-  no `READ_MEDIA_*`/storage permissions on Android, no photo library
-  access on iOS; phones pick photos, videos and files with the system's
-  pickers. CI's APK check and the simulator check fail otherwise.
-  Exception: branch `claude/file-selection-architecture` (ADR-009, an
-  in-app media browser with granular `READ_MEDIA_*` and PhotoKit; never
-  `MANAGE_EXTERNAL_STORAGE`), whose CI checks expect them.
+- Phones browse their media in the app and send items in place
+  (`docs/ARCHITECTURE.md` ADR-009, `docs/FILE_SELECTION.md`): the granular
+  `READ_MEDIA_*` on Android (never `MANAGE_EXTERNAL_STORAGE`) and PhotoKit
+  on iOS; documents through the system's pickers in open mode. Selections
+  hold reference paths (`dexdrop_core::asset`): read a selected item through
+  `dexdrop_core::source`, never `std::fs`, and never copy it. CI's APK
+  check and the simulator check expect the permissions. Google Play needs
+  the photo and video permission declaration accepted before a release.
 - System features with an NSH fake are tested headless through it
   (`nsh_extra::camera::set_backend` in `tests/camera.rs`).
 - On the desktops the root declares its window (`window().id("main")`);
