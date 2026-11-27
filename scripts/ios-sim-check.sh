@@ -261,7 +261,9 @@ if tap Photos; then
   # PhotoKit's prompt, answered "Allow Full Access" (the flow users see).
   if grep -q "Allow access" "$out/08-library.txt"; then
     tap "Allow access" || warn "could not tap Allow access"
-    if ad wait text "Allow Full Access" 20000 >/dev/null 2>&1; then
+    # PhotoKit's prompt can take a while (CI run 107: it came after 20 s,
+    # then covered the Files step).
+    if ad wait text "Allow Full Access" 60000 >/dev/null 2>&1; then
       step 08-photos-prompt
       tap "Allow Full Access" || ad alert accept >/dev/null 2>&1 || warn "could not answer the Photos prompt"
       note "- The browser asked for the photo library with the system's prompt; answered Allow Full Access"
@@ -299,6 +301,13 @@ fi
 #    from On My iPhone › DexDrop and added to Send with no copy of it in the
 #    app's container (the copying picker puts one in tmp/…-Inbox). Best
 #    effort: the picker's own screens differ between iOS versions.
+# A system alert left over from the step before (a late Photos prompt)
+# would cover the picker: answer it first.
+ad snapshot >"$out/09-before.txt" 2>/dev/null || true
+if grep -q "Allow Full Access" "$out/09-before.txt"; then
+  tap "Allow Full Access" || ad alert accept >/dev/null 2>&1 || true
+  warn "a Photos prompt was still showing before Files; answered it"
+fi
 tap Share || true
 tap Send || true
 if tap Files && ad wait text "Browse" 20000 >/dev/null 2>&1; then
