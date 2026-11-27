@@ -80,44 +80,53 @@ host falls back to Iroh.
 
 ### 4.1 Quick wins on the links DexDrop has
 
-1. **Race the addresses (Happy Eyeballs, RFC 8305).**
-   - Dial a device's addresses in parallel, each started 250 ms after the
-     last, and keep the first that completes TLS.
-   - Order them Ethernet first, then Wi-Fi, then the rest, and IPv6
-     link-local only with its scope.
-   - Expected: connection setup at the speed of the good address, not
-     4 s per dead one before it.
-   - Also race the LAN against Iroh when the LAN has not answered within
-     about 1 s, rather than after every LAN address has failed.
-   - Effort: small (`outgoing.rs`).
-2. **Keep Android's Wi-Fi awake during a transfer.**
-   - Take a `WifiManager.WifiLock` (`WIFI_MODE_FULL_LOW_LATENCY` on
-     Android 10+, else `FULL_HIGH_PERF`) inside the existing `dataSync`
-     foreground service.
-   - Wi-Fi power save is a common cause of uneven and slow phone
-     transfers.
-   - Expected: steadier throughput on phones; often a large gain on
-     devices that power-save hard.
-   - Effort: small (`TransferService`).
-3. **Measure, then decide.**
-   - Run `dexdrop bench` between real devices for each pair and link:
-     Wi-Fi 5/6 through a router, Ethernet, and later each new link. Record
-     the results in `docs/ARCHITECTURE.md` ("Measured performance").
-   - Also run the owed lossy-Wi-Fi comparison of TCP against QUIC
-     (ADR-001).
-   - Every later decision (parallel streams, link upgrades) depends on
-     these numbers.
-4. **Say what the link is and how fast it goes, live.**
-   - The transfer already reports Nearby, Direct or Relayed. Add the link
-     (LAN, Wi-Fi Direct, hotspot, AWDL) and the live MB/s.
-   - Warn when a LAN transfer is slow, for example under 5 MB/s, which
-     usually means 2.4 GHz or a congested router.
-5. **Detect client isolation.**
-   - Both devices see the same SSID but never discover each other, or
-     discover each other but the connection is refused. This is a guest
-     or public Wi-Fi blocking peer-to-peer traffic.
-   - Say so, and offer the direct link (4.3) instead of failing after
-     timeouts.
+1. **Race the addresses (Happy Eyeballs, RFC 8305). Done.**
+   - `outgoing::race_tcp` dials a device's addresses together, each one
+     250 ms after the one before, or as soon as an earlier one fails, and
+     keeps the first TCP connection.
+   - Addresses on one of this device's own networks (the same /24 or /64)
+     go first, then IPv4, then IPv6, link-local last (`outgoing::order`).
+   - The TLS handshake, with any pairing proof, then runs on that one
+     connection only, so a code is never spent on a connection that gets
+     dropped.
+   - A dead address now costs at most the 250 ms stagger, not its 4 s
+     timeout (test: `a_dead_address_does_not_hold_up_the_live_one`).
+   - **The LAN and the internet race too**, when no pairing proof is
+     involved: the internet route (Iroh) starts 1.5 s after the LAN
+     (`LAN_HEAD_START`), not after every LAN address has failed, and the
+     first connection made wins.
+   - Not possible: putting Ethernet first, since a peer's announced
+     addresses don't say what kind of link they are on.
+2. **Keep Android's Wi-Fi awake during a transfer. Done.**
+   - `TransferService` holds `WIFI_MODE_FULL_LOW_LATENCY` (Android 10+)
+     and, before Android 14, `WIFI_MODE_FULL_HIGH_PERF` from the first
+     progress until no transfer moves.
+   - It needs `WAKE_LOCK` (no prompt), which CI's APK check requires.
+   - The low-latency lock works while the app is in front with the screen
+     on. Before Android 14 the high-performance lock also keeps Wi-Fi out
+     of power save in the background.
+3. **Measure, then decide.** The CLI now prints each finished transfer's
+   measurement: `1.00 GB in 21s, 48.3 MB/s, on this network`.
+   - **Receiver:** `dexdrop receive` on one device.
+   - **Sender:** `dexdrop send <file> --to <device>` on the other device,
+     with a 1 GB file.
+   - Do it in both directions, for each pair and link: Wi-Fi 5 or 6
+     through a router, Ethernet, and the same Wi-Fi at 2.4 GHz.
+   - Record the numbers in `docs/ARCHITECTURE.md` ("Measured
+     performance"). The lossy-Wi-Fi comparison of TCP against QUIC is
+     still owed too (ADR-001).
+4. **Say when a nearby transfer is slow. Done.**
+   - The transfer page shows a hint (`id:slow-link`): "This Wi-Fi is
+     slow. Both devices on 5 GHz Wi-Fi, nearer the router, or on a cable
+     go faster."
+   - It appears when a transfer on this network stays under 5 MB/s once
+     its rate is steady, with 10 s or more left (`transfer::slow_nearby`).
+   - The route was already shown (on this network, over the internet,
+     through a relay); it now re-renders only when the route changes.
+5. **Detect client isolation. Open.** It needs the Wi-Fi network's name
+   on both devices, which takes the location permission on Android and
+   iOS. It is better done with the direct link (4.3), which asks for
+   nearby-device permissions anyway.
 
 ### 4.2 Apple ⇄ Apple without a shared network: AWDL
 
@@ -289,8 +298,8 @@ planner.
 
 | Step | Builds | Platforms | Effort | Expected improvement |
 |---|---|---|---|---|
-| 1 | Address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
-| 2 | Real-device benchmark matrix (4.1.3), live link and speed in the UI, slow-link and isolation hints (4.1.4–5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
+| 1 | **Done:** address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
+| 2 | **Done:** the CLI's measurement line and the slow-Wi-Fi hint. Owed: the benchmark matrix on real devices (4.1.3) and the isolation hint (4.1.5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
 | 3 | AWDL (4.2) | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
 | 4 | Direct link through QR or invitation (4.3): Android host (5 GHz, then 2.4 GHz), Windows and Linux hosts; joiners on every platform | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
 | 5 | BLE discovery + credential exchange (4.4) | All with Bluetooth | 3–4 weeks | Nearby devices appear and connect with no network and no QR code |

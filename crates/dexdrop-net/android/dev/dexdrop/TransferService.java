@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
@@ -25,6 +26,14 @@ import android.util.Log;
  * without it, as before. dexdrop-net's Cargo.toml declares the service and
  * its permissions ({@code FOREGROUND_SERVICE},
  * {@code FOREGROUND_SERVICE_DATA_SYNC}).
+ *
+ * <p>While files move it also holds Wi-Fi locks, so the radio does not doze
+ * between packets (Wi-Fi power save is a common cause of slow, uneven phone
+ * transfers): {@code WIFI_MODE_FULL_LOW_LATENCY} (Android 10+, effective
+ * while the app is in front with the screen on) and, before Android 14,
+ * {@code WIFI_MODE_FULL_HIGH_PERF}. They need {@code WAKE_LOCK}, which
+ * dexdrop-net's Cargo.toml declares, and are released when no transfer
+ * moves ({@link #hide}), so they cost battery only during transfers.
  *
  * <p>Build with scripts/build-nsd-dex.sh.
  */
@@ -56,6 +65,9 @@ public final class TransferService extends Service {
     private static String lastText = "";
     private static int lastPercent = -1;
     private static boolean lastUpload;
+    /** The Wi-Fi locks held while files move (none when not allowed). */
+    private static WifiManager.WifiLock lowLatency;
+    private static WifiManager.WifiLock highPerf;
 
     /**
      * Shows {@code title} and {@code text} with {@code percent} done (-1:
@@ -71,6 +83,7 @@ public final class TransferService extends Service {
             lastPercent = percent;
             lastUpload = upload;
             stopWhenStarted = false;
+            holdWifi(context);
             try {
                 if (state == RUNNING) {
                     manager(context).notify(ID, build(context, title, text, percent, upload));
@@ -92,6 +105,7 @@ public final class TransferService extends Service {
     /** Stops the service and takes its notification away. */
     public static void hide(Context context) {
         synchronized (LOCK) {
+            releaseWifi();
             if (state == STARTING) {
                 stopWhenStarted = true;
                 return;
@@ -152,6 +166,50 @@ public final class TransferService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    /** Takes the Wi-Fi locks, once; a failure leaves Wi-Fi as it was. */
+    private static void holdWifi(Context context) {
+        if (lowLatency != null || highPerf != null) {
+            return;
+        }
+        try {
+            WifiManager wifi = (WifiManager)
+                    context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifi == null) {
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                lowLatency = wifi.createWifiLock(
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "DexDrop:transfer-low-latency");
+                lowLatency.setReferenceCounted(false);
+                lowLatency.acquire();
+            }
+            if (Build.VERSION.SDK_INT < 34) {
+                highPerf = wifi.createWifiLock(
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF, "DexDrop:transfer-high-perf");
+                highPerf.setReferenceCounted(false);
+                highPerf.acquire();
+            }
+        } catch (Exception e) {
+            // No WAKE_LOCK or no Wi-Fi: transfers go on as before.
+            Log.w(TAG, "no Wi-Fi lock: " + e);
+        }
+    }
+
+    /** Lets Wi-Fi save power again. */
+    private static void releaseWifi() {
+        for (WifiManager.WifiLock lock : new WifiManager.WifiLock[] {lowLatency, highPerf}) {
+            try {
+                if (lock != null && lock.isHeld()) {
+                    lock.release();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "could not release a Wi-Fi lock: " + e);
+            }
+        }
+        lowLatency = null;
+        highPerf = null;
     }
 
     private static NotificationManager manager(Context context) {

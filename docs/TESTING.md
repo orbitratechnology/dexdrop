@@ -11,7 +11,7 @@ current whenever tests, selectors, CI jobs or timings change.
 
 | Layer | Command | Time | Covers |
 |---|---|---|---|
-| Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay, picked copies deleted once nothing selects or sends them (a send group's when its selection is cleared); referenced items (docs/FILE_SELECTION.md) streamed from a provider that is not a file, uneven reads, nothing read to offer, pause and resume (`tests/assets.rs`); the Android bridge's lines and permissions (`src/assets.rs`), an APK sent in place under its name |
+| Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay, connecting (`outgoing::racing`: a device's addresses raced, its own networks' first, a dead address not holding up the live one), picked copies deleted once nothing selects or sends them (a send group's when its selection is cleared); referenced items (docs/FILE_SELECTION.md) streamed from a provider that is not a file, uneven reads, nothing read to offer, pause and resume (`tests/assets.rs`); the Android bridge's lines and permissions (`src/assets.rs`), an APK sent in place under its name |
 | UI headless, media browser | `cargo test -p dexdrop-app --test library` | ~7 s | Send's media browser on Android (ADR-009) against a stand-in provider registered as `android-media`: photos chosen and added as references, nothing opened; a library of 5000 listed a page at a time (under 200 tiles exist); Videos, search, Large files (one listing per category change); the permission card before listing (`DEXDROP_MEDIA_ACCESS=none`); `screenshots_of_the_browser` draws six screens into `target/shots/library` (or `DEXDROP_SHOTS`) |
 | UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default); Diagnostics in NSH's `Dialog` (`role:dialog[Diagnostics]`), closed by Escape, which is the dialog's alone while it shows |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640: Send's choices in thumb reach (`send_offers_its_choices_in_thumb_reach`: a row each at the foot of the screen above the tab bar, at least 48 pt, the heading clear of them; once a file is chosen, four side by side above Choose device, and the file's row shows its size once read), a selection of 130 files laid out in the page (120 rows, the rest counted, below Choose device's bar), Send in the icon's blue |
@@ -105,6 +105,7 @@ kebab-case:
 | `pause-all`, `resume-all` | a group's progress |
 | `copy-invitation` | Receive |
 | `clear-history` | History's Clear (asks first) |
+| `slow-link` | the transfer page's slow-Wi-Fi hint |
 | `sidebar-brand`, `narrow-bar`, `sidebar-bar`, `page-bar` | the sidebar's name; the desktops' own title bar (narrow window; over the sidebar and the pages) |
 | `tab-selection` | Android's sliding tab pill |
 | `change-avatar`, `rename`, `save-to`, `save-to-downloads` | Settings |

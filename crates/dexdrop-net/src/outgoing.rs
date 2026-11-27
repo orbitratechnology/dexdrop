@@ -27,6 +27,10 @@ const CONNECT: Duration = Duration::from_secs(4);
 /// Dialing over the internet: address lookup, a relay, hole punching.
 const CONNECT_REMOTE: Duration = Duration::from_secs(20);
 const HANDSHAKE: Duration = Duration::from_secs(10);
+/// Happy Eyeballs: how long one address has before the next starts too.
+const STAGGER: Duration = Duration::from_millis(250);
+/// How long the network has before the internet is tried beside it.
+const LAN_HEAD_START: Duration = Duration::from_millis(1500);
 
 pub(crate) struct Job {
     pub id: TransferId,
@@ -392,19 +396,18 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
         }
         let mut last = ConnectError::Rejected(RejectReason::InvitationInvalid);
         for peer in candidates {
-            for addr in &peer.addrs {
-                match connect_one(
-                    ctx,
-                    *addr,
-                    Some(peer.peer_id),
-                    Some(Proof::Code(code.clone())),
-                )
-                .await
-                {
-                    Ok(c) => return Ok(c),
-                    Err(ConnectError::Rejected(RejectReason::InvitationInvalid)) => break,
-                    Err(err) => last = err,
-                }
+            match connect_raced(
+                ctx,
+                peer.addrs.clone(),
+                Some(peer.peer_id),
+                Some(Proof::Code(code.clone())),
+            )
+            .await
+            {
+                Ok(c) => return Ok(c),
+                // Not this device's code: the next one showing a code.
+                Err(ConnectError::Rejected(RejectReason::InvitationInvalid)) => {}
+                Err(err) => last = err,
             }
         }
         return Err(match last {
@@ -424,33 +427,193 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
             addrs.push(*addr);
         }
     }
-    let mut last = ConnectError::Unreachable("The device is not visible nearby.".into());
-    for addr in addrs {
-        match connect_one(ctx, addr, route.pinned, route.pairing.clone()).await {
-            Ok(c) => return Ok(c),
-            Err(err @ ConnectError::Rejected(_)) => return Err(err),
-            // Another device answered at this address (a stale or spoofed
-            // announcement): the expected one may be at the next address.
-            Err(ConnectError::WrongPeer) => last = ConnectError::WrongPeer,
-            Err(err) => last = err,
-        }
-    }
-    // Not reachable on this network: over the internet, when this device can
-    // and the other's internet address is known (an invitation, or a device
-    // it exchanged files with before).
+    // The internet, when this device can and the other's internet address
+    // is known (an invitation, or a device it exchanged files with before).
     let remote = route.remote.clone().or_else(|| {
         let id = route.pinned?;
         lock(&ctx.known).get(&id).map(|k| (k.key, k.relay.clone()))
     });
-    if let (Some(endpoint), Some((key, relay))) = (ctx.remote.as_ref(), remote) {
-        match connect_remote(ctx, endpoint, &key, relay.as_deref(), route).await {
-            Ok(c) => return Ok(c),
-            Err(err @ (ConnectError::Rejected(_) | ConnectError::WrongPeer)) => return Err(err),
-            Err(ConnectError::Unreachable(_)) if matches!(last, ConnectError::WrongPeer) => {}
+    let internet = match (ctx.remote.as_ref(), remote) {
+        (Some(endpoint), Some((key, relay))) => Some((endpoint, key, relay)),
+        _ => None,
+    };
+    let lan = connect_raced(ctx, addrs.clone(), route.pinned, route.pairing.clone());
+    let Some((endpoint, key, relay)) = internet else {
+        return lan.await;
+    };
+    let internet = connect_remote(ctx, endpoint, &key, relay.as_deref(), route);
+    // A pairing proof goes on one connection only: the internet is tried
+    // after the network has failed, as before. Without one, the internet
+    // starts once the network has had a head start, so a device that
+    // cannot be reached here costs LAN_HEAD_START, not every address's
+    // timeout, and the first connection made wins.
+    if route.pairing.is_some() || addrs.is_empty() {
+        let last = if addrs.is_empty() {
+            ConnectError::Unreachable("The device is not visible nearby.".into())
+        } else {
+            match lan.await {
+                Ok(c) => return Ok(c),
+                Err(err @ ConnectError::Rejected(_)) => return Err(err),
+                Err(err) => err,
+            }
+        };
+        return pick(last, internet.await);
+    }
+    tokio::pin!(lan);
+    let internet = async {
+        tokio::time::sleep(LAN_HEAD_START).await;
+        internet.await
+    };
+    tokio::pin!(internet);
+    tokio::select! {
+        biased;
+        lan_result = &mut lan => match lan_result {
+            Ok(c) => Ok(c),
+            Err(err @ ConnectError::Rejected(_)) => Err(err),
+            Err(err) => pick(err, internet.await),
+        },
+        internet_result = &mut internet => match internet_result {
+            Ok(c) => Ok(c),
+            Err(err @ (ConnectError::Rejected(_) | ConnectError::WrongPeer)) => Err(err),
+            // The internet failed: the network still has its chance.
+            Err(err) => match lan.await {
+                Ok(c) => Ok(c),
+                Err(lan_err @ (ConnectError::Rejected(_) | ConnectError::WrongPeer)) => Err(lan_err),
+                Err(_) => Err(err),
+            },
+        },
+    }
+}
+
+/// The error to report when the network failed with `lan` and the internet
+/// answered `internet`: a refusal or a wrong device is said as it is; a
+/// wrong device seen here beats an internet path that did not answer.
+fn pick(
+    lan: ConnectError,
+    internet: Result<Connected, ConnectError>,
+) -> Result<Connected, ConnectError> {
+    match internet {
+        Ok(c) => Ok(c),
+        Err(err @ (ConnectError::Rejected(_) | ConnectError::WrongPeer)) => Err(err),
+        Err(ConnectError::Unreachable(_)) if matches!(lan, ConnectError::WrongPeer) => Err(lan),
+        Err(err) => Err(err),
+    }
+}
+
+/// Connects to one of a device's addresses on this network: their TCP
+/// connections raced ([`race_tcp`]), then the TLS handshake on the one that
+/// answered first. A handshake that finds another device, or fails, goes on
+/// with the addresses left; a refusal ends it. The handshake (which carries
+/// a pairing proof) runs on one connection at a time, so a proof is never
+/// spent on a connection that is then dropped.
+async fn connect_raced(
+    ctx: &Ctx,
+    mut addrs: Vec<SocketAddr>,
+    pinned: Option<PeerId>,
+    proof: Option<Proof>,
+) -> Result<Connected, ConnectError> {
+    order(&mut addrs, &crate::discovery::local_addrs());
+    let mut last = ConnectError::Unreachable("The device is not visible nearby.".into());
+    while !addrs.is_empty() {
+        let (addr, tcp) = match race_tcp(addrs.clone(), STAGGER).await {
+            Ok(won) => won,
+            Err(why) => {
+                // Every address failed to connect: a handshake failure seen
+                // before says more than the last timeout.
+                return Err(match last {
+                    ConnectError::Unreachable(_) => ConnectError::Unreachable(format!(
+                        "The device could not be reached ({why})."
+                    )),
+                    other => other,
+                });
+            }
+        };
+        addrs.retain(|a| *a != addr);
+        match handshake(ctx, tls::tcp_link(tcp), pinned, proof.clone()).await {
+            Ok(mut c) => {
+                c.addr = Some(addr);
+                return Ok(c);
+            }
+            Err(err @ ConnectError::Rejected(_)) => return Err(err),
+            // Another device answered at this address (a stale or spoofed
+            // announcement): the expected one may be at the next address.
             Err(err) => last = err,
         }
     }
     Err(last)
+}
+
+/// Puts the addresses most likely to answer first: those on one of this
+/// device's own networks (the same IPv4 /24 or IPv6 /64), then IPv4, then
+/// IPv6, link-local last. Stable, so discovery's order breaks ties.
+fn order(addrs: &mut [SocketAddr], local: &[std::net::IpAddr]) {
+    use std::net::IpAddr;
+    let same_network = |ip: &IpAddr| {
+        local.iter().any(|l| match (ip, l) {
+            (IpAddr::V4(a), IpAddr::V4(b)) => a.octets()[..3] == b.octets()[..3],
+            (IpAddr::V6(a), IpAddr::V6(b)) => a.segments()[..4] == b.segments()[..4],
+            _ => false,
+        })
+    };
+    let link_local = |ip: &IpAddr| match ip {
+        IpAddr::V4(v4) => v4.is_link_local(),
+        IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) == 0xfe80,
+    };
+    addrs.sort_by_key(|a| {
+        let ip = a.ip();
+        (!same_network(&ip), link_local(&ip), ip.is_ipv6())
+    });
+}
+
+/// Dials `addrs` the Happy Eyeballs way (RFC 8305): the first at once, each
+/// next one `stagger` later or as soon as one before it fails, all running
+/// together; the first TCP connection made wins and the others are dropped.
+/// A dead address (a VPN's, a container bridge's, a stale IPv6 one) no
+/// longer costs its whole timeout before the next is tried. Each attempt
+/// gives up after `CONNECT`.
+async fn race_tcp(
+    addrs: Vec<SocketAddr>,
+    stagger: Duration,
+) -> Result<(SocketAddr, TcpStream), String> {
+    let mut pending = addrs.into_iter();
+    let mut running = tokio::task::JoinSet::new();
+    let mut last = "no address".to_owned();
+    let mut start_next = true;
+    loop {
+        if start_next && let Some(addr) = pending.next() {
+            running.spawn(async move {
+                (
+                    addr,
+                    tokio::time::timeout(CONNECT, TcpStream::connect(addr)).await,
+                )
+            });
+        }
+        if running.is_empty() {
+            return Err(last);
+        }
+        let finished = if pending.len() > 0 {
+            match tokio::time::timeout(stagger, running.join_next()).await {
+                Ok(done) => done,
+                // The stagger passed with no answer: start the next one.
+                Err(_) => {
+                    start_next = true;
+                    continue;
+                }
+            }
+        } else {
+            running.join_next().await
+        };
+        start_next = true;
+        match finished {
+            Some(Ok((addr, Ok(Ok(tcp))))) => {
+                running.abort_all();
+                return Ok((addr, tcp));
+            }
+            Some(Ok((_, Ok(Err(e))))) => last = e.kind().to_string(),
+            Some(Ok((_, Err(_)))) => last = "timed out".to_owned(),
+            Some(Err(_)) | None => {}
+        }
+    }
 }
 
 /// Dials the device over the internet (Iroh) and runs the same TLS
@@ -486,24 +649,6 @@ async fn connect_remote(
         .map_err(|e| unreachable(&e))?;
     let mut c = handshake(ctx, link, route.pinned, route.pairing.clone()).await?;
     c.internet = Some(conn);
-    Ok(c)
-}
-
-async fn connect_one(
-    ctx: &Ctx,
-    addr: SocketAddr,
-    pinned: Option<PeerId>,
-    proof: Option<Proof>,
-) -> Result<Connected, ConnectError> {
-    let unreachable = |what: &str| {
-        ConnectError::Unreachable(format!("The device could not be reached ({what})."))
-    };
-    let tcp = tokio::time::timeout(CONNECT, TcpStream::connect(addr))
-        .await
-        .map_err(|_| unreachable("timed out"))?
-        .map_err(|e| unreachable(&e.kind().to_string()))?;
-    let mut c = handshake(ctx, tls::tcp_link(tcp), pinned, proof).await?;
-    c.addr = Some(addr);
     Ok(c)
 }
 
@@ -577,5 +722,79 @@ async fn handshake(
             other.name()
         ))),
         Err(err) => Err(ConnectError::Unreachable(err.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod racing {
+    use std::{
+        net::{IpAddr, Ipv4Addr, SocketAddr},
+        time::{Duration, Instant},
+    };
+
+    use super::{order, race_tcp};
+
+    fn addr(s: &str) -> SocketAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn addresses_on_this_devices_networks_go_first_link_local_last() {
+        let local = [IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20))];
+        let mut addrs = vec![
+            addr("[fe80::1]:7000"),
+            addr("10.8.0.5:7000"),
+            addr("[2001:db8::5]:7000"),
+            addr("192.168.1.31:7000"),
+        ];
+        order(&mut addrs, &local);
+        assert_eq!(
+            addrs,
+            vec![
+                addr("192.168.1.31:7000"),
+                addr("10.8.0.5:7000"),
+                addr("[2001:db8::5]:7000"),
+                addr("[fe80::1]:7000"),
+            ]
+        );
+    }
+
+    /// A dead address before the live one costs the stagger, not its
+    /// whole timeout (it used to cost 4 s an address).
+    #[tokio::test]
+    async fn a_dead_address_does_not_hold_up_the_live_one() {
+        let live = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let live_addr = live.local_addr().unwrap();
+        // TEST-NET-1: never answers (dropped or unreachable).
+        let dead = addr("192.0.2.1:7000");
+        let started = Instant::now();
+        let (won, _tcp) = race_tcp(vec![dead, live_addr], Duration::from_millis(250))
+            .await
+            .unwrap();
+        assert_eq!(won, live_addr);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// Nothing answers: an error, after the attempts' timeout at most.
+    #[tokio::test]
+    async fn no_address_answers() {
+        let closed = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        assert!(
+            race_tcp(vec![closed], Duration::from_millis(250))
+                .await
+                .is_err()
+        );
+        assert!(
+            race_tcp(Vec::new(), Duration::from_millis(250))
+                .await
+                .is_err()
+        );
     }
 }

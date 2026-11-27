@@ -406,6 +406,27 @@ fn progress(id: TransferId) -> impl IntoElement {
                 )),
         )
         .child(peer_card(s))
+        .child(when(
+            move || slow_nearby(&s()),
+            || {
+                view()
+                    .test_id("slow-link")
+                    .self_stretch()
+                    .flex_row()
+                    .gap(px(space::S))
+                    .px(px(space::XS))
+                    .child(ui::icon(Icon::Wifi, 16.0, move || {
+                        ui::tone_color(Tone::Warning)
+                    }))
+                    .child(
+                        muted(
+                            "This Wi-Fi is slow. Both devices on 5 GHz Wi-Fi, nearer the \
+                             router, or on a cable go faster.",
+                        )
+                        .flex_1(),
+                    )
+            },
+        ))
         .child(dynamic(move || {
             let failures = s().failures;
             (!failures.is_empty()).then(|| {
@@ -446,6 +467,7 @@ fn peer_card(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElem
         if n.is_empty() { "…".to_owned() } else { n }
     };
     let platform = move || s().peer_platform;
+    let route = computed(move || s().route);
     ui::tile()
         .self_stretch()
         .flex_row()
@@ -464,9 +486,10 @@ fn peer_card(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElem
                     }
                 }))
                 .child(ui::strong(name).number_of_lines(1))
-                // How the data goes; a relay is always said (PRD 9.5).
+                // How the data goes; a relay is always said (PRD 9.5). Only
+                // the route selects it, not each progress tick.
                 .child(dynamic(move || {
-                    s().route.map(|route| {
+                    route.get().map(|route| {
                         let (words, i) = ui::route_label(route);
                         view()
                             .flex_row()
@@ -492,6 +515,19 @@ fn peer_card(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElem
                 )
             },
         ))
+}
+
+/// Below this, a transfer between devices on one network is slow for Wi-Fi
+/// (2.4 GHz, far from the router, a busy network): 5 MB/s.
+pub const SLOW_NEARBY: f64 = 5_000_000.0;
+
+/// A transfer on this network moving slowly once its rate is steady (the
+/// time left is known), with enough left that it is worth saying.
+pub fn slow_nearby(t: &TransferSnapshot) -> bool {
+    t.state == TransferState::Transferring
+        && t.route == Some(dexdrop_core::api::Route::Nearby)
+        && t.eta.is_some_and(|left| left >= 10)
+        && t.rate.is_some_and(|r| r < SLOW_NEARBY)
 }
 
 /// Pause, resume, cancel.
@@ -865,4 +901,60 @@ fn conflict_picker(conflict: Signal<ConflictPolicy>) -> impl IntoElement {
             move || conflict.get(),
             move |c| conflict.set(c),
         ))
+}
+
+#[cfg(test)]
+mod tests {
+    use dexdrop_core::{
+        api::{Route, TransferSnapshot, TransferState},
+        store::Direction,
+    };
+
+    use super::slow_nearby;
+
+    fn moving(route: Route, rate: f64, eta: u64) -> TransferSnapshot {
+        TransferSnapshot {
+            id: Default::default(),
+            direction: Direction::Outgoing,
+            peer_id: None,
+            peer_name: String::new(),
+            peer_platform: String::new(),
+            label: String::new(),
+            files: 1,
+            folders: 0,
+            total_bytes: 1 << 30,
+            bytes_done: 1 << 20,
+            files_done: 0,
+            files_failed: 0,
+            files_skipped: 0,
+            rate: Some(rate),
+            eta: Some(eta),
+            state: TransferState::Transferring,
+            sas: None,
+            saved_to: None,
+            failures: Vec::new(),
+            current: None,
+            started: 0,
+            average_rate: None,
+            saved_files: Vec::new(),
+            route: Some(route),
+            peer_avatar: None,
+            items: Vec::new(),
+            group: None,
+        }
+    }
+
+    /// The slow-Wi-Fi hint: on this network, under 5 MB/s once the rate is
+    /// steady, with at least 10 s left; not over the internet (its speed is
+    /// the uplink's), not for what is about to finish.
+    #[test]
+    fn slow_wifi_is_said_only_when_it_is_the_network() {
+        assert!(slow_nearby(&moving(Route::Nearby, 2_000_000.0, 60)));
+        assert!(!slow_nearby(&moving(Route::Nearby, 40_000_000.0, 60)));
+        assert!(!slow_nearby(&moving(Route::Nearby, 2_000_000.0, 5)));
+        assert!(!slow_nearby(&moving(Route::Relayed, 2_000_000.0, 60)));
+        let mut paused = moving(Route::Nearby, 2_000_000.0, 60);
+        paused.state = TransferState::Paused { by_peer: false };
+        assert!(!slow_nearby(&paused));
+    }
 }

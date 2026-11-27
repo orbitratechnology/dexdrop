@@ -82,8 +82,11 @@ punching, port mapping) and a relay fallback when no direct path exists.
   verification are unchanged. Iroh's own encryption is a second layer; at
   internet speeds the extra CPU does not matter.
 - **Order.** Outgoing transfers try the local network first (discovered
-  addresses, invitation addresses), then the internet when the other
-  device's key is known: from an invitation (which now carries the key and
+  addresses, invitation addresses, raced the Happy Eyeballs way: see
+  docs/CONNECTIVITY.md 4.1), then the internet when the other device's
+  key is known. Without a pairing proof the internet starts beside the
+  network after a 1.5 s head start, and the first connection made wins.
+  The key comes from an invitation (which now carries the key and
   home relay) or from `known-devices.json`, the devices this one exchanged
   files with. Codes stay local: a typed code has no room for a key, and
   looking codes up remotely would need a rendezvous service.

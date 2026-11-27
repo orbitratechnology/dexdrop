@@ -66,6 +66,8 @@ queries = ['<intent><action android:name="android.intent.action.MAIN"/></intent>
 permissions = [
     "FOREGROUND_SERVICE",
     "FOREGROUND_SERVICE_DATA_SYNC",
+    # TransferService's Wi-Fi locks while files move (no prompt).
+    "WAKE_LOCK",
     "READ_MEDIA_IMAGES",
     "READ_MEDIA_VIDEO",
     "READ_MEDIA_AUDIO",

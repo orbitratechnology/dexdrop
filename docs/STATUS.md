@@ -244,7 +244,7 @@ Audited 2026-11-23 against the PRD's technology stack.
 | Integrity | BLAKE3 | per chunk and per file; a failed file is requested again once | Done |
 | Phones' files | Media browser; system pickers in open mode | Photos, videos and audio are browsed in the app and sent in place: Android through MediaStore with the granular `READ_MEDIA_*` permissions, iOS through PhotoKit. Documents come through Android's `ACTION_OPEN_DOCUMENT` with a persistable grant, and iOS's document picker with a bookmark and security scope. Selections hold reference paths (`dexdrop_core::asset`), read through `dexdrop_core::source` and never copied (ADR-009, `docs/FILE_SELECTION.md`) | Done, checked on the emulator and the simulator (CI runs 103, 105, 110). Not yet: iCloud placeholders not downloaded to the iPhone |
 | iOS background | not guaranteed | foreground transfers, journaled, resumed on return | Done as the PRD expects |
-| Android background | — | a `dataSync` foreground service while files move | Done |
+| Android background | — | a `dataSync` foreground service while files move, with Wi-Fi locks so the radio does not doze (docs/CONNECTIVITY.md 4.1) | Done |
 | Browser | WebRTC, optional | web preview of the UI only, no engine | Not planned for v1 |
 | Benchmarks | real devices | loopback benches in CI (throughput, files/s, memory, TCP vs QUIC); no real-device numbers yet | Open |
 

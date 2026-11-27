@@ -182,6 +182,29 @@ fn config(state: PathBuf, downloads: PathBuf) -> EngineConfig {
     config
 }
 
+/// A finished transfer's measurement, for comparing networks and devices
+/// (docs/CONNECTIVITY.md, 4.1): its size, its time, its average speed and
+/// how the data went. "1.00 GB in 21s, 48.3 MB/s, on this network".
+fn measured(t: &dexdrop_net::TransferSnapshot) -> Option<String> {
+    let rate = t.average_rate?;
+    let route = match t.route? {
+        dexdrop_core::api::Route::Nearby => "on this network",
+        dexdrop_core::api::Route::Direct => "over the internet, direct",
+        dexdrop_core::api::Route::Relayed => "through a relay",
+    };
+    let secs = if rate > 0.0 {
+        (t.bytes_done as f64 / rate).round() as u64
+    } else {
+        0
+    };
+    Some(format!(
+        "{} in {}, {}, {route}",
+        format::bytes(t.bytes_done),
+        format::duration(secs.max(1)),
+        format::rate(rate)
+    ))
+}
+
 fn progress_line(t: &dexdrop_net::TransferSnapshot) -> String {
     let mut line = format!(
         "{:>5.1}%  {} of {}",
@@ -292,6 +315,9 @@ async fn receive(
                 s if s.is_finished() => {
                     eprintln!();
                     println!("{}: {} from {}", s.label(), t.label, t.peer_name);
+                    if let Some(m) = measured(&t) {
+                        println!("  {m}");
+                    }
                     for (path, why) in &t.failures {
                         println!("  {path}: {why}");
                     }
@@ -428,6 +454,9 @@ async fn send(state: PathBuf, to: String, paths: Vec<PathBuf>) -> Result<()> {
                             String::new()
                         };
                         println!("{}: {}{to}", s.label(), t.label);
+                        if let Some(m) = measured(&t) {
+                            println!("  {m}");
+                        }
                         for (path, why) in &t.failures {
                             println!("  {path}: {why}");
                         }
