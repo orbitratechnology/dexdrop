@@ -157,6 +157,35 @@ Add an id when a test needs a control; add it to this table.
 
 ## CI
 
+A run does only what it needs. Its first job, **Plan**
+(`scripts/ci-plan.sh`, whose rules check themselves first with
+`--self-test`), decides which jobs run and says why in the run's summary:
+
+- **Everything** on a push to `main`, on every pull request, and when the
+  workflow, `Cargo.lock`, `Cargo.toml`, `app/nsh.json`, `app/Cargo.toml`,
+  `app/e2e/` or a path no rule knows changes.
+- **Run workflow** (Actions › CI): choose `platforms` (`android`, `apple`,
+  `windows`, `linux`, `web`, `engine`, `app`, `all`) and `checks`; with
+  checks off only that package is built and uploaded (its artifact, about
+  10 minutes for Android).
+- **A commit message tag**, in the subject line or on a line of its own
+  (a tag quoted inside a sentence is not one): `[ci android]`,
+  `[ci apple windows]`, `[ci all]`, `[ci none]`; `build` in it skips the
+  checks (`[ci android build]`). GitHub's `[skip ci]` skips the run.
+- **Otherwise the files changed** since the branch's last push (since
+  `main` for a new branch): docs alone run nothing; engine crates run the
+  engine tests on three OSes and the app UI tests; app code runs the app UI
+  tests; a platform's own code runs its package and checks (Android: the
+  Java bridges, `jvm.rs`, `apps.rs`, `assets.rs`, `nsd.rs`,
+  `app/src/android.rs`, `scripts/android-*`; Apple: `dexdrop-photos`,
+  `bonjour.rs`, the iOS and macOS check scripts; `desktop-check.py`: the
+  three desktops), and so does any changed Rust line under
+  `cfg(target_os = …)` / `target_arch = "wasm32"`.
+
+Artifacts are per platform (`dexdrop-android`, `dexdrop-windows-x86_64`,
+`dexdrop-linux-x86_64`, `dexdrop-macos-arm64-unsigned`,
+`dexdrop-ios-simulator`, `dexdrop-web`): a run uploads those it built.
+
 | Job | NSH | Then |
 |---|---|---|
 | Engine tests (Linux, Windows, macOS) | `cargo test` of the engine crates | the transfer benchmark |

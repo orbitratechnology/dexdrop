@@ -1,7 +1,7 @@
 # Packaging DexDrop
 
 How DexDrop is packaged for each platform, following NSH's packaging guide
-(https://nsh.dev/docs/packaging.md) for NSH 0.7.0. CI packages every target
+(https://nsh.dev/docs/packaging.md) for NSH 0.7.1. CI packages every target
 on every push (`.github/workflows/ci.yml`); the commands below are the ones
 it runs.
 

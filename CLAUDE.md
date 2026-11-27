@@ -1,7 +1,7 @@
 # DexDrop: notes for working on this repository
 
 Cross-platform peer-to-peer file transfer: a Rust engine
-(`crates/dexdrop-core`, `crates/dexdrop-net`), an NSH 0.7.0 app (`app/`,
+(`crates/dexdrop-core`, `crates/dexdrop-net`), an NSH 0.7.1 app (`app/`,
 Rust only), a CLI (`crates/dexdrop-cli`). Product requirements:
 `docs/STATUS.md` (audit against the PRD), `docs/ARCHITECTURE.md`
 (decisions).

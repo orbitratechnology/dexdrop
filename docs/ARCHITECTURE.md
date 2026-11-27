@@ -425,6 +425,21 @@ Rust. Tests:
 the packaged APK's manifest back (permissions, queries, the share-sheet
 filters, the icon, the bridges' classes).
 
+### 0.7.1 (patch release)
+
+NSH 0.7.1 (https://github.com/longbridge/nsh/releases/tag/v0.7.1) changes
+no API DexDrop uses. Taken as is: the Windows title bar's accent color no
+longer shows in the window's content; canvases and shaders inside
+`<Window>` draw again on Linux (DexDrop's root declares its window, ADR-006,
+and its icons are images); canvas panning and image sprites cost less on
+macOS and Linux; smaller web bundles. Applied: the Linux backend loads
+GStreamer at run time, so building and testing the app needs only GTK 4
+and clang; CI's app UI tests, web and Android jobs no longer install
+GStreamer's development packages. Linux packaging keeps them: `nsh` links
+GStreamer into the runner of an app that plays video (the viewer's
+`<Video>`), as it links Media Foundation on Windows (`nsh-platform-windows`'s
+`media`).
+
 ## ADR-007: After 0.7.0 — the Keystore, the camera, a foreground service
 
 **Context.** With `ndk-context` set by NSH, crates' manifest entries and

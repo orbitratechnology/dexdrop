@@ -121,7 +121,7 @@ jobs:
       # mode:nsh: the output of `nsh run` (builds, app logs), served by the
       # gate at /__native-sim/log to holders of the access key.
       NSH_LOG: /tmp/nsh-run.log
-      NSH_VERSION: v0.7.0
+      NSH_VERSION: v0.7.1
       # Keep the Rust build cache even when a session ends abnormally: the
       # first build takes ~15 min, later sessions reuse it.
       CACHE_ON_FAILURE: "true"
