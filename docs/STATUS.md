@@ -70,8 +70,10 @@ every action, and the platform's own controls where NSH has them.
   iOS's PhotoKit), several at once, and send them in place: nothing is
   copied. Android's Files uses the document picker in place too. Not on
   `main`, which keeps the pickers below until Google Play accepts the
-  photo and video permission declaration. iOS's provider is type-checked,
-  not yet run on a device; iOS documents are still copied.
+  photo and video permission declaration. CI runs the browser on the
+  Android emulator and the iOS simulator (list, thumbnails, add without a
+  copy; runs 103 and 105); not yet on a phone. iOS documents are still
+  copied.
 - **No media Recent on phones (ADR-008):** showing a phone's newest
   photos and videos takes a broad photo permission (Android's
   `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO`, which Google Play restricts to

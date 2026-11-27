@@ -118,7 +118,7 @@ chunks (plus PhotoKit's 8 pieces in flight on iOS).
 | 3 Core types and provider trait | done | `dexdrop-core/src/asset.rs`, `source.rs` |
 | 4 Android MediaStore | done: paged queries over images, videos and audio (`MediaStore.Files`, `QUERY_ARG_OFFSET`/`LIMIT` on 11+), search, sort, size floor, albums (buckets), `loadThumbnail`, originals by detached file descriptor | `dexdrop-net/android/dev/dexdrop/AssetsBridge.java`, `dexdrop-net/src/assets.rs` |
 | 4 Android documents (SAF) | done: `ACTION_OPEN_DOCUMENT` from an invisible activity, several of any type, `takePersistableUriPermission`, read by descriptor; Files on Android uses it | `PickerActivity.java`, `assets::pick_documents` |
-| 5 iOS PhotoKit | done, type-checked for `aarch64-apple-ios`, not yet run on a device: paged fetch (lazy `PHFetchResult`), albums, `PHCachingImageManager` thumbnails, streamed originals (`requestDataForAssetResource`, iCloud allowed, bounded, cancelled on drop), limited access with "choose more" | `crates/dexdrop-photos` |
+| 5 iOS PhotoKit | done; run in the iOS 26 simulator by CI (run 105): after PhotoKit's prompt (Allow Full Access) the browser lists the library (7 items, thumbnails, a HEIC) and adds a photo as a reference with its size from PhotoKit (433 B, nothing exported); not yet on a device: paged fetch (lazy `PHFetchResult`), albums, `PHCachingImageManager` thumbnails, streamed originals (`requestDataForAssetResource`, iCloud allowed, bounded, cancelled on drop), limited access with "choose more" | `crates/dexdrop-photos` |
 | 5 iOS documents in place | **not done**: `UIDocumentPicker` with `asCopy: false` and security-scoped access needs a delegate class (objc2 `define_class!`); Files on iOS still uses NSH's picker, which copies | — |
 | 6 Unified selection model | done: selections hold reference paths; Send's sizes come from the provider (`files::stat_of`) | `app/src/files.rs`, `pages/send.rs` |
 | 7 Streaming integration | done: the engine reads every source through `source::open`; tested with a non-file provider, uneven reads, pause and resume | `dexdrop-net/tests/assets.rs` |
@@ -127,6 +127,8 @@ chunks (plus PhotoKit's 8 pieces in flight on iOS).
 | 10 Android apps | kept; a single-APK app is now sent in place under a readable name (`LocalFiles`), split APKs are still staged | `dexdrop-net/src/apps.rs` |
 | 11 Performance | headless: a library of 5000 lists only its first pages and keeps under 200 tiles; engine: 6 MiB and 24 MiB referenced items stream byte-identical | `app/tests/library.rs`, `dexdrop-net/tests/assets.rs` |
 | 12 Docs, CI | done on the branch: ADR-009, TESTING, the APK, emulator and simulator checks expect the browser | `docs/ARCHITECTURE.md`, `.github/workflows/ci.yml`, `scripts/*-check.sh` |
+
+Run on CI's devices: the Android emulator lists a photo pushed into MediaStore with its system thumbnail and adds it with no copy in the app's storage (run 103); the iOS simulator as above (run 105).
 
 Not measured yet: times to first thumbnail and to the first byte sent from
 a 3 GB video on real devices (the emulator and simulator checks run the
