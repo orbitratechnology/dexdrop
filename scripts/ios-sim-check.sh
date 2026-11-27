@@ -273,11 +273,15 @@ if tap Photos; then
     step 08-library
   fi
   if grep -q "Select all" "$out/08-library.txt"; then
-    if tap "Select all" && tap Add && ad wait text "Selected" 10000 >/dev/null 2>&1; then
+    count=$(grep -oE '"[0-9]+ items' "$out/08-library.txt" | head -1 | tr -d '"')
+    note "- Photos lists the library in the app (${count:-its items}, PhotoKit's thumbnails)"
+    # The check's own photo, then Add (its label counts the items chosen).
+    if tap dexdrop-check.jpg && tap "Add 1 item" && ad wait text "Selected" 10000 >/dev/null 2>&1; then
       step 08-library-added
-      note "- Photos lists the library in the app; all chosen and added (references, nothing exported)"
+      note "- The check's photo chosen and added to Send (a reference: nothing exported)"
     else
-      warn "could not add the simulator's photos from the browser (08-library)"
+      step 08-library-not-added
+      warn "could not add the check's photo from the browser (08-library-not-added)"
     fi
   elif grep -q "Allow access" "$out/08-library.txt"; then
     warn "the browser still asks for access after the prompt (08-library)"
