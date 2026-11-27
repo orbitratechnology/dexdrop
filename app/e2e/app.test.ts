@@ -11,21 +11,33 @@
 // they hold across platforms and wording; see docs/TESTING.md.
 import { beforeEach, describe, expect, open, test } from "nsh/test";
 
+// Where pictures of the real platform go (CI sets it per target, and
+// uploads them): Home in light and in dark, for the Design Guides'
+// finishing checklist. Unset: no pictures.
+const shots: string | undefined = (globalThis as any).process?.env?.DEXDROP_SHOTS;
+
+type App = Awaited<ReturnType<typeof open>>;
+
+// The app on a fresh engine and storage, at Home.
+async function home(options: { colorScheme?: "light" | "dark" } = {}): Promise<App> {
+  const app = await open("../nsh.json", options);
+  // The engine has started once Home says how this device shows; on
+  // Apple platforms the first launch then explains the local network
+  // (in the same update), as it does for a person: go through it.
+  await app.waitFor("text:/Visible as |· hidden$/", { timeout: 10000 });
+  if (app.count("id:local-network-continue") > 0) {
+    await app.press("id:local-network-continue");
+    await app.waitFor("id:local-network-continue", { state: "gone" });
+  }
+  await app.waitFor("text:Nearby");
+  return app;
+}
+
 describe("DexDrop", () => {
-  let app: Awaited<ReturnType<typeof open>>;
+  let app: App;
 
   beforeEach(async () => {
-    // A fresh engine and storage for each test.
-    app = await open("../nsh.json");
-    // The engine has started once Home says how this device shows; on
-    // Apple platforms the first launch then explains the local network
-    // (in the same update), as it does for a person: go through it.
-    await app.waitFor("text:/Visible as |· hidden$/", { timeout: 10000 });
-    if (app.count("id:local-network-continue") > 0) {
-      await app.press("id:local-network-continue");
-      await app.waitFor("id:local-network-continue", { state: "gone" });
-    }
-    await app.waitFor("text:Nearby");
+    app = await home();
   });
 
   test("home offers Send and Receive", async () => {
@@ -49,5 +61,19 @@ describe("DexDrop", () => {
     await app.waitFor("id:copy-invitation", { timeout: 10000 });
     await app.back();
     await app.waitFor("id:send");
+  });
+});
+
+describe("DexDrop's look on this platform", () => {
+  test("a picture of Home in light", async () => {
+    const app = await home({ colorScheme: "light" });
+    await app.waitFor("id:send");
+    if (shots) await app.screenshot(`${shots}/home-light.png`);
+  });
+
+  test("a picture of Home in dark", async () => {
+    const app = await home({ colorScheme: "dark" });
+    await app.waitFor("id:send");
+    if (shots) await app.screenshot(`${shots}/home-dark.png`);
   });
 });

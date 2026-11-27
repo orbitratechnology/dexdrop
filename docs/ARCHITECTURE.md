@@ -594,13 +594,31 @@ DexDrop was audited against them; the decisions:
 - **One instance on the desktops** (`nsh.json` `singleInstance`): a
   second launch hands its files to the running app. The main window
   opens at 1040 × 720 and then where the user left it (`restore_bounds`).
-- **Not done yet:**
-  - a keyboard path to Forget and Remove (they need a long press today;
-    `nsh_base::context_menu` gives Shift+F10 and the Menu key);
-  - one sliding selection for the tab bar and the sidebar (the segmented
-    control has one);
-  - splitting the model's one signal by concern, so that transfers'
-    progress does not wake what reads peers or settings;
-  - screenshots in dark mode and on devices for the Finishing checklist;
-  - drawing the system title bar ourselves on desktops (the guides'
-    finishing checklist), kept native for now.
+- **Done since** (the items first left open):
+  - Context menus (`ui::context_menu`) carry what a long press or a right
+    click does (Forget, Remove), so the keyboard reaches them (Shift+F10,
+    the Menu key) and screen readers get "show menu".
+  - One sliding selection (`ui::sliding_selection`) for Android's tab bar
+    and the sidebar, as the segmented control has.
+  - The engine's state is one signal per concern (`state::engine`):
+    status, settings, peers, transfers, requests, the invitation, the
+    code, trusted devices, offline. A transfer's progress wakes only what
+    reads transfers.
+  - The desktops draw their own title bar (`TitleBarStyle::Hidden`,
+    `ui::window_bar` on `nsh_base::title_bar`), with a least window size.
+  - Screenshots in light and dark: the headless pictures of the media
+    browser in both (`docs/screenshots/headless`, `dark/`), and Home on
+    each real platform in both, from the e2e test into CI's artifacts.
+  - Smaller items: a tooltip on Look again, swatches named by their color,
+    a confirmation before Clear History and before forgetting a trusted
+    device, Settings' switches that move at once, the toast clock running
+    only while toasts show, one listing per category change in the media
+    browser, layout values read in bindings, History's times on the app's
+    clock, and the e2e test type-checked by `nsh check` (`app/tsconfig.json`).
+- **Left as they are, on purpose:**
+  - Send's selection lies in the page (the first 120 files and 60 photos,
+    the rest counted): a list virtualized inside the page took the swipe on
+    a phone and did not scroll (STATUS 7.6).
+  - Desktop "Open With" by file type: Windows and Linux match by extension,
+    and DexDrop takes any file, so it lists none (docs/PACKAGING.md).
+  - No updater yet: it matters once desktop builds are distributed.

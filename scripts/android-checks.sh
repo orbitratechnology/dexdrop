@@ -21,7 +21,7 @@ adb shell df -h /data > "$out/device-storage.txt" 2>&1
 export CARGO_PROFILE_DEV_DEBUG=0
 
 e2e=0
-(cd "$root/app" && nsh test e2e/app.test.ts --target android --junit "$out/e2e-android.xml") \
+(mkdir -p "$out/shots-android" && cd "$root/app" && DEXDROP_SHOTS="$out/shots-android" nsh test e2e/app.test.ts --target android --junit "$out/e2e-android.xml") \
   2>&1 | tee "$out/e2e-android.log" || e2e=1
 if [ "$e2e" != 0 ]; then
   {

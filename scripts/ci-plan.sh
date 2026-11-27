@@ -37,7 +37,7 @@ map_files() {
     case "$f" in
       # Run everything: what every job is made of.
       .github/workflows/ci.yml | Cargo.lock | Cargo.toml | rust-toolchain* | \
-        app/nsh.json | app/Cargo.toml | app/e2e/* | scripts/ci-plan.sh)
+        app/nsh.json | app/Cargo.toml | app/tsconfig.json | app/e2e/* | scripts/ci-plan.sh)
         out+=(all) ;;
       # Nothing to build.
       docs/* | *.md | LICENSE* | .claude/* | .agents/* | skills-lock.json | .gitignore | \

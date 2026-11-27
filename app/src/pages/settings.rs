@@ -20,6 +20,13 @@ fn settings() -> dexdrop_core::store::Settings {
     engine::settings().with(|engine::SettingsState(settings)| settings.clone())
 }
 
+/// Changes a setting here at once (the switch moves with the finger), then
+/// asks the engine to save it; the engine's answer replaces it.
+fn set(change: impl FnOnce(&mut dexdrop_core::store::Settings), command: Command) {
+    engine::settings().update(|engine::SettingsState(s)| change(s));
+    bridge::send(command);
+}
+
 fn g(i: Icon) -> View {
     ui::glyph(i, 30.0)
 }
@@ -207,14 +214,19 @@ fn receiving() -> impl IntoElement {
                     g(Icon::Eye),
                     "Visible to nearby devices",
                     move || settings().visible,
-                    |on| bridge::send(Command::SetVisible(on)),
+                    |on| set(|s| s.visible = on, Command::SetVisible(on)),
                 ))
                 .child(ui::separator(58.0))
                 .child(ui::switch_row(
                     g(Icon::UserCheck),
                     "Auto-accept trusted devices",
                     move || settings().auto_accept_trusted,
-                    |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
+                    |on| {
+                        set(
+                            |s| s.auto_accept_trusted = on,
+                            Command::SetAutoAcceptTrusted(on),
+                        )
+                    },
                 ))
                 .child(ui::separator(58.0))
                 // Where received files go: shown everywhere; chosen with
@@ -333,7 +345,7 @@ fn privacy() -> impl IntoElement {
                     g(Icon::Clock),
                     "Keep transfer history",
                     move || settings().keep_history,
-                    |on| bridge::send(Command::SetKeepHistory(on)),
+                    |on| set(|s| s.keep_history = on, Command::SetKeepHistory(on)),
                 ))
                 .child(ui::separator(58.0))
                 .child(ui::nav_row(

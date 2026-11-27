@@ -44,7 +44,7 @@ pub fn page() -> impl IntoElement {
                 .child(far_devices())
                 .child(recent())
                 // Room for the actions floating over the bottom.
-                .child(view().h(px(actions_height()))),
+                .child(view().h(move || -> Length { px(actions_height()).into() })),
         ))
         .child(actions())
         .child(when(move || dropping.get(), drop_hint))
@@ -120,7 +120,7 @@ fn actions() -> impl IntoElement {
         .absolute()
         .left_0()
         .right_0()
-        .bottom(px(ui::above_tab_bar()))
+        .bottom(move || -> Length { px(ui::above_tab_bar()).into() })
         .px(px(space::L))
         .pb(px(space::L))
         .items_center()
@@ -230,10 +230,20 @@ fn nearby() -> impl IntoElement {
                 .child(when(
                     move || !ui::mobile(),
                     || {
-                        view().absolute().right_0().child(
-                            ui::round_btn(Icon::Refresh, "Look again", Variant::Secondary, 32.0)
+                        // An icon alone: its name shows as a tooltip too.
+                        view()
+                            .absolute()
+                            .right_0()
+                            .tooltip(ui::tooltip("Look again"))
+                            .child(
+                                ui::round_btn(
+                                    Icon::Refresh,
+                                    "Look again",
+                                    Variant::Secondary,
+                                    32.0,
+                                )
                                 .on_press(|| bridge::send(Command::RefreshDiscovery)),
-                        )
+                            )
                     },
                 )),
         )

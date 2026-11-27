@@ -914,12 +914,17 @@ fn toast_stack() -> impl IntoElement {
         sync();
     });
     // The lifecycle moves on while toasts are mounted, paused while the
-    // stack is expanded.
-    set_interval(std::time::Duration::from_millis(50), move || {
-        if manager.with(|m| !m.is_empty() && m.advance(now(), state.is_expanded()).changed) {
-            sync();
-        }
-    });
+    // stack is expanded: a clock that runs only while there are toasts (it
+    // is made with the first and goes with the last).
+    let ticking = computed(move || shown.with(|v| !v.is_empty()));
+    let clock = move || {
+        set_interval(std::time::Duration::from_millis(50), move || {
+            if manager.with(|m| !m.is_empty() && m.advance(now(), state.is_expanded()).changed) {
+                sync();
+            }
+        });
+        view().absolute().size(px(0.0)).accessible(false)
+    };
     let phone = ui::mobile();
     let (anchor, swipe) = if phone {
         (Anchor::TopCenter, SwipeDirection::Up)
@@ -947,7 +952,7 @@ fn toast_stack() -> impl IntoElement {
             .w(px(360.0))
             .items_end()
     };
-    placed.child(
+    placed.child(when(move || ticking.get(), clock)).child(
         toast_stack()
             .placement(anchor)
             .state(state)

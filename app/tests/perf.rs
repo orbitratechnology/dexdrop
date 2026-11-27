@@ -61,7 +61,15 @@ fn start_with(entries: usize, manual: bool) -> (Headless, tempfile::TempDir, See
     }
     let mut app = Headless::start(config).unwrap();
     app.wait_for("Nearby").unwrap();
-    app.wait(Duration::from_secs(1)).unwrap();
+    // The engine starts off the UI thread: measure once it runs (Home says
+    // how this device shows), not after a guessed time.
+    app.wait_until("the engine to run", Duration::from_secs(10), |s| {
+        s.texts()
+            .iter()
+            .any(|t| t.starts_with("Visible as ") || t.ends_with(" · hidden"))
+    })
+    .unwrap();
+    app.settle();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
     app.observe(move |step, batch| {

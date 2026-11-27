@@ -238,3 +238,29 @@ pub fn context_menu(trigger: impl IntoElement, actions: Vec<Action>) -> impl Int
                 .child(text(a.label).text_size(px(size::BODY)).text_color(color))
         }))
 }
+
+/// A tooltip naming a control that shows only an icon: on the desktops
+/// while the pointer rests on it, and with the keyboard's focus
+/// (`nsh_base::tooltip`, drawn in the foreground's color, fading in
+/// `motion::FAST`). Set it with `.tooltip(ui::tooltip(".."))`.
+pub fn tooltip(label: &'static str) -> nsh_base::TooltipElement {
+    nsh_base::tooltip()
+        .starting_style(|s| s.opacity(0.0))
+        .ending_style(|s| s.opacity(0.0))
+        .child(
+            view()
+                .px(px(space::S))
+                .py(px(space::XS))
+                .rounded(px(radius::sm()))
+                .bg(move || theme().foreground)
+                .transition_opacity()
+                .duration(motion::FAST)
+                .ease_out()
+                .child(
+                    text(label)
+                        .text_size(px(size::CAPTION))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(move || theme().background),
+                ),
+        )
+}

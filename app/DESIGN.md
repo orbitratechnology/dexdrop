@@ -17,7 +17,7 @@ is or where it comes from.
 | Family | Platforms | Fit |
 |---|---|---|
 | Mobile | iOS, Android | The system's tab bar on iOS. On Android, a drawn bar above the navigation. Sheets come up from the bottom. Back goes back. Hit targets are 44 pt on iOS and 48 dp on Android (`ui::hit`). The system's switch and segmented control. |
-| Desktop | macOS, Windows, Linux | A sidebar when wide, a drawn tab bar when narrow. Compact pointer controls (36 pt). Hover washes. Keyboard shortcuts (`mod+1..3`, `mod+o`, Escape). The window is declared `main`. |
+| Desktop | macOS, Windows, Linux | The app's own title bar (`ui::window_bar`), a sidebar when wide, a drawn tab bar when narrow. Compact pointer controls (36 pt), tooltips on icon-only buttons. Hover washes. Keyboard shortcuts (`mod+1..3`, `mod+o`, Escape, Shift+F10 for context menus). The window is declared `main`, 1040 × 720 at first, at least 360 × 560. |
 | Web | Browser preview | Shares the desktop's design; the engine is off. |
 
 ## Tokens
@@ -65,14 +65,14 @@ selection, shows the radar's still circles, and pulses instead of spinning.
 | Module | Components |
 |---|---|
 | `tokens` | the scales above, semantic colors, `Tone`, `Source` |
-| `layout` | `hit`, `mobile`, tab-bar heights, `above_tab_bar`, `content_width` |
+| `layout` | `hit`, `mobile`, tab-bar heights, `above_tab_bar`, `content_width`, `own_title_bar`, `window_bar` |
 | `icons` | `Icon` (one stroke SVG family, `assets/icons`), `icon`, `glyph`, `file_badge`, `kind_glyph`, `soft_glyph`, `os_badge`, `source_badge` |
 | `text` | `title`, `body`, `strong`, `muted`, `section` |
 | `controls` | `pressable` (ring and eased states), `btn`, `icon_btn`, `btn_then`, `hero_btn`, `round_btn`, `captioned_btn`, `link_btn`, `chip`, `field`, `search_field` + `search_bar`, `progress`, `tick`, `toggle`, `switch_row`, `segmented`, `sliding_selection`, `ring` |
 | `surfaces` | `group`, `flat_group`, `tile`, `row`, `nav_row`, `separator`, `pill`, `dot`, `art`, `empty` |
 | `people` | `face`, `avatar`, `far_avatar`, `badge_disc`, `route_label` |
 | `indicators` | `progress_ring`, `radar`, `spinner`, `skeleton`, `skeleton_rows`, `qr` |
-| `dialogs` | `ask`, `confirm` (the system's alerts), `sheet` (`nsh_base::sheet`), `dialog` and `cover` (`nsh_base::dialog`), `context_menu` + `Action` (`nsh_base::context_menu`) |
+| `dialogs` | `ask`, `confirm` (the system's alerts), `sheet` (`nsh_base::sheet`), `dialog` and `cover` (`nsh_base::dialog`), `context_menu` + `Action` (`nsh_base::context_menu`), `tooltip` (`nsh_base::tooltip`) |
 
 Each control wraps its `nsh_base` counterpart: `button`, `input`,
 `progress`, `switch`, `toggle_group` + `toggle`, `sheet`, `dialog`, and
@@ -106,7 +106,9 @@ remaining check.
 | Current tab changes | One selection slides to it (`ui::sliding_selection`, `base`, ease-in-out): Android's pill along the drawn bar, the sidebar's background down the list; tints fade `fast`. The iOS bar is native | Jumps |
 | Context menu (Forget, Remove) | Grows from where it opens, from 0.97 and transparent, `slow`; leaves in `base`; a sheet at the bottom on phones | Appears at once |
 | Page pushed or popped | The native stack's transition | Platform's |
-| Toast arrives and leaves | Slides 16 pt from its edge and fades `fast`; leaves to 0.95 | Instant |
+| Toast arrives and leaves | Slides 16 pt from its edge and fades `fast`; leaves to 0.95. Its clock runs only while toasts show | Instant |
+| Tooltip (Look again) | Fades in `fast` on the desktops while the pointer rests, or with the focus | Appears at once |
+| Window title bar | None (the desktops' own bar is drawn by the app; it does not move) | — |
 | Diagnostics dialog | `ui::dialog`: the modal fades, the card rises (FadeInUp) | Appears at once |
 | Local-network cover | `ui::cover`: it fades, the content rises | Appears at once |
 | History badge count changes | No motion (a count) | — |
@@ -174,7 +176,7 @@ remaining check.
 | Progress | Ring redraws per tick; bars ease `base` | Bars jump |
 | Finished or failed | Result pops in (ZoomIn) | Appears |
 | Pause / Resume / Stop: hover and press | Wash, scale 0.95 | No scale |
-| Pause ↔ Resume | The control is swapped for the other | Instant |
+| Pause ↔ Resume | The new control grows in (ZoomIn): a glyph swap | Instant |
 
 ### History
 
@@ -188,7 +190,7 @@ remaining check.
 
 | Change | Motion | Reduced |
 |---|---|---|
-| Switch | The native one on phones; on desktops the thumb slides and the track colors in 150 ms | Instant |
+| Switch | The native one on phones; on desktops the thumb slides and the track colors in 150 ms; it moves at once, before the engine saves | Instant |
 | Name field focus | Border becomes `ring` in `instant` | Instant |
 | Avatar color or emoji chosen | Choice shadow and check appear; press 0.95 | No scale |
 | Confirmations (reset identity, forget) | The system's alert | Platform's |
@@ -218,5 +220,7 @@ Clear History, Reset identity, Stop a transfer, Replace files.
   - `design.rs`: hit targets, drawn tabs, widths.
   - `ui.rs`: the dialog and Escape.
   - `perf.rs`: mount-item budgets.
-- Headless pictures: `docs/screenshots/headless`.
+- Headless pictures, light and dark: `docs/screenshots/headless`.
+- Real platforms, light and dark: Home from `app/e2e/app.test.ts` into
+  each CI target's `shots-<target>/`.
 - Devices: `scripts/*-check.sh` and `app/e2e/app.test.ts`.

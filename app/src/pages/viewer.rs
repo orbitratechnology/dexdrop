@@ -71,9 +71,9 @@ pub fn page(path: PathBuf) -> impl IntoElement {
         .pt(px(space::S))
         // The tab bar floats over the bottom of the page (phones, narrow
         // windows).
-        .pb(px(
-            ui::above_tab_bar() + if ui::mobile() { 8.0 } else { space::XL }
-        ))
+        .pb(move || -> Length {
+            px(ui::above_tab_bar() + if ui::mobile() { 8.0 } else { space::XL }).into()
+        })
         .gap(px(space::L))
         .child(
             view()

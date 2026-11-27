@@ -287,7 +287,7 @@ fn add_bar(apps: Signal<Apps>, chosen: Signal<Vec<String>>) -> impl IntoElement 
         .absolute()
         .left_0()
         .right_0()
-        .bottom(px(ui::above_tab_bar()))
+        .bottom(move || -> Length { px(ui::above_tab_bar()).into() })
         .px(px(space::L))
         .pb(px(space::L))
         .items_center()

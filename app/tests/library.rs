@@ -321,7 +321,7 @@ fn a_large_library_is_listed_a_page_at_a_time() {
 #[test]
 fn large_files_and_search() {
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-    let (mut app, _dir, _asked) = start(10, None);
+    let (mut app, _dir, asked) = start(10, None);
     app.press("id:send").unwrap();
     app.press("id:pick-videos").unwrap();
     app.wait_for_within("label:clip3.mp4", WAIT).unwrap();
@@ -332,10 +332,17 @@ fn large_files_and_search() {
     app.wait_for_gone("label:Holiday.mov", WAIT).unwrap();
     app.wait_for_within("label:clip2.mp4", WAIT).unwrap();
     assert!(app.screen().id("label:clip1.mp4").is_err());
+    app.settle();
+    let before = asked.lists.lock().unwrap().len();
     app.press("text:Large").unwrap();
     // The search still applies: nothing large is called clip2.
     app.wait_for_within("text:Nothing by that name.", WAIT)
         .unwrap();
+    app.settle();
+    // Another category changes its sort and album with it, in one go: one
+    // listing, not one per change.
+    let lists = asked.lists.lock().unwrap().len() - before;
+    assert_eq!(lists, 1, "listed {lists} times for one category change");
 }
 
 /// Before the user allows it, the browser says what it is for and asks

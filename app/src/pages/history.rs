@@ -162,7 +162,11 @@ pub fn page() -> impl IntoElement {
 /// All / Sent / Received: the system's segmented control on iOS, NSH's
 /// toggle group elsewhere ([`ui::segmented`]).
 fn filter_bar(filter: Signal<Filter>) -> impl IntoElement {
-    ui::segmented(&Filter::ALL_BY_LABEL, filter)
+    ui::segmented(
+        &Filter::ALL_BY_LABEL,
+        move || filter.get(),
+        move |f| filter.set(f),
+    )
 }
 
 /// A transfer of this session: its progress, a tap from its details.
@@ -457,17 +461,20 @@ fn details(e: HistoryEntry) -> impl IntoElement {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| dir.to_string_lossy().into_owned());
+        // Computers show it in its folder; phones have nothing to open it
+        // in, so there it is a fact, not a control.
+        if !desktop_platform() {
+            return ui::group().child(fact(Icon::Folder, "Saved in", label));
+        }
         ui::group().child(ui::nav_row(
             ui::glyph(Icon::Folder, 30.0),
             "Saved in",
             label,
             move || {
-                if desktop_platform() {
-                    let shown = reveal_path(dir.clone());
-                    spawn(async move {
-                        let _ = shown.await;
-                    });
-                }
+                let shown = reveal_path(dir.clone());
+                spawn(async move {
+                    let _ = shown.await;
+                });
             },
         ))
     });
@@ -538,10 +545,8 @@ pub fn when_text(unix: u64) -> String {
 
 /// "Just now", "5 min ago", "Yesterday", "3 days ago".
 pub fn ago(when: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(when);
+    // The app's clock (the system's, or a test's manual one).
+    let now = (nsh_core::time::unix_ms() / 1000.0) as u64;
     let s = now.saturating_sub(when);
     match s {
         0..60 => "Just now".into(),

@@ -591,14 +591,10 @@ pub fn sliding_selection(
 /// it jumps with reduced motion).
 pub fn segmented<T: Copy + PartialEq + 'static>(
     items: &'static [(&'static str, T)],
-    value: Signal<T>,
+    value: impl Fn() -> T + Copy + 'static,
+    on_change: impl Fn(T) + Copy + 'static,
 ) -> AnyElement {
-    let index = move || {
-        items
-            .iter()
-            .position(|(_, v)| *v == value.get())
-            .unwrap_or(0) as u32
-    };
+    let index = move || items.iter().position(|(_, v)| *v == value()).unwrap_or(0) as u32;
     if os().name() == "ios" {
         return nsh_core::mobile::segmented_control()
             .items(
@@ -610,7 +606,7 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
             .selected_index(index)
             .on_change(move |i: &u32| {
                 if let Some((_, v)) = items.get(*i as usize) {
-                    value.set(*v);
+                    on_change(*v);
                 }
             })
             .self_stretch()
@@ -654,10 +650,10 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
                 )
                 .children(items.iter().map(|(label, v)| {
                     let v = *v;
-                    let on = move || value.get() == v;
+                    let on = move || value() == v;
                     nsh_base::toggle()
                         .pressed(on)
-                        .on_change(move |_: &bool| value.set(v))
+                        .on_change(move |_: &bool| on_change(v))
                         .flex_1()
                         .min_h(px(if mobile() { hit() } else { hit() - INSET * 2.0 }))
                         .px(px(space::M))

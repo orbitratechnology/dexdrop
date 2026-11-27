@@ -544,7 +544,11 @@ fn control(
     variant: Variant,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    // Pause and Resume take each other's place: the new one grows in
+    // (a glyph swap; at once with reduced motion).
+    let swap = motion().entering(MotionPreset::ZoomIn);
     ui::captioned_btn(i, label, variant)
+        .bind_motion(&swap)
         .test_id(&label.to_ascii_lowercase())
         .on_press(on_press)
 }
@@ -856,5 +860,9 @@ fn conflict_picker(conflict: Signal<ConflictPolicy>) -> impl IntoElement {
         .py(px(space::M))
         .gap(px(space::S))
         .child(muted("If a file is already there"))
-        .child(ui::segmented(&POLICIES, conflict))
+        .child(ui::segmented(
+            &POLICIES,
+            move || conflict.get(),
+            move |c| conflict.set(c),
+        ))
 }

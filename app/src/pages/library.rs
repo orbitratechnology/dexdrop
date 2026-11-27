@@ -323,6 +323,23 @@ impl Browser {
         });
     }
 
+    /// Another category: Large files sort by size, the others newest
+    /// first, and every album again; one change, so one load.
+    fn set_category(self, c: Category) {
+        if c == self.category.get_untracked() {
+            return;
+        }
+        batch(|| {
+            self.category.set(c);
+            self.sort.set(if c == Category::Large {
+                Sort::Largest
+            } else {
+                Sort::Newest
+            });
+            self.album.set(None);
+        });
+    }
+
     fn load_albums(self) {
         let Some(provider) = provider() else {
             return;
@@ -404,27 +421,11 @@ pub fn page(category: Category) -> impl IntoElement {
         );
         untracked(|| b.load(true));
     });
+    // The albums follow the category and the access (the album chosen
+    // goes with them); one load each time.
     effect(move || {
         let _ = (b.category.get(), b.access.get());
-        untracked(|| {
-            b.album.set(None);
-            b.load_albums();
-        });
-    });
-    // Switching to Large files sorts by size; back, newest first.
-    let first = std::cell::Cell::new(true);
-    effect(move || {
-        let c = b.category.get();
-        if first.replace(false) {
-            return;
-        }
-        untracked(|| {
-            b.sort.set(if c == Category::Large {
-                Sort::Largest
-            } else {
-                Sort::Newest
-            })
-        });
+        untracked(|| b.load_albums());
     });
 
     view()
@@ -506,7 +507,11 @@ fn controls(b: Browser) -> impl IntoElement {
         .gap(px(space::M))
         .pt(px(space::S))
         .pb(px(space::M))
-        .child(ui::segmented(CATEGORIES, b.category))
+        .child(ui::segmented(
+            CATEGORIES,
+            move || b.category.get(),
+            move |c| b.set_category(c),
+        ))
         .child(
             view()
                 .flex_row()
@@ -698,7 +703,7 @@ fn footer(b: Browser) -> impl IntoElement {
     view()
         .items_center()
         .pt(px(space::M))
-        .pb(px(ui::above_tab_bar() + 96.0))
+        .pb(move || -> Length { px(ui::above_tab_bar() + 96.0).into() })
         .child(when(
             move || b.loading.get() && b.items.with(|i| !i.is_empty()),
             || ui::spinner(18.0),
@@ -871,7 +876,7 @@ fn add_bar(b: Browser) -> impl IntoElement {
         .absolute()
         .left_0()
         .right_0()
-        .bottom(px(ui::above_tab_bar()))
+        .bottom(move || -> Length { px(ui::above_tab_bar()).into() })
         .px(px(space::L))
         .pt(px(space::S))
         .pb(px(space::L))

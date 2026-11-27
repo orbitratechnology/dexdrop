@@ -21,6 +21,11 @@ pub const AVATAR: [(u32, u32); dexdrop_core::avatar::COLORS as usize] = [
     (0x65a30d, 0x15803d),
 ];
 
+/// The avatar colors' names, for screen readers (the swatches).
+pub const AVATAR_NAMES: [&str; dexdrop_core::avatar::COLORS as usize] = [
+    "Indigo", "Blue", "Green", "Orange", "Pink", "Purple", "Gray", "Lime",
+];
+
 fn avatar_colors(name: &str) -> (u32, u32) {
     // FNV-1a: similar names still spread over the colors.
     let hash = name.bytes().fold(0x811c_9dc5u32, |h, b| {

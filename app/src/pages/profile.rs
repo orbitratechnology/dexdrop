@@ -75,7 +75,7 @@ pub fn page() -> impl IntoElement {
 fn swatch(c: u8, color: Signal<u8>) -> impl IntoElement {
     let selected = move || color.get() == c;
     ui::pressable()
-        .accessibility_label(format!("Color {}", c + 1))
+        .accessibility_label(ui::AVATAR_NAMES[c as usize])
         .selected(selected)
         .on_press(move || {
             color.set(c);

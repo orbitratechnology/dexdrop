@@ -138,6 +138,9 @@ jobs:
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: nsh -V
+      # NSH's check for a Rust app: cargo check --all-targets, then the e2e
+      # test's TypeScript against NSH's types (app/tsconfig.json).
+      - run: cd app && nsh check
       - run: nsh package app --target linux --build ${{ github.run_number }} -o dist/linux
       - run: cargo build --release -p dexdrop-cli
       - uses: actions/upload-artifact@v4
@@ -158,6 +161,8 @@ jobs:
         run: |
           sudo apt-get install -y libsoup-3.0-dev libwebkitgtk-6.0-dev
           mkdir -p dist/desktop-check
+          mkdir -p dist/desktop-check/shots-linux
+          export DEXDROP_SHOTS="$PWD/dist/desktop-check/shots-linux"
           cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/app.test.ts --target linux --junit ../dist/desktop-check/e2e-linux.xml
       - name: Desktop app check
         if: needs.plan.outputs.checks == 'true'
@@ -348,6 +353,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/desktop-check
+          mkdir -p dist/desktop-check/shots-windows
+          export DEXDROP_SHOTS="$(cygpath -m "$PWD")/dist/desktop-check/shots-windows"
           cd app && nsh test e2e/app.test.ts --target windows --junit ../dist/desktop-check/e2e-windows.xml
       - name: Desktop app check
         if: needs.plan.outputs.checks == 'true'
@@ -503,6 +510,8 @@ jobs:
         timeout-minutes: 45
         run: |
           mkdir -p dist/e2e-apple
+          mkdir -p dist/e2e-apple/shots-macos
+          export DEXDROP_SHOTS="$PWD/dist/e2e-apple/shots-macos"
           cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/e2e-apple/e2e-macos.xml
       - name: App e2e (nsh test, iOS simulator)
         env:
@@ -511,6 +520,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           mkdir -p dist/e2e-apple
+          mkdir -p dist/e2e-apple/shots-ios
+          export DEXDROP_SHOTS="$PWD/dist/e2e-apple/shots-ios"
           cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/e2e-apple/e2e-ios.xml
       - uses: actions/upload-artifact@v4
         if: always()
