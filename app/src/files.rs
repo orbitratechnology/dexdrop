@@ -69,8 +69,9 @@ pub fn preview_of(item: &FileItem) -> Option<PathBuf> {
 }
 
 /// A square picture of a file: the photo itself, cropped, or its kind.
+/// `radius`: a step of the scale (`ui::radius`).
 pub fn thumb(name: &str, preview: Option<&Path>, side: f32, radius: f32) -> View {
-    let kind = ui::file_badge(name, side, radius);
+    let kind = ui::file_badge(name, side);
     match preview {
         // The kind shows through until the photo is drawn, and stays if it
         // cannot be (a damaged file).
@@ -159,7 +160,7 @@ pub fn row(item: FileItem, previewed: bool) -> impl IntoElement {
             let name = name.clone();
             move || match card() {
                 Some(app) => app_icon(app.icon.as_deref(), 44.0),
-                None => thumb(&name, preview.as_deref(), 44.0, 10.0),
+                None => thumb(&name, preview.as_deref(), 44.0, ui::radius::md()),
             }
         }))
         .child(dynamic(move || {
@@ -181,6 +182,7 @@ pub fn row(item: FileItem, previewed: bool) -> impl IntoElement {
         Some(path) => ui::pressable()
             .accessibility_label(format!("Open {}", item.name()))
             .on_press(move || open(path.clone()))
+            .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
             .active(move |s| s.bg(move || theme().muted))
             .child(content.child(ui::icon(Icon::ChevronRight, 16.0, move || {
                 theme().muted_foreground
@@ -239,8 +241,14 @@ pub fn photo_strip(items: &[FileItem], max: usize) -> Option<View> {
                 ui::pressable()
                     .accessibility_label("Open photo")
                     .on_press(move || open(path.clone()))
-                    .active(|s| s.opacity(0.8))
-                    .child(thumb(&p.to_string_lossy(), Some(&p), 96.0, 14.0))
+                    .hover(|s| s.opacity(0.92))
+                    .active(|s| s.scale(ui::motion::PRESS))
+                    .child(thumb(
+                        &p.to_string_lossy(),
+                        Some(&p),
+                        96.0,
+                        ui::radius::lg(),
+                    ))
             })),
     )
 }
@@ -348,7 +356,7 @@ pub fn app_icon(icon: Option<&Path>, side: f32) -> View {
                     .size(px(side))
                     .object_fit(ResizeMode::Contain),
             ),
-        None => ui::file_badge("app.apk", side, side * 0.24),
+        None => ui::file_badge("app.apk", side),
     }
 }
 

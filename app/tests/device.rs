@@ -96,7 +96,17 @@ fn large_text_stacks_home_actions() {
 
     app.set_environment("larger text", |e| e.font_scale = 1.6)
         .unwrap();
-    app.wait(Duration::from_millis(300)).unwrap();
+    app.wait_until("Send above Receive", Duration::from_secs(5), |s| {
+        let y = |sel: &str| {
+            let id = s.id(sel).ok()?;
+            s.layout_nodes()
+                .into_iter()
+                .find(|n| n.id == id)
+                .map(|n| n.bounds.origin.y.0)
+        };
+        matches!((y("id:send"), y("id:receive")), (Some(a), Some(b)) if b > a)
+    })
+    .unwrap();
     let (send, receive) = (origin(&mut app, "id:send"), origin(&mut app, "id:receive"));
     assert!(
         receive.1 > send.1,

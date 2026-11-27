@@ -56,7 +56,7 @@ fn actions_height() -> f32 {
 }
 
 /// The height of Send and Receive: a big target for a thumb.
-const ACTION: f32 = 64.0;
+const ACTION: f32 = ui::HERO;
 
 /// "Visible as Pixel 8": this device, and whether others can see it.
 fn status() -> impl IntoElement {
@@ -75,29 +75,31 @@ fn status() -> impl IntoElement {
         })
     };
     ui::pressable()
-        .accessibility_label("This device")
+        .accessibility_label(move || Some(SharedString::from(format!("This device: {}", line()))))
         .on_press(|| set_tab(Tab::Settings))
         .self_center()
-        // As wide as it may be, one centered line with the dot beside the
-        // words (a span of the same text): a pill hugging its words was cut
-        // short on phones whose system font is wider than the one measured.
+        // As wide as it may be, the words taking the room beside the dot: a
+        // pill hugging its words was cut short on phones whose system font
+        // is wider than the one measured.
         .w_full()
         .max_w(px(360.0))
-        .px(px(space::M))
-        .py(px(6.0))
-        .rounded(px(999.0))
+        .min_h(px(ui::hit()))
+        .flex_row()
+        .items_center()
+        .gap(px(space::S))
+        .px(px(space::L))
+        .rounded(px(ui::radius::FULL))
         .bg(ui::surface)
-        .active(|s| s.opacity(0.7))
+        .hover(|s| s.bg(move || theme().accent))
+        .active(|s| s.bg(move || theme().accent).scale(ui::motion::PRESS))
+        .child(ui::dot(tone))
         .child(
-            text("")
-                .w_full()
-                .text_center()
+            text(line)
+                .flex_1()
                 .number_of_lines(1)
                 .text_size(px(ui::size::SMALL))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(move || theme().muted_foreground)
-                .child(text("● ").text_color(move || ui::tone_color(tone())))
-                .child(text(line)),
+                .text_color(move || theme().muted_foreground),
         )
 }
 
@@ -127,58 +129,18 @@ fn actions() -> impl IntoElement {
         )
 }
 
-/// One of the two actions, pill-shaped: filled with the app icon's blue
-/// (Send) or the card color (Receive), both on a shadow, their icon and
-/// label in the foreground of that fill.
+/// One of the two actions: a hero button, filled (Send) or on the card
+/// color (Receive).
 fn action(
     i: Icon,
     label: &'static str,
     filled: bool,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    let fg = move || {
-        if filled {
-            theme().primary_foreground
-        } else {
-            theme().foreground
-        }
-    };
-    ui::pressable()
-        .accessibility_label(label)
+    ui::hero_btn(i, label, filled)
         .test_id(&label.to_ascii_lowercase())
         .on_press(on_press)
         .flex_1()
-        .min_h(px(ACTION))
-        .rounded(px(999.0))
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .gap(px(space::S))
-        .bg(move || {
-            if filled {
-                theme().primary
-            } else {
-                theme().card
-            }
-        })
-        // Send in the app icon's blue, light to deep.
-        .style_when(
-            move || filled,
-            |s| {
-                s.bg_linear(deg(135.0))
-                    .gradient_from(rgb(ui::BRAND.0))
-                    .gradient_to(rgb(ui::BRAND.1))
-            },
-        )
-        .shadow_lg()
-        .active(|s| s.scale(0.97))
-        .child(ui::icon(i, 24.0, fg))
-        .child(
-            text(label)
-                .text_size(px(ui::size::HEADING + 1.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(fg),
-        )
 }
 
 /// Transfers running now, each a tap away from its progress.
@@ -212,6 +174,7 @@ fn active_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
         .gap(px(space::M))
         .px(px(space::L))
         .py(px(space::M))
+        .hover(move |st| st.bg(move || theme().muted.opacity(0.5)))
         .active(move |st| st.bg(move || theme().muted))
         .child(ui::progress_ring(
             move || s().progress(),
@@ -333,7 +296,7 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
         .w(px(84.0))
         .items_center()
         .gap(px(space::S))
-        .active(|s| s.scale(0.94))
+        .active(|s| s.scale(ui::motion::PRESS_ICON))
         .child(ui::far_avatar(
             name,
             platform,
@@ -343,7 +306,7 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
         ))
         .child(
             text(name)
-                .text_size(px(ui::size::CAPTION + 1.0))
+                .text_size(px(ui::size::CAPTION))
                 .font_weight(FontWeight::MEDIUM)
                 .number_of_lines(2)
                 .text_center()
@@ -393,7 +356,6 @@ fn looking() -> impl IntoElement {
         .gap(px(space::M))
         .py(px(space::XL))
         .child(ui::radar(
-            ui::SEND,
             120.0,
             ui::icon(Icon::Wifi, 44.0, move || theme().foreground),
         ))
@@ -447,7 +409,7 @@ fn drop_hint() -> impl IntoElement {
         .left(px(space::L))
         .right(px(space::L))
         .bottom(px(space::L))
-        .rounded(px(24.0))
+        .rounded(px(ui::radius::xxl()))
         .bg(move || theme().card.opacity(0.92))
         .shadow_xl()
         .items_center()

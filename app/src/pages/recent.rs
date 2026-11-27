@@ -18,7 +18,7 @@ use nsh_core::{platform::Lifecycle, prelude::*};
 use crate::{
     pages::send,
     state::{desktop_platform, selection},
-    ui::{self, Icon, muted, space},
+    ui::{self, muted, space},
 };
 
 /// What Recent shows, loaded off the UI thread.
@@ -171,7 +171,7 @@ fn row(item: Recent) -> impl IntoElement {
             &name,
             item.thumb.as_deref(),
             40.0,
-            10.0,
+            ui::radius::md(),
         ))
         .child(
             view()
@@ -180,21 +180,5 @@ fn row(item: Recent) -> impl IntoElement {
                 .child(ui::body(name).number_of_lines(1))
                 .child(muted(detail)),
         )
-        .child(
-            view()
-                .size(px(24.0))
-                .rounded(px(12.0))
-                .items_center()
-                .justify_center()
-                .bg(move || {
-                    if on2() {
-                        theme().primary
-                    } else {
-                        theme().muted
-                    }
-                })
-                .child(when(on, || {
-                    ui::icon(Icon::Check, 14.0, move || theme().primary_foreground)
-                })),
-        )
+        .child(ui::tick(on2, ui::TickOn::Row))
 }

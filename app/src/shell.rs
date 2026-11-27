@@ -46,20 +46,6 @@ fn shortcuts() {
             }
         });
     }
-    on_key("escape", |_| {
-        // A request on screen answers Escape itself (Decline); toasts on
-        // screen go first (their stack dismisses the newest).
-        if model().with_untracked(|m| !m.requests.is_empty())
-            || toasts().with_untracked(|t| t.showing > 0)
-        {
-            return;
-        }
-        if sheet().with_untracked(|s| *s != Sheet::None) {
-            sheet().set(Sheet::None);
-        } else {
-            pop();
-        }
-    });
 }
 
 /// Opens Send and the system's file dialog (PRD 7.3: Cmd/Ctrl+O).
@@ -171,6 +157,7 @@ pub fn shell() -> impl IntoElement {
     application_menu();
     crate::device::watch();
     pages::send::take_opened_files();
+    pages::send::take_second_launches();
     view()
         .flex_1()
         .bg(move || theme().background)
@@ -179,6 +166,23 @@ pub fn shell() -> impl IntoElement {
         .child(overlay_sheet())
         .child(when(needs_local_network_intro, local_network_intro))
         .child(toast_stack())
+        .child(when(nothing_over_the_page, escape_goes_back))
+}
+
+/// Whether the page is all there is: no request's sheet, dialog or toast
+/// over it.
+fn nothing_over_the_page() -> bool {
+    model().with(|m| m.requests.is_empty())
+        && sheet().with(|s| *s == Sheet::None)
+        && toasts().with(|t| t.showing == 0)
+}
+
+/// Escape goes back while nothing is over the page. Escape has one owner:
+/// this binding exists only then, so the request's sheet, a dialog or the
+/// toasts (newest first) take it while they show.
+fn escape_goes_back() -> impl IntoElement {
+    on_key("escape", |_| pop());
+    view().absolute().size(px(0.0)).accessible(false)
 }
 
 /// Whether to say why DexDrop uses the local network before the system asks
@@ -193,41 +197,28 @@ fn needs_local_network_intro() -> bool {
 /// One screen: what DexDrop does on the network, and that the system will
 /// ask. Continue starts discovery, which brings the system's prompt.
 fn local_network_intro() -> impl IntoElement {
-    let enter = motion().entering(MotionPreset::FadeInUp);
-    view()
-        .absolute()
-        .top_0()
-        .left_0()
-        .right_0()
-        .bottom_0()
-        .bg(move || theme().background)
-        .items_center()
-        .justify_center()
-        .px(px(space::XL))
-        .role(AccessibilityRole::Dialog)
-        .child(
-            view()
-                .bind_motion(&enter)
-                .w_full()
-                .max_w(px(420.0))
-                .items_center()
-                .gap(px(space::L))
-                .child(ui::art(ui::Art::Devices, 240.0))
-                .child(ui::title("Find your devices").text_center().w_full())
-                .child(
-                    ui::muted(
-                        "DexDrop finds your devices on this Wi‑Fi and sends files straight to them. \
-                         Allow access to your local network when asked.",
-                    )
-                    .text_center().w_full(),
+    ui::cover(
+        "Find your devices",
+        view()
+            .items_center()
+            .gap(px(space::L))
+            .child(ui::art(ui::Art::Devices, 240.0))
+            .child(ui::title("Find your devices").text_center().w_full())
+            .child(
+                ui::muted(
+                    "DexDrop finds your devices on this Wi‑Fi and sends files straight to them. \
+                     Allow access to your local network when asked.",
                 )
-                .child(
-                    ui::btn_then("Continue", Icon::ArrowRight, Variant::Primary)
-                        .test_id("local-network-continue")
-                        .self_stretch()
-                        .on_press(|| bridge::send(Command::LocalNetworkExplained)),
-                ),
-        )
+                .text_center()
+                .w_full(),
+            )
+            .child(
+                ui::btn_then("Continue", Icon::ArrowRight, Variant::Primary)
+                    .test_id("local-network-continue")
+                    .self_stretch()
+                    .on_press(|| bridge::send(Command::LocalNetworkExplained)),
+            ),
+    )
 }
 
 /// Requests waiting for an answer and transfers running.
@@ -348,7 +339,7 @@ fn centered_title(title: pages::Title, home: bool) -> impl IntoElement {
                 .children(home.then(|| image(asset!("brand/icon.png")).size(px(28.0))))
                 .child(
                     text(move || words())
-                        .text_size(px(ui::size::HEADING + 2.0))
+                        .text_size(px(ui::size::SECTION))
                         .font_weight(FontWeight::BOLD)
                         .text_color(move || theme().foreground),
                 ),
@@ -385,7 +376,11 @@ fn desktop_header(title: pages::Title, root: bool, home: bool) -> AnyElement {
         ))
         .child(
             text(move || title())
-                .text_size(px(if root { 28.0 } else { 22.0 }))
+                .text_size(px(if root {
+                    ui::size::HEADLINE
+                } else {
+                    ui::size::TITLE
+                }))
                 .font_weight(FontWeight::BOLD)
                 .text_color(move || theme().foreground)
                 .role(AccessibilityRole::Header),
@@ -428,13 +423,9 @@ fn drawn_tab_bar() -> impl IntoElement {
             }))
         .flex_row()
         .bg(move || theme().card)
-        // A soft shadow cast upwards, onto the page.
-        .shadow([nsh_core::BoxShadow {
-            offset_y: px(-2.0),
-            blur: px(16.0),
-            color: rgba(0x0000_0014).into(),
-            ..Default::default()
-        }])
+        // A hairline between the page and the bar.
+        .border_t(px(1.0))
+        .border_color(move || theme().border)
         .children(Tab::ALL.map(|t| {
             let active = move || tab() == t;
             let color = move || {
@@ -453,11 +444,13 @@ fn drawn_tab_bar() -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .gap(px(if android { 4.0 } else { 2.0 }))
+                .hover(move |s| s.bg(move || theme().muted.opacity(0.4)))
+                .active(|s| s.scale(ui::motion::PRESS_ICON))
                 .child(
                     view()
                         .w(px(if android { 60.0 } else { 40.0 }))
                         .h(px(if android { 32.0 } else { 24.0 }))
-                        .rounded(px(999.0))
+                        .rounded(px(ui::radius::FULL))
                         .items_center()
                         .justify_center()
                         .bg(move || {
@@ -478,15 +471,15 @@ fn drawn_tab_bar() -> impl IntoElement {
                                     .min_w(px(16.0))
                                     .h(px(16.0))
                                     .px(px(4.0))
-                                    .rounded(px(999.0))
+                                    .rounded(px(ui::radius::FULL))
                                     .items_center()
                                     .justify_center()
                                     .bg(move || theme().destructive)
                                     .child(
                                         text(move || activity().to_string())
-                                            .text_size(px(10.0))
+                                            .text_size(px(ui::size::CAPTION))
                                             .font_weight(FontWeight::BOLD)
-                                            .text_color(white()),
+                                            .text_color(ui::on_color),
                                     )
                             },
                         )),
@@ -576,10 +569,10 @@ fn sidebar() -> impl IntoElement {
                 .gap(px(space::S))
                 .px(px(space::S))
                 .pb(px(space::L))
-                .child(ui::glyph(Icon::Paperplane, ui::SEND, 30.0))
+                .child(ui::glyph(Icon::Paperplane, 30.0))
                 .child(
                     text("DexDrop")
-                        .text_size(px(19.0))
+                        .text_size(px(ui::size::SECTION))
                         .font_weight(FontWeight::BOLD)
                         .text_color(move || theme().foreground),
                 ),
@@ -616,7 +609,7 @@ fn nav_item(t: Tab) -> impl IntoElement {
         .gap(px(space::M))
         .h(px(40.0))
         .px(px(space::M))
-        .rounded(px(10.0))
+        .rounded(px(ui::radius::md()))
         .bg(move || {
             if active() {
                 theme().primary.opacity(0.12)
@@ -625,6 +618,7 @@ fn nav_item(t: Tab) -> impl IntoElement {
             }
         })
         .hover(move |s| s.bg(move || theme().primary.opacity(0.08)))
+        .active(move |s| s.bg(move || theme().primary.opacity(0.16)))
         .child(ui::icon(sidebar_icon(t), 20.0, color))
         .child(
             text(t.title())
@@ -667,15 +661,21 @@ fn device_chip() -> impl IntoElement {
         model().with(|m| m.status.as_ref().is_some_and(|s| s.visible) && m.offline.is_none())
     };
     ui::pressable()
-        .accessibility_label("This device")
+        .accessibility_label(move || {
+            Some(SharedString::from(format!(
+                "This device, {}: {}",
+                name(),
+                if visible() { "visible" } else { "hidden" }
+            )))
+        })
         .on_press(|| set_tab(Tab::Settings))
         .flex_row()
         .items_center()
         .gap(px(space::S))
         .p(px(space::S))
-        .rounded(px(12.0))
+        .rounded(px(ui::radius::md()))
         .hover(move |s| s.bg(move || theme().primary.opacity(0.08)))
-        .child(ui::avatar(name, platform, ui::my_avatar, 34.0))
+        .child(ui::avatar(name, platform, crate::state::my_avatar, 34.0))
         .child(
             view()
                 .flex_1()
@@ -719,36 +719,22 @@ fn sheet_title(s: &Sheet) -> &'static str {
     }
 }
 
-/// A centered dialog for the rare things that need one.
+/// A centered dialog for the rare things that need one; Escape, back and
+/// a press around it close it.
 fn overlay_sheet() -> impl IntoElement {
     let open = move || sheet().with(|s| *s != Sheet::None);
     when(open, move || {
-        view()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .bg(rgba(0x0000_0066))
-            .items_center()
-            .justify_center()
-            .p(px(space::L))
-            .child(
-                view()
-                    .w_full()
-                    .max_w(px(440.0))
-                    .p(px(space::XL))
-                    .gap(px(space::L))
-                    .rounded(px(24.0))
-                    .bg(move || theme().card)
-                    .shadow_lg()
-                    .role(AccessibilityRole::Dialog)
-                    .child(ui::title(move || sheet().with(sheet_title)))
-                    .child(dynamic(move || match sheet().get() {
-                        Sheet::Diagnostics(report) => diagnostics(report).into_element(),
-                        Sheet::None => view().into_element(),
-                    })),
-            )
+        ui::dialog(
+            sheet().with_untracked(sheet_title),
+            Some(|| sheet().set(Sheet::None)),
+            view()
+                .gap(px(space::L))
+                .child(ui::title(move || sheet().with(sheet_title)))
+                .child(dynamic(move || match sheet().get() {
+                    Sheet::Diagnostics(report) => diagnostics(report).into_element(),
+                    Sheet::None => view().into_element(),
+                })),
+        )
     })
 }
 
@@ -930,11 +916,11 @@ fn toast_stack() -> impl IntoElement {
                         .gap(px(space::S))
                         .px(px(space::L))
                         .py(px(space::M))
-                        .rounded(px(16.0))
+                        .rounded(px(ui::radius::lg()))
                         .bg(move || theme().popover)
                         .shadow_lg()
                         .transition_all()
-                        .duration(200.0)
+                        .duration(ui::motion::FAST)
                         .starting_class(if phone {
                             "opacity-0 -translate-y-4"
                         } else {

@@ -8,7 +8,7 @@ use dexdrop_core::{
     protocol::TransferId,
     store::Direction,
 };
-use nsh_base::{alert_dialog, theme};
+use nsh_base::theme;
 use nsh_core::{prelude::*, share::ShareRequest};
 
 use crate::{
@@ -234,12 +234,10 @@ fn group_progress(group: TransferId) -> impl IntoElement {
         .gap(px(space::L))
         .pt(px(space::L))
         .child(
-            view().gap(px(space::S)).child(ui::title(summary)).child(
-                nsh_base::progress()
-                    .value(move || (overall() * 100.0) as f32)
-                    .accessibility_label("All devices")
-                    .h(px(8.0)),
-            ),
+            view()
+                .gap(px(space::S))
+                .child(ui::title(summary))
+                .child(ui::progress(overall, true).accessibility_label("All devices")),
         )
         .child(ui::group().child(each(
             all,
@@ -301,6 +299,7 @@ fn group_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
         .gap(px(4.0))
         .px(px(space::L))
         .py(px(space::M))
+        .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
         .active(move |s| s.bg(move || theme().muted))
         .child(
             view()
@@ -311,12 +310,9 @@ fn group_row(t: ReadSignal<TransferSnapshot>) -> impl IntoElement {
                 .child(muted(line).number_of_lines(1)),
         )
         .child(
-            nsh_base::progress()
-                .value(move || (t.with(|t| t.progress()) * 100.0) as f32)
-                .accessibility_label(move || {
-                    Some(SharedString::from(t.with(|t| t.peer_name.clone())))
-                })
-                .h(px(4.0)),
+            ui::progress(move || t.with(|t| t.progress()), false).accessibility_label(move || {
+                Some(SharedString::from(t.with(|t| t.peer_name.clone())))
+            }),
         )
 }
 
@@ -336,6 +332,7 @@ fn progress(id: TransferId) -> impl IntoElement {
             announce_for_accessibility(format!("{}: {now}", s().label));
         }
     });
+    let outcome = computed(move || (done(), matches!(s().state, TransferState::Failed(_))));
     // Smaller on short screens, so the actions stay in view.
     let ring = if nsh_core::element::window().height.0 < 720.0 {
         168.0
@@ -355,9 +352,11 @@ fn progress(id: TransferId) -> impl IntoElement {
                     ui::progress_ring(move || s().progress(), move || tone_of(&s().state), ring)
                         .absolute(),
                 )
+                // Only the outcome selects what shows (progress ticks do
+                // not), so the result pops in once.
                 .child(dynamic(move || {
-                    let failed = matches!(s().state, TransferState::Failed(_));
-                    if done() || failed {
+                    let (finished, failed) = outcome.get();
+                    if finished || failed {
                         let pop_in = motion().entering(MotionPreset::ZoomIn);
                         view()
                             .bind_motion(&pop_in)
@@ -378,7 +377,7 @@ fn progress(id: TransferId) -> impl IntoElement {
                             .items_center()
                             .child(
                                 text(move || format!("{}%", (s().progress() * 100.0).floor()))
-                                    .text_size(px(44.0))
+                                    .text_size(px(ui::size::FIGURE))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(move || theme().foreground),
                             )
@@ -530,20 +529,13 @@ fn controls(id: TransferId, s: impl Fn() -> TransferSnapshot + Copy + 'static) -
         .child(when(
             move || s().can_cancel(),
             move || {
-                control(Icon::X, "Cancel", Variant::Danger, move || {
-                    let answer = alert_dialog()
-                        .title("Stop this transfer?")
-                        .cancel("keep", "Keep going")
-                        .destructive("stop", "Stop")
-                        .show();
-                    spawn(async move {
-                        if answer
-                            .await
-                            .is_ok_and(|a| a.action.as_deref() == Some("stop"))
-                        {
-                            bridge::send(Command::Cancel(id));
-                        }
-                    });
+                control(Icon::X, "Stop", Variant::Destructive, move || {
+                    ui::confirm(
+                        "Stop this transfer?",
+                        "What has arrived so far stays; the rest is not sent.",
+                        "Stop",
+                        move || bridge::send(Command::Cancel(id)),
+                    )
                 })
             },
         ))
@@ -555,31 +547,9 @@ fn control(
     variant: Variant,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    // One button, circle and caption: one "Pause" for a screen reader, in
-    // the colours of `ui::round_btn`.
-    type Color = fn() -> AdaptiveColor;
-    let (bg, fg): (Color, Color) = match variant {
-        Variant::Primary => (|| theme().primary, || theme().primary_foreground),
-        Variant::Secondary | Variant::Plain => (|| theme().muted, || theme().foreground),
-        Variant::Danger => (|| theme().destructive.opacity(0.12), || theme().destructive),
-    };
-    ui::pressable()
-        .accessibility_label(label)
+    ui::captioned_btn(i, label, variant)
         .test_id(&label.to_ascii_lowercase())
         .on_press(on_press)
-        .items_center()
-        .gap(px(space::S))
-        .active(|s| s.opacity(0.7).scale(0.95))
-        .child(
-            view()
-                .size(px(64.0))
-                .rounded(px(32.0))
-                .items_center()
-                .justify_center()
-                .bg(bg)
-                .child(ui::icon(i, 26.0, fg)),
-        )
-        .child(muted(label).font_weight(FontWeight::MEDIUM))
 }
 
 /// After a transfer: share or show what came in, and leave.
@@ -654,23 +624,37 @@ fn after(s: impl Fn() -> TransferSnapshot + Copy + 'static) -> impl IntoElement 
 
 // ---------------------------------------------------------------- requests
 
-/// The first request waiting for an answer, over whatever is on screen.
+/// The first request waiting for an answer, in a sheet over whatever is on
+/// screen. Only which request is first selects the sheet's content, so the
+/// model's other changes (progress, peers) leave it and the user's choices
+/// in it (trust, conflicts, options) alone. Escape and back decline it.
 pub fn request_overlay() -> impl IntoElement {
-    let first = move || model().with(|m| m.requests.first().cloned());
-    dynamic(move || {
-        first().map(|r| {
-            view()
-                .absolute()
-                .top_0()
-                .left_0()
-                .right_0()
-                .bottom_0()
-                .bg(rgba(0x0000_0059))
-                .justify_end()
-                .items_center()
-                .child(request_sheet(r))
-        })
-    })
+    let shown = computed(move || model().with(|m| m.requests.first().map(|r| r.id)));
+    ui::sheet(
+        "Incoming files",
+        move || shown.get().is_some(),
+        move || {
+            if let Some(id) = shown.get_untracked() {
+                decline(id);
+            }
+        },
+        dynamic(move || {
+            let id = shown.get()?;
+            model()
+                .with_untracked(|m| m.requests.iter().find(|r| r.id == id).cloned())
+                .map(request_sheet)
+        }),
+    )
+}
+
+/// Says no to request `id`.
+fn decline(id: TransferId) {
+    bridge::send(Command::Respond {
+        id,
+        accept: false,
+        trust: false,
+        conflict: ConflictPolicy::KeepBoth,
+    });
 }
 
 fn request_sheet(r: IncomingRequest) -> impl IntoElement {
@@ -694,34 +678,16 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
     let accept = move || {
         if conflict.get_untracked() == ConflictPolicy::Replace {
             // Replacing files is destructive: confirm explicitly (FR-043).
-            let answer = alert_dialog()
-                .title("Replace existing files?")
-                .description("Files with the same names will be overwritten.")
-                .cancel("cancel", "Cancel")
-                .destructive("replace", "Replace")
-                .show();
-            spawn(async move {
-                if answer
-                    .await
-                    .is_ok_and(|a| a.action.as_deref() == Some("replace"))
-                {
-                    respond(true);
-                }
-            });
+            ui::confirm(
+                "Replace existing files?",
+                "Files with the same names will be overwritten.",
+                "Replace",
+                move || respond(true),
+            );
         } else {
             respond(true);
         }
     };
-    let enough_space = r.enough_space();
-    // The keyboard, while this request shows: Return accepts, Escape
-    // declines.
-    on_key("enter", move |_| {
-        if enough_space {
-            accept()
-        }
-    });
-    on_key("escape", move |_| respond(false));
-    let rise = motion().entering(MotionPreset::SlideInUp);
     let name = r.peer_name.clone();
     let field = move |f: fn(&IncomingRequest) -> String| {
         move || {
@@ -749,18 +715,16 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
     let enough = r.enough_space();
     let trusted = r.trusted;
     view()
-        .bind_motion(&rise)
         .w_full()
         .max_w(px(520.0))
         .p(px(space::XL))
         .pb(px(if ui::mobile() { 40.0 } else { space::XL }))
         .gap(px(space::L))
-        .rounded_t(px(28.0))
-        .rounded_b(px(if ui::mobile() { 0.0 } else { 28.0 }))
+        .rounded_t(px(ui::radius::xxl()))
+        .rounded_b(px(if ui::mobile() { 0.0 } else { ui::radius::xxl() }))
         .mb(px(if ui::mobile() { 0.0 } else { space::XL }))
         .bg(move || theme().card)
         .shadow_lg()
-        .role(nsh_core::element::AccessibilityRole::Dialog)
         .child(
             view()
                 .items_center()
@@ -819,12 +783,12 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                 .items_center()
                 .gap(px(2.0))
                 .py(px(space::M))
-                .rounded(px(16.0))
+                .rounded(px(ui::radius::lg()))
                 .bg(move || theme().muted)
                 .child(muted("Same number on both screens?"))
                 .child(
                     text(r.sas.clone())
-                        .text_size(px(28.0))
+                        .text_size(px(ui::size::HEADLINE))
                         .font_weight(FontWeight::BOLD)
                         .letter_spacing(px(3.0))
                         .text_color(move || theme().foreground)
@@ -840,7 +804,7 @@ fn request_sheet(r: IncomingRequest) -> impl IntoElement {
                         move || !trusted,
                         move || {
                             ui::switch_row(
-                                ui::glyph(Icon::UserCheck, ui::RECEIVE, 28.0),
+                                ui::glyph(Icon::UserCheck, 28.0),
                                 "Trust this device",
                                 move || trust.get(),
                                 move |on| trust.set(on),

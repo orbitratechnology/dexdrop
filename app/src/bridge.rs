@@ -76,7 +76,9 @@ mod native {
             .clone()
     }
 
-    pub fn start() -> Result<dexdrop_net::Events, String> {
+    /// The engine's configuration on this platform, and the providers of
+    /// its media registered (on the UI thread, where `os()` is known).
+    pub fn config() -> EngineConfig {
         // NSH has put the Java VM and the application Context in
         // ndk-context before this code runs: discovery, internet transfers,
         // the apps list and the foreground service reach Java through it.
@@ -111,12 +113,33 @@ mod native {
         {
             config.port = Some(port);
         }
-        let (engine, events) = Engine::start(config).map_err(|e| e.to_string())?;
+        config
+    }
+
+    /// Starts the engine off the UI thread (it reads its identity from the
+    /// platform's key store and its state from disk) and keeps it.
+    pub async fn start() -> Result<dexdrop_net::Events, String> {
+        let platform = os().name();
+        let config = config();
+        let started = crate::bridge::off_thread(move || Engine::start(config))
+            .await
+            .ok_or_else(|| "cancelled".to_owned())?;
+        let (engine, events) = started.map_err(|e| e.to_string())?;
         global::<Slot>().set(Slot(Some(Rc::new(engine))));
         if matches!(platform, "android" | "ios") {
             move_old_received(platform);
         }
         Ok(events)
+    }
+
+    /// Stops the running engine, off the UI thread: stopping waits for its
+    /// thread to finish.
+    pub async fn stop() {
+        let engine = global::<Slot>().with_untracked(|s| s.0.clone());
+        global::<Slot>().set(Slot(None));
+        if let Some(engine) = engine.and_then(|e| Rc::try_unwrap(e).ok()) {
+            crate::bridge::off_thread(move || drop(engine)).await;
+        }
     }
 
     /// Earlier versions kept received files in the app's own storage on
@@ -161,29 +184,44 @@ mod native {
 #[derive(Clone, Copy, Default, PartialEq)]
 struct Generation(u64);
 
-/// Starts the engine and applies its events to the model.
+/// Commands sent while the engine starts, sent to it once it runs.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Default)]
+struct Starting(Option<Vec<Command>>);
+
+/// Starts the engine (off the UI thread) and applies its events to the
+/// model. Until it runs, the model has no status ("Starting…") and
+/// commands wait for it.
 pub fn start() {
     #[cfg(not(target_arch = "wasm32"))]
-    match native::start() {
-        Ok(mut events) => {
-            let generation = global::<Generation>().with_untracked(|g| g.0 + 1);
-            global::<Generation>().set(Generation(generation));
-            model().update(|m| m.offline = None);
-            spawn(async move {
+    global::<Starting>().set(Starting(Some(Vec::new())));
+    #[cfg(not(target_arch = "wasm32"))]
+    spawn(async {
+        let started = native::start().await;
+        let waiting = global::<Starting>().with_untracked(|s| s.0.clone().unwrap_or_default());
+        global::<Starting>().set(Starting(None));
+        match started {
+            Ok(mut events) => {
+                for command in waiting {
+                    send(command);
+                }
+                let generation = global::<Generation>().with_untracked(|g| g.0 + 1);
+                global::<Generation>().set(Generation(generation));
+                model().update(|m| m.offline = None);
                 while let Some(event) = events.recv().await {
                     if global::<Generation>().with_untracked(|g| g.0) != generation {
                         break;
                     }
                     apply(event);
                 }
-            });
+            }
+            Err(err) => {
+                model().update(|m| {
+                    m.offline = Some(format!("The transfer service could not start: {err}"))
+                });
+            }
         }
-        Err(err) => {
-            model().update(|m| {
-                m.offline = Some(format!("The transfer service could not start: {err}"))
-            });
-        }
-    }
+    });
     #[cfg(target_arch = "wasm32")]
     model().update(|m| {
         m.offline = Some(
@@ -236,8 +274,6 @@ pub fn set_internet(on: bool) {
 fn restart(between: impl FnOnce() -> Option<(NoticeKind, String)> + Send + 'static) {
     // The old engine's last events ("stopped") no longer count.
     global::<Generation>().update(|g| g.0 += 1);
-    // Dropping the engine stops it and waits for its thread.
-    global::<native::Slot>().set(native::Slot(None));
     model().update(|m| {
         m.status = None;
         m.peers.clear();
@@ -248,6 +284,7 @@ fn restart(between: impl FnOnce() -> Option<(NoticeKind, String)> + Send + 'stat
     // engine's event loop must outlive it.
     Owner::detached().run(move || {
         spawn(async move {
+            native::stop().await;
             if let Some(Some((kind, text))) = off_thread(between).await {
                 toast(kind, text);
             }
@@ -274,6 +311,9 @@ pub fn send(command: Command) {
     #[cfg(not(target_arch = "wasm32"))]
     match native::handle() {
         Some(engine) => engine.send(command),
+        None if global::<Starting>().with_untracked(|s| s.0.is_some()) => {
+            global::<Starting>().update(|s| s.0.get_or_insert_with(Vec::new).push(command));
+        }
         None => toast(NoticeKind::Error, "The transfer service is not running."),
     }
     #[cfg(target_arch = "wasm32")]

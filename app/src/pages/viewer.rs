@@ -82,7 +82,7 @@ pub fn page(path: PathBuf) -> impl IntoElement {
                 .w_full()
                 .rounded(px(if ui::mobile() { 0.0 } else { 18.0 }))
                 .overflow_hidden()
-                .bg(rgb(0x000000))
+                .bg(ui::media_backdrop)
                 .child(stage)
                 .child(when(
                     move || failed.get().is_some(),
@@ -98,7 +98,7 @@ pub fn page(path: PathBuf) -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .gap(px(space::M))
-                .child(ui::file_badge(&name, 44.0, 12.0))
+                .child(ui::file_badge(&name, 44.0))
                 .child(
                     view()
                         .flex_1()
@@ -170,16 +170,16 @@ fn cannot_play(failed: Signal<Option<String>>) -> impl IntoElement {
         .justify_center()
         .gap(px(space::M))
         .p(px(space::XL))
-        .bg(rgba(0x0000_00e6))
-        .child(ui::icon(Icon::Video, 44.0, white()))
+        .bg(move || ui::media_backdrop().opacity(0.9))
+        .child(ui::icon(Icon::Video, 44.0, ui::on_media))
         .child(
             text("This video can't be played in DexDrop.")
-                .text_color(white())
+                .text_color(ui::on_media)
                 .font_weight(FontWeight::SEMIBOLD),
         )
         .child(
             text(move || failed.get().unwrap_or_default())
-                .text_color(rgba(0xffff_ffaa))
+                .text_color(ui::on_media_muted)
                 .text_size(px(ui::size::CAPTION))
                 .text_center()
                 .w_full()

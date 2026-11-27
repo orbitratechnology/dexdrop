@@ -23,7 +23,7 @@ fn name() -> String {
 }
 
 fn chosen() -> Option<Avatar> {
-    ui::my_avatar().as_deref().and_then(Avatar::parse)
+    crate::state::my_avatar().as_deref().and_then(Avatar::parse)
 }
 
 fn set(avatar: Option<Avatar>) {
@@ -42,7 +42,7 @@ pub fn page() -> impl IntoElement {
                     .gap(px(space::M))
                     .py(px(space::XL))
                     .child(dynamic(move || {
-                        ui::face(&name(), ui::my_avatar().as_deref(), 112.0)
+                        ui::face(&name(), crate::state::my_avatar().as_deref(), 112.0)
                     }))
                     .child(ui::title(name))
                     .child(muted("Nearby devices and those you send to see this.")),
@@ -90,18 +90,18 @@ fn swatch(c: u8, color: Signal<u8>) -> impl IntoElement {
         .bg(move || theme().card)
         .style_when(selected, |s| s.shadow_lg())
         .child(
-            ui::gradient(ui::AVATAR[c as usize])
+            ui::avatar_fill(ui::AVATAR[c as usize])
                 .size(px(34.0))
-                .rounded(px(17.0))
+                .rounded(px(ui::radius::lg()))
                 .items_center()
                 .justify_center()
-                .child(when(selected, || ui::icon(Icon::Check, 16.0, white()))),
+                .child(when(selected, || ui::icon(Icon::Check, 16.0, ui::on_color))),
         )
 }
 
 /// The device's initial instead of an emoji.
 fn initial_choice() -> impl IntoElement {
-    let selected = move || ui::my_avatar().is_none();
+    let selected = move || crate::state::my_avatar().is_none();
     choice(selected)
         .accessibility_label("Initial")
         .on_press(|| set(None))
@@ -113,14 +113,14 @@ fn emoji_choice(emoji: &'static str, color: Signal<u8>) -> impl IntoElement {
     choice(selected)
         .accessibility_label(emoji)
         .on_press(move || set(Avatar::new(emoji, color.get_untracked())))
-        .child(text(emoji).text_size(px(28.0)))
+        .child(text(emoji).text_size(px(ui::size::HEADLINE)))
 }
 
 fn choice(selected: impl Fn() -> bool + Copy + 'static) -> nsh_base::ButtonElement {
     ui::pressable()
         .selected(selected)
         .size(px(52.0))
-        .rounded(px(16.0))
+        .rounded(px(ui::radius::lg()))
         .items_center()
         .justify_center()
         .bg(move || {
@@ -131,5 +131,5 @@ fn choice(selected: impl Fn() -> bool + Copy + 'static) -> nsh_base::ButtonEleme
             }
         })
         .style_when(selected, |s| s.shadow_md())
-        .active(|s| s.scale(0.92))
+        .active(|s| s.scale(ui::motion::PRESS_ICON))
 }

@@ -16,7 +16,8 @@ it runs.
 | `icon` | one file per platform (below) | |
 | `ios.launchScreen`, `android.launchScreen` | off-white `#fbfaf8` / near-black `#070707` (the theme's backgrounds), the icon at 96 pt | On Android the window's background from the tap on, and the system splash screen (Android 12+) |
 | `application.quitMode` | `lastWindowClosed` | Closing the window quits on every computer, macOS included (ADR-006) |
-| `fileTypes` | one type, any file (`mimeTypes: ["*/*"]`, `contentTypes: ["public.data"]`) | Android's share sheet, macOS's Open With and Dock icon, iOS's "Open in": the files go to Send (FR-035) |
+| `singleInstance` | `true` | Windows and Linux: launching DexDrop again hands the running app its command line (`next_second_instance`) and exits, so one engine owns the identity and the data; files named on it go to Send. macOS activates the running app itself |
+| `fileTypes` | one type, any file (`mimeTypes: ["*/*"]`, `contentTypes: ["public.data"]`) | Android's share sheet, macOS's Open With and Dock icon, iOS's "Open in": the files go to Send (FR-035). Windows and Linux match file types by extension, and this type lists none, so Open With does not offer DexDrop there |
 | `macos.infoPlist.LSApplicationCategoryType` | `public.app-category.utilities` | The App Store's and Finder's category |
 | `android.targetSdk` | `35` | |
 | `android.permissions` | `REQUEST_INSTALL_PACKAGES` | Opening a received APK hands it to the system's installer |
@@ -31,11 +32,15 @@ keeps transfers going (`application`: `TransferService`, type `dataSync`,
 with `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC`). Likewise
 `nsh-extra`'s `camera` adds the camera apps' `<queries>`.
 
-No permission to read photos, videos or storage, on either phone
-(ADR-008): Google Play restricts `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO` to
-apps whose core use needs them, and the system's pickers need none; CI
-fails an APK that asks for them, and the simulator check an app that
-declares `NSPhotoLibraryUsageDescription`. The Play Console still asks
+Phones browse their media in the app and send it in place (ADR-009):
+Android declares the granular `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`,
+`READ_MEDIA_AUDIO` and `READ_MEDIA_VISUAL_USER_SELECTED` (and
+`READ_EXTERNAL_STORAGE` up to Android 12), never
+`MANAGE_EXTERNAL_STORAGE`; iOS declares `NSPhotoLibraryUsageDescription`
+(from `crates/dexdrop-photos`). CI fails an APK without the media
+permissions or with `MANAGE_EXTERNAL_STORAGE`, and the simulator check an
+app without the photo library's description. Google Play needs the photo
+and video permission declaration accepted before a release. The Play Console also asks
 what the `dataSync` foreground service does (a user-started file
 transfer) and why the app installs packages (`REQUEST_INSTALL_PACKAGES`:
 received APKs, a file-transfer app's core use). Check a package's with

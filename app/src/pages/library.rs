@@ -559,28 +559,7 @@ fn shown_count(b: Browser) -> String {
 }
 
 fn search_field(search: Signal<String>) -> View {
-    view()
-        .flex_row()
-        .items_center()
-        .gap(px(space::S))
-        .px(px(space::M))
-        .rounded(px(999.0))
-        .bg(ui::surface)
-        .child(ui::icon(Icon::Search, 18.0, move || {
-            theme().muted_foreground
-        }))
-        .child(
-            nsh_base::input()
-                .test_id("library-search")
-                .value(move || search.get())
-                .on_change(move |v: &str| search.set(v.to_owned()))
-                .placeholder("Search by name")
-                .label("Search by name")
-                .flex_1()
-                .min_h(px(ui::hit()))
-                .text_size(px(ui::size::BODY))
-                .text_color(move || theme().foreground),
-        )
+    ui::search_bar(ui::search_field("Search by name", search).test_id("library-search"))
 }
 
 /// The order, a tap to the next one.
@@ -606,9 +585,10 @@ fn sort_button(sort: Signal<Sort>) -> impl IntoElement {
         .gap(px(space::XS))
         .min_h(px(ui::hit()))
         .px(px(space::M))
-        .rounded(px(999.0))
+        .rounded(px(ui::radius::FULL))
         .bg(ui::surface)
-        .active(|s| s.opacity(0.7))
+        .hover(|s| s.opacity(0.92))
+        .active(|s| s.scale(ui::motion::PRESS))
         .child(ui::icon(Icon::Sliders, 16.0, move || theme().primary))
         .child(
             text(label)
@@ -624,51 +604,36 @@ fn albums(b: Browser) -> impl IntoElement {
         view()
             .flex_row()
             .gap(px(space::S))
-            .child(chip(b, None, "All".to_owned()))
-            .children(
-                b.albums
-                    .get_untracked()
-                    .into_iter()
-                    .map(move |(name, n)| chip(b, Some(name.clone()), format!("{name} {n}"))),
-            ),
+            .child(chip(b, None, || "All".to_owned()))
+            .child(each(
+                b.albums,
+                |(name, _): &(String, usize)| name.clone(),
+                move |album: ReadSignal<(String, usize)>, _| {
+                    let name = album.with_untracked(|(name, _)| name.clone());
+                    chip(b, Some(name), move || {
+                        album.with(|(name, n)| format!("{name} {n}"))
+                    })
+                },
+            )),
     )
 }
 
-fn chip(b: Browser, album: Option<String>, label: String) -> impl IntoElement {
+fn chip(
+    b: Browser,
+    album: Option<String>,
+    label: impl Fn() -> String + Copy + 'static,
+) -> impl IntoElement {
     let on = {
         let album = album.clone();
         move || b.album.with(|a| *a == album)
     };
-    let on2 = on.clone();
-    ui::pressable()
-        .accessibility_label(label.clone())
-        .selected(on.clone())
-        .on_press(move || b.album.set(album.clone()))
-        .min_h(px(36.0))
-        .px(px(space::M))
-        .items_center()
-        .justify_center()
-        .rounded(px(999.0))
-        .bg(move || if on() { theme().primary } else { ui::surface() })
-        .child(
-            text(label)
-                .number_of_lines(1)
-                .text_size(px(ui::size::SMALL))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(move || {
-                    if on2() {
-                        theme().primary_foreground
-                    } else {
-                        theme().foreground
-                    }
-                }),
-        )
+    ui::chip(label, on).on_press(move || b.album.set(album.clone()))
 }
 
 /// Android 14's and iOS's limited access: only what the user chose shows.
 fn limited(b: Browser) -> impl IntoElement {
     ui::flat_group().child(ui::nav_row(
-        ui::source_badge(Icon::Photo, ui::source::PHOTOS, 30.0),
+        ui::source_badge(Icon::Photo, ui::Source::Photos, 30.0),
         "Showing the items you chose",
         "Choose more, or allow all",
         move || ask(move || b.access.set(read_access())),
@@ -684,7 +649,7 @@ fn allow(b: Browser) -> impl IntoElement {
         .justify_center()
         .gap(px(space::L))
         .px(px(space::XL))
-        .child(ui::source_badge(Icon::Photo, ui::source::PHOTOS, 64.0))
+        .child(ui::source_badge(Icon::Photo, ui::Source::Photos, 64.0))
         .child(ui::title("Send your photos and videos").text_center())
         .child(
             muted(
@@ -787,7 +752,7 @@ fn tile(
                 .size_full()
                 .border(px(3.0))
                 .border_color(move || theme().primary)
-                .bg(rgba(0xffff_ff33))
+                .bg(ui::media_chip_light)
         }))
         .child(when(
             move || !duration().is_empty(),
@@ -798,7 +763,7 @@ fn tile(
                     .right(px(6.0))
                     .text_size(px(ui::size::CAPTION))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(white())
+                    .text_color(ui::on_media)
             },
         ))
         .child(
@@ -806,7 +771,7 @@ fn tile(
                 .absolute()
                 .top(px(6.0))
                 .right(px(6.0))
-                .child(tick(on)),
+                .child(ui::tick(on, ui::TickOn::Media)),
         )
 }
 
@@ -819,33 +784,6 @@ pub fn clock(ms: u64) -> String {
     } else {
         format!("{m}:{s:02}")
     }
-}
-
-/// A round tick: an empty ring, filled when chosen.
-fn tick(on: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
-    view()
-        .size(px(24.0))
-        .rounded(px(12.0))
-        .items_center()
-        .justify_center()
-        .border_2()
-        .border_color(move || {
-            if on() {
-                theme().primary
-            } else {
-                white().opacity(0.9).into()
-            }
-        })
-        .bg(move || {
-            if on() {
-                theme().primary
-            } else {
-                rgba(0x0000_0033).into()
-            }
-        })
-        .child(when(on, || {
-            ui::icon(Icon::Check, 14.0, move || theme().primary_foreground)
-        }))
 }
 
 /// A row of a list (audio, large files): its picture or kind, name, size,
@@ -887,13 +825,14 @@ fn item_row(b: Browser, item: impl Fn() -> Option<MediaItem> + Copy + 'static) -
         .items_center()
         .gap(px(space::M))
         .min_h(px(ui::hit() + 20.0))
+        .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
         .active(move |s| s.bg(move || theme().muted))
         .child(
             view()
                 .size(px(44.0))
-                .rounded(px(10.0))
+                .rounded(px(ui::radius::md()))
                 .overflow_hidden()
-                .child(dynamic(move || ui::file_badge(&name(), 44.0, 10.0)))
+                .child(dynamic(move || ui::file_badge(&name(), 44.0)))
                 .child(
                     image(picture)
                         .absolute()
@@ -915,29 +854,7 @@ fn item_row(b: Browser, item: impl Fn() -> Option<MediaItem> + Copy + 'static) -
                         .number_of_lines(1),
                 ),
         )
-        .child(list_tick(on))
-}
-
-/// A row's tick: a ring on the page's colors, filled when chosen (the Apps
-/// page's).
-fn list_tick(on: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
-    view()
-        .size(px(26.0))
-        .rounded(px(13.0))
-        .items_center()
-        .justify_center()
-        .border_2()
-        .border_color(move || {
-            if on() {
-                theme().primary
-            } else {
-                theme().muted_foreground.opacity(0.4)
-            }
-        })
-        .bg(move || if on() { theme().primary } else { theme().card })
-        .child(when(on, || {
-            ui::icon(Icon::Check, 15.0, move || theme().primary_foreground)
-        }))
+        .child(ui::tick(on, ui::TickOn::Row))
 }
 
 /// At the foot, in thumb reach: how many are chosen and their size, and

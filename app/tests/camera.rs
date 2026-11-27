@@ -83,7 +83,7 @@ fn code_page(dir: &tempfile::TempDir) -> Headless {
 fn scanning_a_qr_code_fills_in_the_invitation() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = code_page(&dir);
-    app.wait(Duration::from_millis(200)).unwrap();
+    app.settle();
     assert!(
         app.screen().id("id:scan-qr").is_err(),
         "Scan QR without a camera"

@@ -84,7 +84,7 @@ pub fn page() -> impl IntoElement {
                         .gap(px(space::L))
                         .child(section("Your apps", move || shown(false), chosen))
                         .child(ui::flat_group().child(ui::switch_row(
-                            ui::source_badge(Icon::Android, ui::source::APPS, 30.0),
+                            ui::source_badge(Icon::Android, ui::Source::Apps, 30.0),
                             "Show system apps",
                             move || show_system.get(),
                             move |on| show_system.set(on),
@@ -127,7 +127,7 @@ fn load(apps: Signal<Apps>) {
 /// APK files already on the phone, from the system's files.
 fn apk_files() -> impl IntoElement {
     ui::flat_group().child(ui::nav_row(
-        ui::source_badge(Icon::File, ui::source::FILES, 30.0),
+        ui::source_badge(Icon::File, ui::Source::Files, 30.0),
         "APK files",
         "From your files",
         || {
@@ -138,27 +138,7 @@ fn apk_files() -> impl IntoElement {
 }
 
 fn search(query: Signal<String>) -> impl IntoElement {
-    view()
-        .flex_row()
-        .items_center()
-        .gap(px(space::S))
-        .px(px(space::M))
-        .rounded(px(999.0))
-        .bg(ui::surface)
-        .child(ui::icon(Icon::Search, 18.0, move || {
-            theme().muted_foreground
-        }))
-        .child(
-            nsh_base::input()
-                .value(move || query.get())
-                .on_change(move |v: &str| query.set(v.to_owned()))
-                .placeholder("Search apps")
-                .label("Search apps")
-                .flex_1()
-                .min_h(px(ui::hit()))
-                .text_size(px(ui::size::BODY))
-                .text_color(move || theme().foreground),
-        )
+    ui::search_bar(ui::search_field("Search apps", query))
 }
 
 /// A titled group of apps, each a row to tick.
@@ -264,13 +244,14 @@ fn app_row(
         .px(px(space::L))
         .py(px(space::S))
         .min_h(px(ui::hit() + 16.0))
+        .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
         .active(move |s| s.bg(move || theme().muted))
         .child(
             view()
                 .size(px(44.0))
                 .rounded(px(44.0 * 0.24))
                 .overflow_hidden()
-                .child(ui::file_badge("app.apk", 44.0, 44.0 * 0.24))
+                .child(ui::file_badge("app.apk", 44.0))
                 .child(
                     image(move || {
                         app()
@@ -296,30 +277,7 @@ fn app_row(
                         .number_of_lines(1),
                 ),
         )
-        .child(check(selected))
-}
-
-/// A round tick, filled when chosen.
-fn check(selected: impl Fn() -> bool + Clone + 'static) -> impl IntoElement {
-    let on2 = selected.clone();
-    let on3 = selected.clone();
-    view()
-        .size(px(26.0))
-        .rounded(px(13.0))
-        .items_center()
-        .justify_center()
-        .border_2()
-        .border_color(move || {
-            if on3() {
-                theme().primary
-            } else {
-                theme().muted_foreground.opacity(0.4)
-            }
-        })
-        .bg(move || if on2() { theme().primary } else { theme().card })
-        .child(when(selected, || {
-            ui::icon(Icon::Check, 15.0, move || theme().primary_foreground)
-        }))
+        .child(ui::tick(selected, ui::TickOn::Row))
 }
 
 /// "Add 3 apps": copies them as APKs into the selection, then back to

@@ -173,12 +173,13 @@ fn session_row(t: impl Fn() -> Option<TransferSnapshot> + Copy + 'static) -> imp
         .gap(px(space::M))
         .px(px(space::L))
         .py(px(space::M))
+        .hover(move |st| st.bg(move || theme().muted.opacity(0.5)))
         .active(move |st| st.bg(move || theme().muted))
         .child(dynamic(move || {
             let state = s().state;
             if state.is_finished() {
                 let (mark, tone) = transfer::mark(&state);
-                ui::soft_glyph(mark, move || ui::tone_color(tone), 40.0).into_element()
+                ui::soft_glyph(mark, tone, 40.0).into_element()
             } else {
                 ui::progress_ring(
                     move || s().progress(),
@@ -241,6 +242,7 @@ pub fn row(entry: impl Fn() -> Option<HistoryEntry> + Copy + 'static) -> impl In
         // Held (phones) or right-clicked (computers): remove it.
         .on_long_press(move || ask_remove(entry()))
         .on_context_menu(move |_: &ContextMenuEvent| ask_remove(entry()))
+        .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
         .active(move |s| s.bg(move || theme().muted))
         .hover(move |s| s.bg(move || theme().muted.opacity(0.6)))
         .child(
@@ -288,8 +290,8 @@ fn row_picture(e: HistoryEntry) -> View {
         .iter()
         .find_map(|i| crate::files::preview_of(i).map(|p| (i.name().to_owned(), p)));
     view().child(match &preview {
-        Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, 10.0),
-        None => ui::file_badge(&e.label, 40.0, 10.0),
+        Some((name, p)) => crate::files::thumb(name, Some(p), 40.0, ui::radius::md()),
+        None => ui::file_badge(&e.label, 40.0),
     })
 }
 
@@ -344,9 +346,7 @@ fn details(e: HistoryEntry) -> impl IntoElement {
         .py(px(space::XL))
         .child(match photos {
             Some(strip) => strip.into_element(),
-            None => view()
-                .child(ui::file_badge(&e.label, 88.0, 24.0))
-                .into_element(),
+            None => view().child(ui::file_badge(&e.label, 88.0)).into_element(),
         })
         .child(
             ui::title(e.label.clone())
@@ -394,16 +394,14 @@ fn details(e: HistoryEntry) -> impl IntoElement {
                 ),
         );
 
-    let mut facts: Vec<(Icon, (u32, u32), &'static str, String)> = vec![(
+    let mut facts: Vec<(Icon, &'static str, String)> = vec![(
         Icon::Clock,
-        (0x6366f1, 0x8b5cf6),
         if outgoing { "Sent" } else { "Received" },
         when_text(e.finished),
     )];
     if let Some(started) = e.started.filter(|s| *s <= e.finished) {
         facts.push((
             Icon::Refresh,
-            (0x0ea5e9, 0x3b82f6),
             "Took",
             dexdrop_core::format::duration((e.finished - started).max(1)),
         ));
@@ -411,14 +409,13 @@ fn details(e: HistoryEntry) -> impl IntoElement {
     if let Some(rate) = e.average_rate {
         facts.push((
             Icon::Send,
-            (0x10b981, 0x14b8a6),
             "Average speed",
             dexdrop_core::format::rate(rate),
         ));
     }
     if let Some(route) = e.route {
         let (label, icon) = ui::route_label(route);
-        facts.push((icon, (0xf59e0b, 0xf97316), "Connection", label.to_owned()));
+        facts.push((icon, "Connection", label.to_owned()));
     }
     match &e.outcome {
         Outcome::Partial { failed, skipped } => {
@@ -429,29 +426,19 @@ fn details(e: HistoryEntry) -> impl IntoElement {
             if *skipped > 0 {
                 parts.push(format!("{skipped} skipped"));
             }
-            facts.push((
-                Icon::Alert,
-                (0xf59e0b, 0xea580c),
-                "Issues",
-                parts.join(", "),
-            ));
+            facts.push((Icon::Alert, "Issues", parts.join(", ")));
         }
         Outcome::Failed(reason) => {
-            facts.push((Icon::Alert, (0xf43f5e, 0xe11d48), "Reason", reason.clone()));
+            facts.push((Icon::Alert, "Reason", reason.clone()));
         }
         _ => {}
     }
-    facts.push((
-        Icon::Shield,
-        (0x8b5cf6, 0x7c3aed),
-        "Encryption",
-        "End to end".to_owned(),
-    ));
+    facts.push((Icon::Shield, "Encryption", "End to end".to_owned()));
     let info = ui::group().children(facts.into_iter().enumerate().map(
-        |(i, (icon, colors, label, value))| {
+        |(i, (icon, label, value))| {
             view()
                 .child(when(move || i > 0, || ui::separator(58.0)))
-                .child(fact(icon, colors, label, value))
+                .child(fact(icon, label, value))
         },
     ));
 
@@ -462,7 +449,7 @@ fn details(e: HistoryEntry) -> impl IntoElement {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| dir.to_string_lossy().into_owned());
         ui::group().child(ui::nav_row(
-            ui::glyph(Icon::Folder, (0xf59e0b, 0xea580c), 30.0),
+            ui::glyph(Icon::Folder, 30.0),
             "Saved in",
             label,
             move || {
@@ -499,7 +486,7 @@ fn details(e: HistoryEntry) -> impl IntoElement {
 }
 
 /// A fact about a transfer: its glyph, what it is, and its value.
-fn fact(icon: Icon, colors: (u32, u32), label: &'static str, value: String) -> impl IntoElement {
+fn fact(icon: Icon, label: &'static str, value: String) -> impl IntoElement {
     view()
         .flex_row()
         .items_center()
@@ -507,7 +494,7 @@ fn fact(icon: Icon, colors: (u32, u32), label: &'static str, value: String) -> i
         .min_h(px(ui::hit() + 8.0))
         .px(px(space::L))
         .py(px(space::S))
-        .child(ui::glyph(icon, colors, 30.0))
+        .child(ui::glyph(icon, 30.0))
         .child(ui::body(label).flex_1())
         .child(
             muted(value)

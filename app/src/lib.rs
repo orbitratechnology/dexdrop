@@ -54,11 +54,17 @@ pub fn App() -> impl IntoElement {
         Err(err) => log::warn!("theme: {err}"),
     }
     bridge::start();
-    app_window().id("main").content(|| {
-        view()
-            .flex_1()
-            .bg(move || theme().background)
-            .text_color(move || theme().foreground)
-            .child(shell::shell())
-    })
+    // Its size at first launch (the packaged runners' own default is a
+    // phone's on Linux), then where the user left it.
+    app_window()
+        .id("main")
+        .default_size(nsh_core::geometry::size(px(1040.0), px(720.0)))
+        .restore_bounds(true)
+        .content(|| {
+            view()
+                .flex_1()
+                .bg(move || theme().background)
+                .text_color(move || theme().foreground)
+                .child(shell::shell())
+        })
 }

@@ -13,11 +13,11 @@ current whenever tests, selectors, CI jobs or timings change.
 |---|---|---|---|
 | Engine | `cargo test -p dexdrop-core -p dexdrop-net --features dexdrop-net/test-relay` | ~10 s | protocol, transfers, resume, security, the relay, picked copies deleted once nothing selects or sends them (a send group's when its selection is cleared); referenced items (docs/FILE_SELECTION.md) streamed from a provider that is not a file, uneven reads, nothing read to offer, pause and resume (`tests/assets.rs`); the Android bridge's lines and permissions (`src/assets.rs`), an APK sent in place under its name |
 | UI headless, media browser | `cargo test -p dexdrop-app --test library` | ~7 s | Send's media browser on Android (ADR-009) against a stand-in provider registered as `android-media`: photos chosen and added as references, nothing opened; a library of 5000 listed a page at a time (under 200 tiles exist); Videos, search, Large files; the permission card before listing (`DEXDROP_MEDIA_ACCESS=none`); `screenshots_of_the_browser` draws six screens into `target/shots/library` (or `DEXDROP_SHOTS`) |
-| UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default) |
+| UI headless, iPhone | `cargo test -p dexdrop-app --test ui` | ~6 s | flows on NSH's engine (`nsh_testing::Headless`, a 390 × 844 iPhone by default); Diagnostics in NSH's `Dialog` (`role:dialog[Diagnostics]`), closed by Escape, which is the dialog's alone while it shows |
 | UI headless, Android | `cargo test -p dexdrop-app --test android` | ~2 s | Android layouts and features: `EngineConfig::environment` set to Android at 320 × 640: Send's choices in thumb reach (`send_offers_its_choices_in_thumb_reach`: a row each at the foot of the screen above the tab bar, at least 48 pt, the heading clear of them; once a file is chosen, four side by side above Choose device, and the file's row shows its size once read), a selection of 130 files laid out in the page (120 rows, the rest counted, below Choose device's bar), Send in the icon's blue |
 | UI headless, toasts | `cargo test -p dexdrop-app --test toasts` | ~2 s | NSH's toast stack: an alert, timed out by the manager on the manual clock, Escape dismisses the newest before going back |
 | UI headless, keyboard and long presses | `cargo test -p dexdrop-app --test keys` | ~3 s | Home's S / R / arrows, Escape back; a past transfer removed and a device forgotten by a long press, through the system's alert (`answer_dialogs_myself`) |
-| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~4 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), Home's header (icon and name), "Nearby" and the radar centered on iPhone, Android and Mac, the radar's still circles with less motion, History's and Settings' titles centered, illustrations in the empty states and the first launch, Android's drawn white tabs (Settings opens), headings and the status pill taking their rows' width, a picked copy deleted when taken out of the selection, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
+| UI headless, layout promises | `cargo test -p dexdrop-app --test design` | ~4 s | Send and Receive within a thumb's reach above the tab bar, above the tabs a narrow Windows window draws (and Receive opens), Home's header (icon and name), "Nearby" and the radar centered on iPhone, Android and Mac, the radar's still circles with less motion, History's and Settings' titles centered, illustrations in the empty states and the first launch, Android's drawn white tabs (Settings opens), headings and the status line (a drawn dot, the words taking the row) at their rows' width, a picked copy deleted when taken out of the selection, where received files go (Mac, iPhone), the segmented filter as a toggle group outside iOS |
 | UI headless, Send's Recent | `cargo test -p dexdrop-app --test recent` | ~3 s | a computer's newest files as rows (from `DEXDROP_RECENT_DIRS` headless; a tap adds, another takes out); no Recent and no photo prompt on Android or iPhone (`phones_show_no_recent_and_ask_for_no_photos`, ADR-008) |
 | UI headless, camera | `cargo test -p dexdrop-app --test camera` | ~4 s | Scan QR (FR-024): absent without a camera; with `nsh_extra::camera::set_backend` answering a photo of a QR invitation, the code page's input gets the invitation |
 | UI headless, several devices | `cargo test -p dexdrop-app --test multi` | ~3 s | a Mac-sized app knowing two devices: files dropped, each device tapped, the list staying, the group's progress; on mobile data (`set_environment`, `Environment::network` expensive) sending over the internet asks first, Cancel sends nothing, Wi-Fi does not ask (FR-072) |
@@ -90,7 +90,7 @@ kebab-case:
 | `pick-photos`, `pick-videos`, `pick-files`, `pick-apps`, `pick-folder` | Send's tiles (`pick-files` on every platform, though computers say "Choose files") |
 | `next` | "Choose device" / "Send to …" |
 | `accept`, `decline` | the incoming request |
-| `pause`, `resume`, `retry`, `done` | a transfer's controls |
+| `pause`, `resume`, `retry`, `stop`, `done` | a transfer's controls (`stop` asks Cancel / Stop) |
 | `send-to-all`, `see-progress` | the device list (several devices) |
 | `brand`, `radar` | Home's centered header (the app's icon and name) and the radar looking for devices |
 | `tab-bar` | the tabs the app draws (Android, narrow windows) |
@@ -131,8 +131,10 @@ Add an id when a test needs a control; add it to this table.
 
 ### Speed
 
-- **Never sleep.** Wait for what should appear (`wait_for`, `waitFor`),
-  not for time.
+- **Never sleep.** Wait for what should appear (`wait_for`, `waitFor`,
+  `wait_until` with a condition on the screen), not for time; to check
+  that nothing more happens, `settle()` (the engine says when it is idle).
+  Only `tests/perf.rs` still waits in real time, to measure idle screens.
 - **Manual clock for timers.** `config.clock = Clock::manual(..)` and
   `app.fast_forward(..)` / `run_for(..)` run the app's timers at once
   (`tests/perf.rs`: an idle test went from ~15 s to ~1 s).
@@ -190,7 +192,7 @@ Artifacts are per platform (`dexdrop-android`, `dexdrop-windows-x86_64`,
 | Job | NSH | Then |
 |---|---|---|
 | Engine tests (Linux, Windows, macOS) | `cargo test` of the engine crates | the transfer benchmark |
-| App UI tests (Linux) | `cargo test -p dexdrop-app` (iPhone, Android, performance) | — |
+| App UI tests (Linux) | `cargo fmt --all --check`, `cargo clippy -p dexdrop-app -p dexdrop-photos --all-targets -- -D warnings` (NSH's loop for a Rust app), `cargo test -p dexdrop-app` (iPhone, Android, performance) | — |
 | Package Linux | `nsh test e2e/app.test.ts --target linux` (xvfb) | desktop check |
 | Package Windows | `nsh test … --target windows` | desktop check |
 | Package macOS and iOS | — (the e2e runs in its own job, below) | desktop check, agent-device macOS and iOS checks (publishing the simulator build for native-sim may fail, as GitHub's API did in run 92, without skipping them; the macOS check answers the runner's own local-network prompt before the Open panel); the iOS check also fails an app whose `Info.plist` lacks `NSPhotoLibraryUsageDescription`, then grants the simulator's photos, adds a photo of its own (`scripts/fixtures/dexdrop-check.jpg`, `simctl addmedia`) and chooses them in the media browser; the simctl grant does not reach PhotoKit on the iOS 26 simulator, so the check taps the browser's Allow access and answers PhotoKit's prompt with Allow Full Access (`08-photos-prompt`), the flow users see; it then taps its own photo and Add 1 item (`08-library-added`; CI run 104 listed 7 items with PhotoKit's thumbnails) (then Files: `note.bin` picked in the document picker's open mode from On My iPhone › DexDrop, added to Send, and one note.bin in the app's container, i.e. no copy; `09-doc-picker`, `09-doc-added`, best effort, warnings only; a Photos prompt still showing from the step before, as in CI run 107 where it came after 20 s, is answered first, and the check waits up to 60 s for it) (`08-library` shows what Photos opened; a warning, not a failure, naming whether the browser asked for access, listed nothing or did not open) |

@@ -209,7 +209,7 @@ fn mobile_data_asks_before_sending_over_the_internet() {
     assert_eq!(dialog.title.as_deref(), Some("Send over mobile data?"));
     app.answer_dialog(DialogAnswer::Press("Cancel".into()))
         .unwrap();
-    app.wait(Duration::from_millis(300)).unwrap();
+    app.settle();
     assert!(
         app.screen().id("label:/^Desk, /").is_err(),
         "sent after Cancel"

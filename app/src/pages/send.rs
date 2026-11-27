@@ -85,6 +85,35 @@ pub fn take_opened_files() {
     });
 }
 
+/// A second launch of the app (Windows and Linux, `nsh.json`
+/// `singleInstance`) hands the running one its command line: the files on
+/// it, resolved against where it was started, become the selection, as
+/// files opened with the app do.
+pub fn take_second_launches() {
+    #[cfg(not(target_arch = "wasm32"))]
+    detached(async {
+        loop {
+            let launch = next_second_instance().await;
+            let cwd = PathBuf::from(&launch.cwd);
+            let paths: Vec<PathBuf> = launch
+                .args
+                .iter()
+                .filter(|a| !a.starts_with('-'))
+                .map(|a| {
+                    let p = PathBuf::from(a);
+                    if p.is_absolute() { p } else { cwd.join(p) }
+                })
+                .filter(|p| p.exists())
+                .collect();
+            if paths.is_empty() {
+                continue;
+            }
+            select(paths);
+            crate::state::open(crate::state::Tab::Share, Route::Send);
+        }
+    });
+}
+
 /// Counts the selection and reads each new path's size, off the engine
 /// thread (a selection of thousands is thousands of disk reads), then
 /// updates it if it has not changed meanwhile.
@@ -550,7 +579,7 @@ struct Source {
     icon: Icon,
     label: &'static str,
     detail: &'static str,
-    colors: (u32, u32),
+    hue: ui::Source,
     pick: fn(),
 }
 
@@ -570,21 +599,20 @@ impl Source {
 /// What this platform picks from: files and folders on computers; photos,
 /// videos and files on phones, and apps on Android.
 fn sources() -> Vec<Source> {
-    use ui::source::*;
     if desktop_platform() {
         return vec![
             Source {
                 icon: Icon::File,
                 label: "Choose files",
                 detail: "Any kind, any size",
-                colors: FILES,
+                hue: ui::Source::Files,
                 pick: || choose(OpenDialog::files()),
             },
             Source {
                 icon: Icon::Folder,
                 label: "Choose folder",
                 detail: "Everything in it, as it is",
-                colors: FOLDER,
+                hue: ui::Source::Folder,
                 pick: || choose(OpenDialog::folders()),
             },
         ];
@@ -594,21 +622,21 @@ fn sources() -> Vec<Source> {
             icon: Icon::Photo,
             label: "Photos",
             detail: "From your photo library",
-            colors: PHOTOS,
+            hue: ui::Source::Photos,
             pick: || browse_or(Category::Photos, Kind::Photos),
         },
         Source {
             icon: Icon::Video,
             label: "Videos",
             detail: "Any length, as they are",
-            colors: VIDEOS,
+            hue: ui::Source::Videos,
             pick: || browse_or(Category::Videos, Kind::Videos),
         },
         Source {
             icon: Icon::File,
             label: "Files",
             detail: "Documents and anything else",
-            colors: FILES,
+            hue: ui::Source::Files,
             pick: choose_documents,
         },
     ];
@@ -617,7 +645,7 @@ fn sources() -> Vec<Source> {
             icon: Icon::Apps,
             label: "Apps",
             detail: "Installed apps and APK files",
-            colors: APPS,
+            hue: ui::Source::Apps,
             pick: || push(Route::Apps),
         });
     }
@@ -720,8 +748,9 @@ fn source_row(s: Source) -> impl IntoElement {
         .gap(px(space::M))
         .min_h(px(SOURCE_ROW))
         .px(px(space::L))
+        .hover(move |st| st.bg(move || theme().muted.opacity(0.5)))
         .active(move |st| st.bg(move || theme().muted))
-        .child(ui::source_badge(s.icon, s.colors, 36.0))
+        .child(ui::source_badge(s.icon, s.hue, 36.0))
         .child(
             view()
                 .flex_1()
@@ -729,7 +758,7 @@ fn source_row(s: Source) -> impl IntoElement {
                 .child(
                     text(s.label)
                         .number_of_lines(1)
-                        .text_size(px(ui::size::BODY + 1.0))
+                        .text_size(px(ui::size::HEADING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(move || theme().foreground),
                 )
@@ -761,14 +790,15 @@ fn source_strip() -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .gap(px(6.0))
-                .rounded(px(16.0))
+                .rounded(px(ui::radius::lg()))
                 .bg(ui::surface)
-                .active(|st| st.opacity(0.7))
-                .child(ui::source_badge(s.icon, s.colors, 30.0))
+                .hover(|st| st.opacity(0.92))
+                .active(|st| st.scale(ui::motion::PRESS))
+                .child(ui::source_badge(s.icon, s.hue, 30.0))
                 .child(
                     text(s.label)
                         .number_of_lines(1)
-                        .text_size(px(ui::size::CAPTION + 1.0))
+                        .text_size(px(ui::size::CAPTION))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(move || theme().foreground),
                 )
@@ -820,11 +850,12 @@ fn kinds() -> impl IntoElement {
                 .gap(px(space::M))
                 .p(px(space::L))
                 .min_h(px(72.0))
-                .rounded(px(16.0))
+                .rounded(px(ui::radius::lg()))
                 .bg(ui::surface)
                 .hover(move |st| st.bg(move || theme().muted))
-                .active(|st| st.opacity(0.8))
-                .child(ui::source_badge(s.icon, s.colors, 40.0))
+                .hover(|st| st.opacity(0.92))
+                .active(|st| st.scale(ui::motion::PRESS))
+                .child(ui::source_badge(s.icon, s.hue, 40.0))
                 .child(
                     view()
                         .flex_1()
@@ -852,7 +883,7 @@ fn drop_zone(dropping: Signal<bool>) -> impl IntoElement {
         .justify_center()
         .gap(px(space::M))
         .py(px(space::XXL))
-        .rounded(px(20.0))
+        .rounded(px(ui::radius::xl()))
         .bg(move || {
             if dropping.get() {
                 theme().primary.opacity(0.08)
@@ -875,7 +906,7 @@ fn loading_card(what: impl Fn() -> Option<String> + Copy + 'static) -> impl Into
         .child(
             view()
                 .size(px(44.0))
-                .rounded(px(12.0))
+                .rounded(px(ui::radius::md()))
                 .items_center()
                 .justify_center()
                 .bg(move || theme().primary.opacity(0.12))
@@ -1059,7 +1090,7 @@ fn pick_row(pick: Pick) -> View {
         } else if crate::files::is_video(&label.get()) {
             play_thumb(at.get(), label.get())
         } else {
-            crate::files::thumb(&label.get(), None, 44.0, 10.0)
+            crate::files::thumb(&label.get(), None, 44.0, ui::radius::md())
         }
     });
     ui::row(
@@ -1084,8 +1115,9 @@ fn play_thumb(path: PathBuf, name: String) -> View {
         ui::pressable()
             .accessibility_label(format!("Play {name}"))
             .on_press(move || crate::files::open(path.clone()))
-            .active(|s| s.opacity(0.8))
-            .child(crate::files::thumb(&name, None, 44.0, 10.0))
+            .hover(|s| s.opacity(0.92))
+            .active(|s| s.scale(ui::motion::PRESS))
+            .child(crate::files::thumb(&name, None, 44.0, ui::radius::md()))
             .child(
                 view()
                     .absolute()
@@ -1095,11 +1127,11 @@ fn play_thumb(path: PathBuf, name: String) -> View {
                     .child(
                         view()
                             .size(px(22.0))
-                            .rounded(px(11.0))
+                            .rounded(px(ui::radius::md()))
                             .items_center()
                             .justify_center()
-                            .bg(rgba(0x0000_0099))
-                            .child(ui::icon(Icon::Play, 11.0, white())),
+                            .bg(ui::media_chip)
+                            .child(ui::icon(Icon::Play, 11.0, ui::on_media)),
                     ),
             ),
     )
@@ -1115,12 +1147,13 @@ fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
             ui::pressable()
                 .accessibility_label(format!("View {}", pick.name))
                 .on_press(move || crate::files::open(shown.clone()))
-                .active(|s| s.opacity(0.8))
+                .hover(|s| s.opacity(0.92))
+                .active(|s| s.scale(ui::motion::PRESS))
                 .child(crate::files::thumb(
                     &pick.name,
                     crate::files::preview(&pick.path).as_deref(),
                     side,
-                    14.0,
+                    ui::radius::lg(),
                 )),
         )
         .child(
@@ -1130,17 +1163,17 @@ fn photo_tile(pick: Pick, side: f32) -> impl IntoElement {
                 .absolute()
                 .top(px(2.0))
                 .right(px(2.0))
-                .size(px(ui::hit().min(36.0)))
+                .size(px(ui::hit()))
                 .items_center()
                 .justify_center()
                 .child(
                     view()
                         .size(px(24.0))
-                        .rounded(px(12.0))
+                        .rounded(px(ui::radius::md()))
                         .items_center()
                         .justify_center()
-                        .bg(rgba(0x0000_0099))
-                        .child(ui::icon(Icon::X, 12.0, white())),
+                        .bg(ui::media_chip)
+                        .child(ui::icon(Icon::X, 12.0, ui::on_media)),
                 ),
         )
 }
@@ -1216,47 +1249,53 @@ pub fn devices_page() -> impl IntoElement {
     let sent_any = move || model().with(|m| m.transfers.iter().any(|t| t.group == Some(group)));
     // The keyboard: Up and Down move a highlight through the devices,
     // Return sends to the highlighted one (else the first), A to all nearby.
-    let focus = signal(None::<usize>);
+    // The highlight is a device, not a place in the list: discovery
+    // reorders the list, and Return must send where the user pointed.
+    let focus = signal(None::<dexdrop_core::identity::PeerId>);
     let mine = crate::state::tab_untracked();
     let here = move || crate::state::showing(mine, |r| *r == Route::Devices);
-    let count = move || model().with_untracked(|m| m.peers.len());
-    on_key_with(
-        "down",
-        KeyOptions {
-            repeat: true,
-            ..Default::default()
-        },
-        move |_| {
-            if here() && count() > 0 {
-                focus.set(Some(
-                    focus
-                        .get_untracked()
-                        .map_or(0, |i| (i + 1).min(count() - 1)),
-                ));
-            }
-        },
-    );
-    on_key_with(
-        "up",
-        KeyOptions {
-            repeat: true,
-            ..Default::default()
-        },
-        move |_| {
-            if here() && count() > 0 {
-                focus.set(Some(
-                    focus.get_untracked().map_or(0, |i| i.saturating_sub(1)),
-                ));
-            }
-        },
-    );
+    let ids =
+        move || model().with_untracked(|m| m.peers.iter().map(|p| p.peer_id).collect::<Vec<_>>());
+    // The device `step` places from the highlighted one, held to the list.
+    let moved = move |step: isize| {
+        let ids = ids();
+        if ids.is_empty() {
+            return;
+        }
+        let at = focus
+            .get_untracked()
+            .and_then(|id| ids.iter().position(|p| *p == id));
+        let next = match at {
+            None => 0,
+            Some(i) => (i as isize + step).clamp(0, ids.len() as isize - 1) as usize,
+        };
+        focus.set(Some(ids[next]));
+    };
+    let repeat = || KeyOptions {
+        repeat: true,
+        ..Default::default()
+    };
+    on_key_with("down", repeat(), move |_| {
+        if here() {
+            moved(1)
+        }
+    });
+    on_key_with("up", repeat(), move |_| {
+        if here() {
+            moved(-1)
+        }
+    });
     on_key("enter", move |_| {
         if !here() {
             return;
         }
-        let i = focus.get_untracked().unwrap_or(0);
-        if let Some(p) = model().with_untracked(|m| m.peers.get(i).cloned()) {
-            tap_device(group, p.peer_id);
+        let ids = ids();
+        let target = focus
+            .get_untracked()
+            .filter(|id| ids.contains(id))
+            .or_else(|| ids.first().copied());
+        if let Some(id) = target {
+            tap_device(group, id);
         }
     });
     on_key("a", move |_| {
@@ -1278,12 +1317,11 @@ pub fn devices_page() -> impl IntoElement {
                         // page is for, and they should not start under the
                         // tab bar.
                         .child(ui::radar(
-                            ui::SEND,
                             if short_screen() { 140.0 } else { 220.0 },
                             ui::avatar(
                                 me,
                                 my_platform,
-                                ui::my_avatar,
+                                crate::state::my_avatar,
                                 if short_screen() { 56.0 } else { 72.0 },
                             ),
                         ))
@@ -1306,7 +1344,7 @@ pub fn devices_page() -> impl IntoElement {
                                 view()
                                     .child(when(move || i.get() > 0, || ui::separator(76.0)))
                                     .child(device_row(p, group, move || {
-                                        focus.get() == Some(i.get())
+                                        focus.get() == Some(p.with(|p| p.peer_id))
                                     }))
                             },
                         ))
@@ -1318,7 +1356,7 @@ pub fn devices_page() -> impl IntoElement {
                     move || {
                         ui::group()
                             .child(ui::nav_row(
-                                ui::glyph(Icon::Paperplane, ui::SEND, 30.0),
+                                ui::glyph(Icon::Paperplane, 30.0),
                                 move || format!("Send to all {} nearby", unsent().len()),
                                 "",
                                 move || {
@@ -1330,7 +1368,7 @@ pub fn devices_page() -> impl IntoElement {
                     },
                 ))
                 .child(ui::group().child(ui::nav_row(
-                    ui::glyph(Icon::Keypad, (0x64748b, 0x475569), 30.0),
+                    ui::glyph(Icon::Keypad, 30.0),
                     "Use a code",
                     "",
                     || push(Route::Code),
@@ -1549,6 +1587,7 @@ fn device_row(
         .gap(px(space::M))
         .px(px(space::L))
         .py(px(space::M))
+        .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
         .active(move |s| s.bg(move || theme().muted))
         .hover(move |s| s.bg(move || theme().muted.opacity(0.6)))
         .child(ui::far_avatar(
@@ -1565,22 +1604,15 @@ fn device_row(
                 .child(ui::strong(name).number_of_lines(1))
                 .child(muted(detail).number_of_lines(1))
                 .child(when(moving, move || {
-                    nsh_base::progress()
-                        .value(move || {
-                            sent.get()
-                                .map(|(_, _, p)| (p * 100.0) as f32)
-                                .unwrap_or(0.0)
-                        })
+                    ui::progress(move || sent.get().map_or(0.0, |(_, _, p)| p), false)
                         .accessibility_label("Progress")
-                        .h(px(4.0))
                 })),
         )
         .child(dynamic(move || {
             if done() {
-                ui::soft_glyph(Icon::Check, move || ui::tone_color(ui::Tone::Success), 36.0)
-                    .into_element()
+                ui::soft_glyph(Icon::Check, ui::Tone::Success, 36.0).into_element()
             } else {
-                ui::soft_glyph(Icon::Paperplane, move || theme().primary, 36.0).into_element()
+                ui::soft_glyph(Icon::Paperplane, ui::Tone::Accent, 36.0).into_element()
             }
         }))
 }
@@ -1619,31 +1651,20 @@ pub fn code_page() -> impl IntoElement {
         view()
             .gap(px(space::XL))
             .items_center()
-            .child(ui::glyph(Icon::Keypad, (0x64748b, 0x475569), 64.0))
+            .child(ui::glyph(Icon::Keypad, 64.0))
             .child(
                 muted("The code is on the other device's Receive screen.")
                     .text_center()
                     .w_full(),
             )
             .child(
-                nsh_base::input()
+                ui::field("Code or invitation", ui::FieldSize::Large)
                     .value(move || entry.get())
                     .on_change(move |v: &str| entry.set(v.to_owned()))
                     .on_submit(move |_: &str| submit())
                     .placeholder("K7P2-QX9M")
-                    .label("Code or invitation")
                     .auto_capitalize(AutoCapitalize::Characters)
-                    .self_stretch()
-                    .min_h(px(64.0))
-                    .px(px(space::L))
-                    .rounded(px(18.0))
-                    .bg(ui::surface)
-                    .shadow_md()
-                    .text_size(px(26.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .letter_spacing(px(2.0))
-                    .text_center()
-                    .text_color(move || theme().foreground),
+                    .self_stretch(),
             )
             .child(
                 view()

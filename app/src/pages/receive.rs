@@ -56,13 +56,12 @@ pub fn page() -> impl IntoElement {
             .gap(px(space::XL))
             .items_center()
             .child(ui::radar(
-                ui::RECEIVE,
                 if nsh_core::element::window().height.0 < 760.0 {
                     180.0
                 } else {
                     240.0
                 },
-                ui::avatar(me, platform, ui::my_avatar, 84.0),
+                ui::avatar(me, platform, crate::state::my_avatar, 84.0),
             ))
             .child(
                 view()

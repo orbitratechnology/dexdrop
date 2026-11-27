@@ -31,6 +31,11 @@ pub fn model() -> Signal<Model> {
     global::<Model>()
 }
 
+/// This device's chosen avatar.
+pub fn my_avatar() -> Option<String> {
+    model().with(|m| m.settings.avatar.clone())
+}
+
 /// The transfer history, newest first: a signal of its own, so what reads
 /// it does not run again on every change of the model (a transfer's
 /// progress, several times a second).

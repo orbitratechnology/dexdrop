@@ -293,16 +293,32 @@ fn chooses_an_avatar() {
     let foxes = |app: &mut Headless| app.screen().texts().iter().filter(|t| **t == "🦊").count();
     assert_eq!(foxes(&mut app), 1, "only the choice shows a fox");
     app.press("role:button[🦊]").unwrap();
-    for _ in 0..50 {
-        if foxes(&mut app) > 1 {
-            break;
-        }
-        app.wait(Duration::from_millis(100)).unwrap();
-    }
+    app.wait_until("the fox on the avatar", Duration::from_secs(5), |s| {
+        s.texts().iter().filter(|t| **t == "🦊").count() > 1
+    })
+    .unwrap();
     assert!(foxes(&mut app) > 1, "the avatar does not show the fox");
     drop(app);
     let settings = std::fs::read_to_string(dir.path().join("state").join("settings.json"))
         .or_else(|_| std::fs::read_to_string(dir.path().join("settings.json")))
         .unwrap_or_default();
     assert!(settings.contains("🦊"), "not kept: {settings}");
+}
+
+/// Diagnostics open in a dialog (`ui::dialog`, NSH's `Dialog`): screen
+/// readers hear a dialog named by its title, Escape closes it, and Escape
+/// is the dialog's alone (Settings stays, nothing goes back under it).
+#[test]
+fn diagnostics_open_in_a_dialog_that_escape_closes() {
+    let (mut app, _dir) = start();
+    app.press_key("mod+3").unwrap();
+    app.wait_for("Export diagnostics").unwrap();
+    app.press("role:button[Export diagnostics]").unwrap();
+    app.wait_for_within("role:dialog[Diagnostics]", Duration::from_secs(5))
+        .unwrap();
+    app.wait_for("role:button[Copy]").unwrap();
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("role:dialog[Diagnostics]", Duration::from_secs(5))
+        .unwrap();
+    app.wait_for("Export diagnostics").unwrap();
 }

@@ -22,6 +22,7 @@
   "application": {
     "quitMode": "lastWindowClosed"
   },
+  "singleInstance": true,
   "fileTypes": [
     {
       "name": "File",

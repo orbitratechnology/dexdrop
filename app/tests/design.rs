@@ -233,11 +233,11 @@ fn android_tabs_are_drawn_white() {
 #[test]
 fn headings_and_the_status_take_their_rows_width() {
     let (mut app, _dir) = start(as_android);
-    // The dot and the words are one centered line ("● Visible as …").
-    app.wait_for_within("text:/^● Visible as /", Duration::from_secs(5))
+    // The status dot (drawn, not typed) and the words beside it.
+    app.wait_for_within("text:/^Visible as /", Duration::from_secs(5))
         .unwrap();
     let nearby = frame(&mut app, "text:Nearby");
-    let status = frame(&mut app, "text:/^● Visible as /");
+    let status = frame(&mut app, "text:/^Visible as /");
     for (name, f, least) in [("Nearby", nearby, 200.0), ("status", status, 200.0)] {
         assert!(f.2 >= least, "{name} is only {} pt wide", f.2);
     }

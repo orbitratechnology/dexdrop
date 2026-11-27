@@ -558,3 +558,49 @@ requires the media permissions and the bridge classes in the APK and still
 fails `MANAGE_EXTERNAL_STORAGE`; the emulator and simulator checks browse,
 choose and add a photo, and the emulator check fails if it was copied into
 the app. Tests: `app/tests/library.rs`, `crates/dexdrop-net/tests/assets.rs`.
+
+## ADR-010: NSH's guides — the design system, the `ui` layer, NSH's overlays
+
+Status: accepted.
+
+NSH's agent skills (`.agents/skills/nsh`, `.agents/skills/nsh-design-guides`,
+pinned in `skills-lock.json`) hold its Coding Guides and Design Guides.
+DexDrop was audited against them; the decisions:
+
+- **Design standards live in `app/DESIGN.md`.** It holds the targets, the
+  tokens, the `ui` layer, the states and a motion inventory per screen.
+  A screen's motion is written there before its code.
+- **Every color is a token.** `theme.json` defines the app's roles
+  beyond shadcn's: the main action's gradient, file kinds, sources, OS
+  marks, scrims, colors over media, and the QR code. Code reads them
+  through `ui::tokens`. Avatar gradients are data that peers exchange by
+  index, so they stay in code as a documented exception. Radius (`radius-*`
+  in `theme.json`), type and motion are scales in `ui::tokens`.
+- **The `ui` layer is a module tree (`app/src/ui/`)** of controls that
+  each wrap their `nsh_base` counterpart. They take variants, sizes and
+  states, never colors or radii. Pages import no `nsh_base` controls.
+  `ui::progress` styles `nsh_base::progress`, which draws nothing until
+  its parts are styled; before this, the transfer bars were invisible.
+- **Overlays are NSH's.** The incoming request is `nsh_base::sheet`,
+  Diagnostics `nsh_base::dialog`, and the first-launch explanation a
+  full-screen dialog. They move the focus in and out, hold the screen
+  reader, and take Escape and back. Escape has one owner: the app's
+  binding (`shell::escape_goes_back`) exists only while nothing is over
+  the page. While a sheet or dialog shows, the request sheet's Escape
+  declines and a dialog's closes. A press on the request sheet's scrim
+  does nothing, so a stray tap never declines.
+- **The engine starts and stops off the UI thread** (`bridge::native::{start,
+  stop}` through `blocking`). Commands sent while it starts wait for it.
+- **One instance on the desktops** (`nsh.json` `singleInstance`): a
+  second launch hands its files to the running app. The main window
+  opens at 1040 × 720 and then where the user left it (`restore_bounds`).
+- **Not done yet:**
+  - a keyboard path to Forget and Remove (they need a long press today;
+    `nsh_base::context_menu` gives Shift+F10 and the Menu key);
+  - one sliding selection for the tab bar and the sidebar (the segmented
+    control has one);
+  - splitting the model's one signal by concern, so that transfers'
+    progress does not wake what reads peers or settings;
+  - screenshots in dark mode and on devices for the Finishing checklist;
+  - drawing the system title bar ourselves on desktops (the guides'
+    finishing checklist), kept native for now.

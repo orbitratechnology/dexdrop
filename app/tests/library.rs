@@ -294,7 +294,7 @@ fn a_large_library_is_listed_a_page_at_a_time() {
     app.press("id:send").unwrap();
     app.press("id:pick-photos").unwrap();
     app.wait_for_within("label:IMG_5000.jpg", WAIT).unwrap();
-    app.wait(Duration::from_millis(300)).unwrap();
+    app.settle();
     let lists = asked.lists.lock().unwrap().clone();
     assert!(!lists.is_empty());
     assert!(

@@ -6,6 +6,18 @@ Rust only), a CLI (`crates/dexdrop-cli`). Product requirements:
 `docs/STATUS.md` (audit against the PRD), `docs/ARCHITECTURE.md`
 (decisions).
 
+## NSH's skills and guides
+
+NSH's agent skills are in `.agents/skills` (`nsh`, `nsh-design-guides`;
+`npx skills add longbridge/nsh` updates them, pinned in
+`skills-lock.json`). Read their Coding Guides and Design Guides before
+changing code or a screen. The app's design standards and each screen's
+motion inventory are in `app/DESIGN.md` (ADR-010). Pages are built from
+the `ui` layer (`app/src/ui/`), never from `nsh_base` controls directly.
+Colors come only from `theme.json` tokens (`ui::tokens`); radius, type and
+motion come from its scales. Overlays use `ui::sheet`, `ui::dialog`,
+`ui::confirm`.
+
 ## Testing: NSH's recommendations are the primary way, on every platform
 
 Follow `docs/TESTING.md` (from https://nsh.dev/docs/testing-and-trace.md):

@@ -5,7 +5,7 @@ use dexdrop_core::{
     api::{Command, NoticeKind},
     store::TrustedPeer,
 };
-use nsh_base::{alert_dialog, theme};
+use nsh_base::theme;
 use nsh_core::{file_dialog::OpenDialog, prelude::*};
 
 use crate::{
@@ -19,16 +19,8 @@ fn settings() -> dexdrop_core::store::Settings {
     model().with(|m| m.settings.clone())
 }
 
-/// Glyph colors, one per kind of setting.
-const BLUE: (u32, u32) = (0x3b82f6, 0x2563eb);
-const GREEN: (u32, u32) = (0x22c55e, 0x16a34a);
-const ORANGE: (u32, u32) = (0xf59e0b, 0xea580c);
-const PURPLE: (u32, u32) = (0x8b5cf6, 0x7c3aed);
-const GRAY: (u32, u32) = (0x94a3b8, 0x64748b);
-const RED: (u32, u32) = (0xf43f5e, 0xe11d48);
-
-fn g(i: Icon, colors: (u32, u32)) -> View {
-    ui::glyph(i, colors, 30.0)
+fn g(i: Icon) -> View {
+    ui::glyph(i, 30.0)
 }
 
 pub fn page() -> impl IntoElement {
@@ -79,8 +71,8 @@ fn device() -> impl IntoElement {
                 .accessibility_label("Change avatar")
                 .test_id("change-avatar")
                 .on_press(|| push(Route::Avatar))
-                .active(|s| s.scale(0.95))
-                .child(ui::avatar(name, platform, ui::my_avatar, 80.0))
+                .active(|s| s.scale(ui::motion::PRESS_ICON))
+                .child(ui::avatar(name, platform, crate::state::my_avatar, 80.0))
                 .child(
                     view()
                         .absolute()
@@ -101,19 +93,12 @@ fn device() -> impl IntoElement {
                         .items_center()
                         .gap(px(space::S))
                         .child(
-                            nsh_base::input()
+                            ui::field("Device name", ui::FieldSize::Regular)
                                 .value(move || draft.get())
                                 .on_change(move |v: &str| draft.set(v.to_owned()))
                                 .on_submit(move |_: &str| save())
                                 .placeholder("Device name")
-                                .label("Device name")
-                                .w(px(220.0))
-                                .min_h(px(ui::hit()))
-                                .px(px(space::M))
-                                .rounded(px(12.0))
-                                .bg(move || theme().muted)
-                                .text_size(px(ui::size::BODY))
-                                .text_color(move || theme().foreground),
+                                .w(px(220.0)),
                         )
                         .child(ui::icon_btn(Icon::Check, "Save", Variant::Primary).on_press(save))
                 },
@@ -131,7 +116,8 @@ fn device() -> impl IntoElement {
                     .items_center()
                     .gap(px(space::S))
                     .min_h(px(ui::hit()))
-                    .active(|s| s.opacity(0.6))
+                    .hover(|s| s.opacity(0.92))
+                    .active(|s| s.scale(ui::motion::PRESS))
                     // The name centered with the room of the row (not cut
                     // short where the system font is wider than measured),
                     // the pencil after it balanced by a space before.
@@ -216,14 +202,14 @@ fn receiving() -> impl IntoElement {
         .child(
             ui::group()
                 .child(ui::switch_row(
-                    g(Icon::Eye, BLUE),
+                    g(Icon::Eye),
                     "Visible to nearby devices",
                     move || settings().visible,
                     |on| bridge::send(Command::SetVisible(on)),
                 ))
                 .child(ui::separator(58.0))
                 .child(ui::switch_row(
-                    g(Icon::UserCheck, GREEN),
+                    g(Icon::UserCheck),
                     "Auto-accept trusted devices",
                     move || settings().auto_accept_trusted,
                     |on| bridge::send(Command::SetAutoAcceptTrusted(on)),
@@ -234,29 +220,20 @@ fn receiving() -> impl IntoElement {
                 // choose files, not folders).
                 .child(
                     when(desktop_platform, move || {
-                        ui::nav_row(
-                            g(Icon::Folder, ORANGE),
-                            "Save to",
-                            save_place,
-                            choose_folder,
-                        )
-                        .test_id("save-to")
+                        ui::nav_row(g(Icon::Folder), "Save to", save_place, choose_folder)
+                            .test_id("save-to")
                     })
                     .otherwise(move || {
-                        ui::row(g(Icon::Folder, ORANGE), "Save to", save_place, view())
-                            .test_id("save-to")
+                        ui::row(g(Icon::Folder), "Save to", save_place, view()).test_id("save-to")
                     }),
                 )
                 .child(when(
                     move || desktop_platform() && custom(),
                     move || {
                         view().child(ui::separator(58.0)).child(
-                            ui::nav_row(
-                                g(Icon::Refresh, GRAY),
-                                "Use the Downloads folder",
-                                "",
-                                || bridge::send(Command::SetDownloadDir(None)),
-                            )
+                            ui::nav_row(g(Icon::Refresh), "Use the Downloads folder", "", || {
+                                bridge::send(Command::SetDownloadDir(None))
+                            })
                             .test_id("save-to-downloads"),
                         )
                     },
@@ -304,7 +281,7 @@ fn internet() -> impl IntoElement {
         .gap(px(space::S))
         .child(ui::section("Internet"))
         .child(ui::group().child(ui::switch_row(
-            g(Icon::Globe, BLUE),
+            g(Icon::Globe),
             "Send over the internet",
             move || settings().internet,
             |on| {
@@ -337,7 +314,7 @@ fn trust() -> impl IntoElement {
         .gap(px(space::S))
         .child(ui::section("Devices"))
         .child(ui::group().child(ui::nav_row(
-            g(Icon::Shield, PURPLE),
+            g(Icon::Shield),
             "Trusted devices",
             count,
             || push(Route::Trusted),
@@ -351,21 +328,21 @@ fn privacy() -> impl IntoElement {
         .child(
             ui::group()
                 .child(ui::switch_row(
-                    g(Icon::Clock, GRAY),
+                    g(Icon::Clock),
                     "Keep transfer history",
                     move || settings().keep_history,
                     |on| bridge::send(Command::SetKeepHistory(on)),
                 ))
                 .child(ui::separator(58.0))
                 .child(ui::nav_row(
-                    g(Icon::Info, GRAY),
+                    g(Icon::Info),
                     "Export diagnostics",
                     "",
                     || bridge::send(Command::ExportDiagnostics),
                 ))
                 .child(ui::separator(58.0))
                 .child(ui::nav_row(
-                    g(Icon::Refresh, RED),
+                    g(Icon::Refresh),
                     "Reset device identity…",
                     "",
                     reset_identity,
@@ -402,21 +379,15 @@ fn reset_identity() {
         );
         return;
     }
-    let answer = alert_dialog()
-        .title("Reset this device's identity?")
-        .description("Other devices will see it as a new device and ask before trusting it again. Your name, trusted devices and files stay.")
-        .cancel("cancel", "Cancel")
-        .destructive("reset", "Reset identity")
-        .show();
-    spawn(async move {
-        if answer
-            .await
-            .is_ok_and(|a| a.action.as_deref() == Some("reset"))
-        {
+    ui::confirm(
+        "Reset this device's identity?",
+        "Other devices will see it as a new device and ask before trusting it again. Your name, trusted devices and files stay.",
+        "Reset identity",
+        || {
             #[cfg(not(target_arch = "wasm32"))]
             bridge::reset_identity();
-        }
-    });
+        },
+    );
 }
 
 // ---------------------------------------------------------------- trusted
@@ -474,7 +445,7 @@ fn trusted_row(peer: ReadSignal<TrustedPeer>) -> impl IntoElement {
             ui::round_btn(
                 Icon::Trash,
                 format!("Forget {}", peer.with_untracked(|p| p.name.clone())),
-                Variant::Danger,
+                Variant::Destructive,
                 34.0,
             )
             .on_press(move || bridge::send(Command::ForgetPeer(p().peer_id))),

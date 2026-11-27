@@ -107,10 +107,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       # GTK 4 only: since NSH 0.7.1 the Linux backend loads GStreamer at run
       # time, so building needs none of its development files.
       - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev clang
+      # NSH's verification loop for a Rust app (format, lint every target,
+      # then the headless UI): the app and the PhotoKit crate are checked
+      # here, as the engine's crates are in their job.
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p dexdrop-app -p dexdrop-photos --all-targets -- -D warnings
       - run: cargo test -p dexdrop-app
 
   package-linux:
@@ -223,7 +230,7 @@ jobs:
       - run: nsh component add android
       # Signed with the project's release keystore when the repository has
       # one (secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS and
-      # NSH_KEYSTORE_PASSWORD; docs/RELEASING.md), so each build installs
+      # NSH_KEYSTORE_PASSWORD; docs/PACKAGING.md, "Signing"), so each build installs
       # over the last; else with the debug key NSH creates, new on every
       # runner. The build number (versionCode) is the run's, growing with
       # every build. x86_64 is for emulators (the check below) and x86
