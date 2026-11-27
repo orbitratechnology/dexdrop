@@ -19,9 +19,12 @@ const shots = "e2e-shots";
 
 async function picture(app: App, name: string) {
   try {
-    await app.screenshot(`${shots}/${name}.png`);
-  } catch {
-    // Headless: only a real platform draws the app.
+    const png = await app.screenshot(`${shots}/${name}.png`);
+    console.log(`picture ${name}: ${png.length} bytes at ${shots}/${name}.png`);
+  } catch (e) {
+    // Headless: only a real platform draws the app. Say why, so CI's log
+    // shows it.
+    console.log(`no picture ${name}: ${e}`);
   }
 }
 
