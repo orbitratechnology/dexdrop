@@ -42,6 +42,22 @@ pub fn dev_assets() -> Option<std::path::PathBuf> {
     Some(dir)
 }
 
+/// The main window's attributes: its title, the least size its layouts
+/// fit, and on the desktops no system title bar: the app draws its own
+/// (`ui::window_bar`), the system's window controls staying where they are.
+fn window_attributes() -> nsh_core::desktop::WindowAttributes {
+    use nsh_core::desktop::{TitleBarOptions, TitleBarStyle, WindowAttributes};
+    let mut attributes = WindowAttributes::default();
+    attributes.title = Some("DexDrop".to_owned());
+    attributes.min_size = Some(Some(nsh_core::geometry::size(px(360.0), px(560.0))));
+    if ui::own_title_bar() {
+        let mut bar = TitleBarOptions::default();
+        bar.style = TitleBarStyle::Hidden;
+        attributes.title_bar = Some(bar);
+    }
+    attributes
+}
+
 /// The app's root: on computers the window it declares (closing it quits,
 /// `nsh.json` `application.quitMode`); on phones and the web `window()`
 /// shows the same content in the app's one surface.
@@ -60,6 +76,7 @@ pub fn App() -> impl IntoElement {
         .id("main")
         .default_size(nsh_core::geometry::size(px(1040.0), px(720.0)))
         .restore_bounds(true)
+        .attributes(window_attributes())
         .content(|| {
             view()
                 .flex_1()

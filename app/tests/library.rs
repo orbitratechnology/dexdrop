@@ -203,7 +203,7 @@ impl AssetProvider for Library {
 static ONE: Mutex<()> = Mutex::new(());
 
 fn start(photos: usize, access: Option<&str>) -> (Headless, tempfile::TempDir, Arc<Asked>) {
-    let (app, dir, asked, _camera) = start_with(photos, access, false);
+    let (app, dir, asked, _camera) = start_with(photos, access, false, false);
     (app, dir, asked)
 }
 
@@ -211,6 +211,7 @@ fn start_with(
     photos: usize,
     access: Option<&str>,
     thumbs: bool,
+    dark: bool,
 ) -> (Headless, tempfile::TempDir, Arc<Asked>, shot::Camera) {
     let asked = Arc::new(Asked::default());
     let dir = tempfile::tempdir().unwrap();
@@ -242,6 +243,9 @@ fn start_with(
     config.environment.window = config.viewport;
     config.environment.os = Os::Android;
     config.environment.platform = Some("android");
+    if dark {
+        config.environment.color_scheme = nsh_core::platform::ColorScheme::Dark;
+    }
     let mut app = Headless::start(config).unwrap();
     // Before any step: it records the styles and images mounted from the
     // first batch on.
@@ -352,10 +356,11 @@ fn the_browser_asks_before_listing() {
 }
 
 /// Pictures of the browser, drawn from the headless layout
-/// (`common/shot.rs`), into `DEXDROP_SHOTS` (default
-/// `target/shots/library`): Send's choices, the permission card, the
-/// photo grid with two chosen, Videos, Large files, and Send with the
-/// photos added.
+/// (`common/shot.rs`), in light and in dark (the Design Guides' finishing
+/// checklist runs on both), into `DEXDROP_SHOTS` (default
+/// `target/shots/library`, dark ones in its `dark/`): Send's choices, the
+/// permission card, the photo grid with two chosen, Videos, Large files,
+/// and Send with the photos added.
 #[test]
 fn screenshots_of_the_browser() {
     let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
@@ -364,31 +369,36 @@ fn screenshots_of_the_browser() {
         .unwrap_or_else(|| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/shots/library")
         });
-    let (mut app, _dir, _asked, camera) = start_with(60, Some("none"), true);
+    shoot_the_browser(&out, false);
+    shoot_the_browser(&out.join("dark"), true);
+}
+
+fn shoot_the_browser(out: &std::path::Path, dark: bool) {
+    let (mut app, _dir, _asked, camera) = start_with(60, Some("none"), true, dark);
     app.press("id:send").unwrap();
     app.wait_for_within("id:pick-photos", WAIT).unwrap();
-    camera.shoot(&mut app, &out, "1-send");
+    camera.shoot(&mut app, out, "1-send");
     app.press("id:pick-photos").unwrap();
     app.wait_for_within("id:allow-media", WAIT).unwrap();
-    camera.shoot(&mut app, &out, "2-allow");
+    camera.shoot(&mut app, out, "2-allow");
     app.press("id:allow-media").unwrap();
     app.wait_for_within("label:IMG_0060.jpg", WAIT).unwrap();
     app.press("label:IMG_0059.jpg").unwrap();
     app.press("label:IMG_0057.jpg").unwrap();
     app.wait_for_within("text:2 selected · 6.00 MB", WAIT)
         .unwrap();
-    camera.shoot(&mut app, &out, "3-photos");
+    camera.shoot(&mut app, out, "3-photos");
     app.press("text:Videos").unwrap();
     app.wait_for_within("label:Holiday.mov", WAIT).unwrap();
-    camera.shoot(&mut app, &out, "4-videos");
+    camera.shoot(&mut app, out, "4-videos");
     app.press("text:Large").unwrap();
     app.wait_for_gone("label:clip1.mp4", WAIT).unwrap();
     app.wait_for_within("label:Holiday.mov", WAIT).unwrap();
-    camera.shoot(&mut app, &out, "5-large");
+    camera.shoot(&mut app, out, "5-large");
     app.press("id:library-add").unwrap();
     app.wait_for_within("label:Remove IMG_0059.jpg", WAIT)
         .unwrap();
-    camera.shoot(&mut app, &out, "6-added");
+    camera.shoot(&mut app, out, "6-added");
     for name in [
         "1-send", "2-allow", "3-photos", "4-videos", "5-large", "6-added",
     ] {

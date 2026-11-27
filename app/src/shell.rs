@@ -400,6 +400,17 @@ fn desktop_header(title: pages::Title, root: bool, home: bool) -> AnyElement {
 fn phone() -> impl IntoElement {
     view()
         .flex_1()
+        // A narrow window on a desktop: its own title bar, the app's name in
+        // it.
+        .child(ui::window_bar(
+            "narrow-bar",
+            text("DexDrop")
+                .flex_1()
+                .text_center()
+                .text_size(px(ui::size::SMALL))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(move || theme().muted_foreground),
+        ))
         .child(tab_stacks())
         .child(if ui::drawn_tabs() {
             drawn_tab_bar().into_element()
@@ -574,22 +585,39 @@ fn tab_icon(t: Tab) -> &'static str {
 // ---------------------------------------------------------------- desktop
 
 fn desktop() -> impl IntoElement {
-    view()
-        .flex_1()
-        .flex_row()
-        .child(sidebar())
-        .child(view().flex_1().child(tab_stacks()))
+    view().flex_1().flex_row().child(sidebar()).child(
+        view()
+            .flex_1()
+            // The window's own title bar over the pages (Windows' and
+            // GTK's controls sit at its right).
+            .child(ui::window_bar("page-bar", view()))
+            .child(tab_stacks()),
+    )
 }
 
 fn sidebar() -> impl IntoElement {
     view()
         .w(px(220.0))
         .bg(move || theme().sidebar)
+        // The window's own title bar runs over the sidebar too (macOS's
+        // traffic lights sit in it).
+        .child(ui::window_bar("sidebar-bar", view()))
+        .child(sidebar_content())
+}
+
+fn sidebar_content() -> impl IntoElement {
+    view()
+        .flex_1()
         .p(px(space::M))
-        .pt(px(space::XL))
+        .pt(px(if ui::own_title_bar() {
+            space::S
+        } else {
+            space::XL
+        }))
         .gap(px(space::XS))
         .child(
             view()
+                .test_id("sidebar-brand")
                 .flex_row()
                 .items_center()
                 .gap(px(space::S))

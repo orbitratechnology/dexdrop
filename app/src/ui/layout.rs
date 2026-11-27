@@ -68,3 +68,24 @@ pub fn above_tab_bar() -> f32 {
 pub fn content_width() -> f32 {
     if desktop_platform() { 720.0 } else { 640.0 }
 }
+
+/// Whether the app draws its window's title bar: on the desktops, whose
+/// main window hides the system's (set on the window in `App`); not on
+/// phones or the web.
+pub fn own_title_bar() -> bool {
+    desktop_platform()
+}
+
+/// A row of the window's own title bar (`nsh_base::title_bar`): as tall as
+/// the system's title bar area, draggable (a double click does what the
+/// system's does), its content kept clear of the window controls where it
+/// meets them; `id` is its test id. Nothing on phones and the web.
+pub fn window_bar(id: &str, content: impl IntoElement + 'static) -> AnyElement {
+    if !own_title_bar() {
+        return view().into_element();
+    }
+    view()
+        .test_id(id)
+        .child(nsh_base::title_bar().px(px(super::space::M)).child(content))
+        .into_element()
+}

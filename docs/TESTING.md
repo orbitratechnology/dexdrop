@@ -48,9 +48,12 @@ needs `--target`). `app/tests/common/shot.rs` draws what it laid out: a
 each view's frame and style, the app's SVG icons tinted, picture files,
 text at its size, weight and color in its laid-out lines, the system's
 header bar from the screen's config. Not drawn: shadows, blur, transforms
-(a rotated icon shows unrotated), native controls' own drawing; text is
-shaped by resvg, not the platform. `docs/screenshots/headless/` holds the
-media browser's (`cargo test -p dexdrop-app --test library screenshots`).
+(a rotated icon shows unrotated; the sliding selections show at their
+first place), gradients, native controls' own drawing; text is shaped by
+resvg, not the platform. The media browser is drawn in light and in dark
+(`EngineConfig::environment.color_scheme`), for the Design Guides'
+finishing checklist: `docs/screenshots/headless/` and its `dark/`
+(`cargo test -p dexdrop-app --test library screenshots`).
 
 Run the headless layers before every push (about 25 s together):
 

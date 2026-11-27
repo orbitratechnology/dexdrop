@@ -354,3 +354,32 @@ fn empty_states_show_illustrations() {
         .unwrap();
     assert!(first.screen().id("id:local-network-continue").is_ok());
 }
+
+/// On the desktops the window hides the system's title bar and the app
+/// draws its own (Design Guides, Finishing checklist: Platforms): a narrow
+/// Mac window shows the app's bar, with its name, above the pages; a phone
+/// has none. (The bar's height is the platform's title bar area, which a
+/// real window reports: `scripts/macos-ui-check.sh` sees it.)
+#[test]
+fn desktops_draw_their_own_title_bar() {
+    let (mut app, _dir) = start(|config| {
+        as_mac(config);
+        config.viewport = size(px(600.0), px(800.0));
+        config.environment.window = config.viewport;
+    });
+    app.wait_for_within("id:narrow-bar", Duration::from_secs(5))
+        .unwrap();
+    let bar = frame(&mut app, "id:narrow-bar");
+    let send = frame(&mut app, "id:send");
+    assert!(bar.1 + bar.3 <= send.1, "the pages start under the bar");
+    drop(app);
+
+    let (mut phone, _dir) = start(as_android);
+    phone
+        .wait_for_within("id:send", Duration::from_secs(5))
+        .unwrap();
+    assert!(
+        phone.screen().id("id:narrow-bar").is_err(),
+        "a phone has no window bar"
+    );
+}
