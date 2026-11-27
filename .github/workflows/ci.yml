@@ -57,8 +57,14 @@ jobs:
           MESSAGE: ${{ github.event.head_commit.message }}
           PLATFORMS: ${{ inputs.platforms }}
           CHECKS: ${{ inputs.checks }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch -q origin main || true
+          # The commit of this branch's last successful run: the plan's base.
+          LAST_GREEN=$(gh api -X GET "repos/${{ github.repository }}/actions/workflows/ci.yml/runs" \
+            -f branch="${{ github.ref_name }}" -f status=success -f per_page=1 \
+            --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
+          export LAST_GREEN
           scripts/ci-plan.sh 2> reason.txt | tee -a "$GITHUB_OUTPUT" > plan.txt
           { echo "### Plan"; echo; sed 's/^reason=//' reason.txt; echo; echo '```'; cat plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 

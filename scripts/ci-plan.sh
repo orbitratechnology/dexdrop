@@ -16,8 +16,8 @@
 # 2. The head commit's message may say `[ci android]`, `[ci apple windows]`,
 #    `[ci all]`, `[ci none]`; `build` in it builds without checks
 #    (`[ci android build]`). GitHub's own `[skip ci]` skips the run.
-# 3. Else the files changed since the last push (or since main, for a new
-#    branch) decide (map_files below): docs alone run nothing; engine code
+# 3. Else the files changed since the branch's last successful run (else
+#    the last push, else main) decide (map_files below): docs alone run nothing; engine code
 #    runs the engine and app tests; a platform's own code (its bridges, its
 #    checks, `cfg(target_os = …)` lines) runs that platform's package and
 #    checks; the workflow, the lock file or nsh.json run everything; a path
@@ -127,7 +127,16 @@ plan() {
   fi
   # The files changed: since the last push, or since main for a new branch
   # (or a push whose last commit is gone).
-  local base=${BEFORE:-}
+  # Since the branch's last successful run (LAST_GREEN): a push whose run
+  # was cancelled by the next one (CI run 106) has its changes checked by
+  # the next. Else since the last push; else since main.
+  local base=""
+  if [ -n "${LAST_GREEN:-}" ] && git cat-file -e "$LAST_GREEN^{commit}" 2>/dev/null &&
+    git merge-base --is-ancestor "$LAST_GREEN" HEAD 2>/dev/null; then
+    base=$LAST_GREEN
+  else
+    base=${BEFORE:-}
+  fi
   if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] ||
     ! git cat-file -e "$base^{commit}" 2>/dev/null; then
     base=$(git merge-base origin/main HEAD 2>/dev/null || true)
@@ -191,6 +200,25 @@ self_test() {
   [ "$out" = android ] || { echo "FAIL: a tag on its own line: $out" >&2; failed=1; }
   out=$(EVENT=push REF=refs/heads/x MESSAGE='Fix the APK [ci android build]' TAG_ONLY=1 plan 2>/dev/null)
   [ "$out" = "android build" ] || { echo "FAIL: a tag in the subject: $out" >&2; failed=1; }
+  # The base: the last green run's commit when it is an ancestor, so a
+  # cancelled run's changes are not skipped (CI run 106).
+  local tmp
+  tmp=$(mktemp -d)
+  (
+    cd "$tmp" && git init -q && git config user.email t@t && git config user.name t &&
+      mkdir -p crates/dexdrop-net/android docs &&
+      echo a >docs/a.md && git add -A && git commit -qm base &&
+      echo b >crates/dexdrop-net/android/B.java && git add -A && git commit -qm android &&
+      echo c >docs/c.md && git add -A && git commit -qm docs
+  ) >/dev/null
+  local green last
+  green=$(git -C "$tmp" rev-parse HEAD~2)
+  last=$(git -C "$tmp" rev-parse HEAD~1)
+  out=$(cd "$tmp" && EVENT=push REF=refs/heads/x BEFORE=$last LAST_GREEN=$green plan 2>/dev/null)
+  grep -qx "android=true" <<<"$out" || { echo "FAIL: the last green run is the base" >&2; failed=1; }
+  out=$(cd "$tmp" && EVENT=push REF=refs/heads/x BEFORE=$last LAST_GREEN=0123abcd plan 2>/dev/null)
+  grep -qx "android=false" <<<"$out" || { echo "FAIL: an unknown green commit falls back to the last push" >&2; failed=1; }
+  rm -rf "$tmp"
   [ "$failed" = 0 ] && echo "ci-plan: rules hold"
   return "$failed"
 }
