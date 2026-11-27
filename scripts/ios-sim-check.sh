@@ -314,7 +314,11 @@ if tap Files && ad wait text "Browse" 20000 >/dev/null 2>&1; then
   step 09-doc-picker
   tap Browse || true
   tap "On My iPhone" || true
-  tap DexDrop || true
+  # The app's folder is labelled with its count ("DexDrop, 2 items", CI run
+  # 109): its label read from the screen.
+  ad snapshot >"$out/09-on-my-iphone.txt" 2>/dev/null || true
+  folder=$(grep -oE '"DexDrop, [0-9]+ items?"' "$out/09-on-my-iphone.txt" | head -1 | tr -d '"')
+  tap "${folder:-DexDrop}" || true
   if ad wait text "note.bin" 10000 >/dev/null 2>&1; then
     tap note.bin || true
     # Several may be picked: an Open button confirms, when there is one.
