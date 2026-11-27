@@ -161,7 +161,7 @@ jobs:
         run: |
           sudo apt-get install -y libsoup-3.0-dev libwebkitgtk-6.0-dev
           mkdir -p dist/desktop-check
-          rm -rf app/e2e-shots
+          rm -rf app/e2e-shots && mkdir -p app/e2e-shots
           cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/app.test.ts --target linux --junit ../dist/desktop-check/e2e-linux.xml && status=0 || status=$?
           mkdir -p ../dist/desktop-check/shots-linux && mv e2e-shots/* ../dist/desktop-check/shots-linux/ 2>/dev/null || true
           exit $status
@@ -354,7 +354,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/desktop-check
-          rm -rf app/e2e-shots
+          rm -rf app/e2e-shots && mkdir -p app/e2e-shots
           cd app && nsh test e2e/app.test.ts --target windows --junit ../dist/desktop-check/e2e-windows.xml && status=0 || status=$?
           mkdir -p ../dist/desktop-check/shots-windows && mv e2e-shots/* ../dist/desktop-check/shots-windows/ 2>/dev/null || true
           exit $status
@@ -512,7 +512,7 @@ jobs:
         timeout-minutes: 45
         run: |
           mkdir -p dist/e2e-apple
-          rm -rf app/e2e-shots
+          rm -rf app/e2e-shots && mkdir -p app/e2e-shots
           cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/e2e-apple/e2e-macos.xml && status=0 || status=$?
           mkdir -p ../dist/e2e-apple/shots-macos && mv e2e-shots/* ../dist/e2e-apple/shots-macos/ 2>/dev/null || true
           exit $status
@@ -523,7 +523,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           mkdir -p dist/e2e-apple
-          rm -rf app/e2e-shots
+          rm -rf app/e2e-shots && mkdir -p app/e2e-shots
           cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/e2e-apple/e2e-ios.xml && status=0 || status=$?
           mkdir -p ../dist/e2e-apple/shots-ios && mv e2e-shots/* ../dist/e2e-apple/shots-ios/ 2>/dev/null || true
           exit $status

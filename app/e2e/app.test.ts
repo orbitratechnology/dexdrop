@@ -12,9 +12,9 @@
 import { beforeEach, describe, expect, open, test } from "nsh/test";
 
 // Pictures of the real platform, Home in light and in dark, for the Design
-// Guides' finishing checklist: saved under app/e2e-shots/ (CI moves them
-// into each target's artifact). Headless runs draw nothing, so there the
-// picture is skipped.
+// Guides' finishing checklist: saved under app/e2e-shots/, which must
+// exist (CI makes it, then moves the pictures into each target's
+// artifact). Headless runs draw nothing, so there the picture is skipped.
 const shots = "e2e-shots";
 
 async function picture(app: App, name: string) {
