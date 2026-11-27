@@ -11,10 +11,19 @@
 // they hold across platforms and wording; see docs/TESTING.md.
 import { beforeEach, describe, expect, open, test } from "nsh/test";
 
-// Where pictures of the real platform go (CI sets it per target, and
-// uploads them): Home in light and in dark, for the Design Guides'
-// finishing checklist. Unset: no pictures.
-const shots: string | undefined = (globalThis as any).process?.env?.DEXDROP_SHOTS;
+// Pictures of the real platform, Home in light and in dark, for the Design
+// Guides' finishing checklist: saved under app/e2e-shots/ (CI moves them
+// into each target's artifact). Headless runs draw nothing, so there the
+// picture is skipped.
+const shots = "e2e-shots";
+
+async function picture(app: App, name: string) {
+  try {
+    await app.screenshot(`${shots}/${name}.png`);
+  } catch {
+    // Headless: only a real platform draws the app.
+  }
+}
 
 type App = Awaited<ReturnType<typeof open>>;
 
@@ -68,12 +77,12 @@ describe("DexDrop's look on this platform", () => {
   test("a picture of Home in light", async () => {
     const app = await home({ colorScheme: "light" });
     await app.waitFor("id:send");
-    if (shots) await app.screenshot(`${shots}/home-light.png`);
+    await picture(app, "home-light");
   });
 
   test("a picture of Home in dark", async () => {
     const app = await home({ colorScheme: "dark" });
     await app.waitFor("id:send");
-    if (shots) await app.screenshot(`${shots}/home-dark.png`);
+    await picture(app, "home-dark");
   });
 });

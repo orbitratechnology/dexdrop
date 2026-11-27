@@ -161,9 +161,10 @@ jobs:
         run: |
           sudo apt-get install -y libsoup-3.0-dev libwebkitgtk-6.0-dev
           mkdir -p dist/desktop-check
-          mkdir -p dist/desktop-check/shots-linux
-          export DEXDROP_SHOTS="$PWD/dist/desktop-check/shots-linux"
-          cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/app.test.ts --target linux --junit ../dist/desktop-check/e2e-linux.xml
+          rm -rf app/e2e-shots
+          cd app && xvfb-run -a -s "-screen 0 1280x800x24" nsh test e2e/app.test.ts --target linux --junit ../dist/desktop-check/e2e-linux.xml && status=0 || status=$?
+          mkdir -p ../dist/desktop-check/shots-linux && mv e2e-shots/* ../dist/desktop-check/shots-linux/ 2>/dev/null || true
+          exit $status
       - name: Desktop app check
         if: needs.plan.outputs.checks == 'true'
         env:
@@ -353,9 +354,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/desktop-check
-          mkdir -p dist/desktop-check/shots-windows
-          export DEXDROP_SHOTS="$(cygpath -m "$PWD")/dist/desktop-check/shots-windows"
-          cd app && nsh test e2e/app.test.ts --target windows --junit ../dist/desktop-check/e2e-windows.xml
+          rm -rf app/e2e-shots
+          cd app && nsh test e2e/app.test.ts --target windows --junit ../dist/desktop-check/e2e-windows.xml && status=0 || status=$?
+          mkdir -p ../dist/desktop-check/shots-windows && mv e2e-shots/* ../dist/desktop-check/shots-windows/ 2>/dev/null || true
+          exit $status
       - name: Desktop app check
         if: needs.plan.outputs.checks == 'true'
         run: python scripts/desktop-check.py --app dist/windows/DexDrop/DexDrop.exe --cli target/release/dexdrop.exe --out dist/desktop-check
@@ -510,9 +512,10 @@ jobs:
         timeout-minutes: 45
         run: |
           mkdir -p dist/e2e-apple
-          mkdir -p dist/e2e-apple/shots-macos
-          export DEXDROP_SHOTS="$PWD/dist/e2e-apple/shots-macos"
-          cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/e2e-apple/e2e-macos.xml
+          rm -rf app/e2e-shots
+          cd app && nsh test e2e/app.test.ts --target macos --junit ../dist/e2e-apple/e2e-macos.xml && status=0 || status=$?
+          mkdir -p ../dist/e2e-apple/shots-macos && mv e2e-shots/* ../dist/e2e-apple/shots-macos/ 2>/dev/null || true
+          exit $status
       - name: App e2e (nsh test, iOS simulator)
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
@@ -520,9 +523,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           mkdir -p dist/e2e-apple
-          mkdir -p dist/e2e-apple/shots-ios
-          export DEXDROP_SHOTS="$PWD/dist/e2e-apple/shots-ios"
-          cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/e2e-apple/e2e-ios.xml
+          rm -rf app/e2e-shots
+          cd app && nsh test e2e/app.test.ts --target ios --junit ../dist/e2e-apple/e2e-ios.xml && status=0 || status=$?
+          mkdir -p ../dist/e2e-apple/shots-ios && mv e2e-shots/* ../dist/e2e-apple/shots-ios/ 2>/dev/null || true
+          exit $status
       - uses: actions/upload-artifact@v4
         if: always()
         with:
