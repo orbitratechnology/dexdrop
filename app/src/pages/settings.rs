@@ -448,7 +448,15 @@ fn trusted_row(peer: ReadSignal<TrustedPeer>) -> impl IntoElement {
                 Variant::Destructive,
                 34.0,
             )
-            .on_press(move || bridge::send(Command::ForgetPeer(p().peer_id))),
+            .on_press(move || {
+                let peer = p();
+                ui::confirm(
+                    format!("Forget {}?", peer.name),
+                    "It is no longer trusted: it asks before sending again.",
+                    "Forget",
+                    move || bridge::send(Command::ForgetPeer(peer.peer_id)),
+                )
+            }),
         ))
         .child(ui::switch_row(
             view().w(px(40.0)),

@@ -216,6 +216,9 @@ fn android_tabs_are_drawn_white() {
         .unwrap()
         .expect("a drawn tab bar");
     assert_eq!(style.background_color, Some(0xffff_ffff), "not white");
+    // One pill for the chosen tab, which slides (not one per tab).
+    let pill = frame(&mut app, "id:tab-selection");
+    assert_eq!((pill.2, pill.3), (60.0, 32.0), "the tab pill's size");
     let bar = frame(&mut app, "id:tab-bar");
     for name in ["id:send", "id:receive"] {
         let f = frame(&mut app, name);

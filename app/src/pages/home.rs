@@ -262,7 +262,7 @@ fn far_devices() -> impl IntoElement {
                             .flex_row()
                             .gap(px(space::L))
                             .py(px(space::XS))
-                            .child(each(far, |p: &PeerInfo| p.peer_id, |p, _| bubble(p))),
+                            .child(each(far, |p: &PeerInfo| p.peer_id, |p, _| known_bubble(p))),
                     ),
                 )
         },
@@ -273,9 +273,10 @@ fn far_devices() -> impl IntoElement {
 fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
     let name = move || peer.with(|p| p.name.clone());
     let platform = move || peer.with(|p| p.platform.clone());
-    // A view, not a button: views take long presses (NSH's buttons do not).
     view()
         .role(nsh_core::element::AccessibilityRole::Button)
+        .focusable(true)
+        .focus_visible(ui::ring)
         .label(format!(
             "Send to {}",
             peer.with_untracked(|p| p.name.clone())
@@ -289,10 +290,6 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
                 push(Route::Send);
             }
         })
-        // A device known from before (Your devices): held or right-clicked,
-        // forget it, after asking.
-        .on_long_press(move || ask_forget(peer.get_untracked()))
-        .on_context_menu(move |_: &ContextMenuEvent| ask_forget(peer.get_untracked()))
         .w(px(84.0))
         .items_center()
         .gap(px(space::S))
@@ -313,6 +310,13 @@ fn bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
                 .w_full()
                 .text_color(move || theme().foreground),
         )
+}
+
+/// A device known from before (Your devices): its context menu (a right
+/// click, a held finger, Shift+F10 or the Menu key) offers Forget.
+fn known_bubble(peer: ReadSignal<PeerInfo>) -> impl IntoElement {
+    let forget = ui::Action::new("Forget", move || ask_forget(peer.get_untracked())).destructive();
+    ui::context_menu(bubble(peer), vec![forget])
 }
 
 /// Asks, then forgets a device known from before: it leaves Your devices

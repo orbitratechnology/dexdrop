@@ -117,12 +117,19 @@ pub fn page() -> impl IntoElement {
                                 .justify_between()
                                 .child(ui::section("Earlier").flex_1())
                                 .child(
-                                    ui::icon_btn(Icon::Trash, "Clear", Variant::Plain).on_press(
-                                        || {
-                                            bridge::send(Command::ClearHistory);
-                                            bridge::send(Command::ClearFinished);
-                                        },
-                                    ),
+                                    ui::icon_btn(Icon::Trash, "Clear", Variant::Plain)
+                                        .test_id("clear-history")
+                                        .on_press(|| {
+                                            ui::confirm(
+                                                "Clear History?",
+                                                "Every past transfer leaves the list. The files stay where they are.",
+                                                "Clear",
+                                                || {
+                                                    bridge::send(Command::ClearHistory);
+                                                    bridge::send(Command::ClearFinished);
+                                                },
+                                            )
+                                        }),
                                 ),
                         )
                         .child(
@@ -230,21 +237,21 @@ fn ask_remove(entry: Option<HistoryEntry>) {
 pub fn row(entry: impl Fn() -> Option<HistoryEntry> + Copy + 'static) -> impl IntoElement {
     let field =
         move |f: fn(&HistoryEntry) -> String| move || entry().map(|e| f(&e)).unwrap_or_default();
-    // A view, not a button: views take long presses (NSH's buttons do not).
-    view()
+    // Its context menu (a right click, a held finger, Shift+F10 or the
+    // Menu key) offers Remove.
+    let remove = ui::Action::new("Remove from History", move || ask_remove(entry())).destructive();
+    let row = view()
         .role(nsh_core::element::AccessibilityRole::Button)
+        .focusable(true)
+        .focus_visible(ui::ring)
         .optional_label(move || entry().map(|e| SharedString::from(e.label)))
         .on_press(move || {
             if let Some(e) = entry() {
                 push(Route::Past(e.transfer_id));
             }
         })
-        // Held (phones) or right-clicked (computers): remove it.
-        .on_long_press(move || ask_remove(entry()))
-        .on_context_menu(move |_: &ContextMenuEvent| ask_remove(entry()))
         .hover(move |s| s.bg(move || theme().muted.opacity(0.5)))
         .active(move |s| s.bg(move || theme().muted))
-        .hover(move |s| s.bg(move || theme().muted.opacity(0.6)))
         .child(
             view()
                 .flex_row()
@@ -279,7 +286,8 @@ pub fn row(entry: impl Fn() -> Option<HistoryEntry> + Copy + 'static) -> impl In
                 .child(ui::icon(Icon::ChevronRight, 16.0, move || {
                     theme().muted_foreground
                 })),
-        )
+        );
+    ui::context_menu(row, vec![remove])
 }
 
 /// A past transfer's picture: its first photo when still on this device,

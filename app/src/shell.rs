@@ -401,6 +401,11 @@ fn phone() -> impl IntoElement {
         })
 }
 
+/// Android's tab pill: its size, and how far below the bar's top it sits
+/// (each tab lays out from the top, so the sliding pill lines up).
+const TAB_PILL: (f32, f32) = (60.0, 32.0);
+const TAB_PILL_TOP: f32 = 10.0;
+
 /// The tabs the app draws in its own colors: on Android (the system's
 /// Material bar takes the wallpaper's colors, which NSH cannot set), and
 /// in a narrow window on a desktop or the web. White in light, with a
@@ -408,6 +413,7 @@ fn phone() -> impl IntoElement {
 /// a pill, Material's way; History counts what waits.
 fn drawn_tab_bar() -> impl IntoElement {
     let android = os() == nsh_core::platform::Os::Android;
+    let tab_width = signal(0.0_f32);
     view()
         .test_id("tab-bar")
         .absolute()
@@ -426,6 +432,25 @@ fn drawn_tab_bar() -> impl IntoElement {
         // A hairline between the page and the bar.
         .border_t(px(1.0))
         .border_color(move || theme().border)
+        .on_layout(move |b: &Bounds<Points>| tab_width.set(b.size.width.0 / Tab::ALL.len() as f32))
+        // Android: the chosen tab's pill, one that slides between tabs.
+        .child(when(
+            move || android,
+            move || {
+                ui::sliding_selection(
+                    || Tab::ALL.iter().position(|t| *t == tab()).unwrap_or(0),
+                    move || tab_width.get(),
+                    false,
+                )
+                .test_id("tab-selection")
+                .top(px(TAB_PILL_TOP))
+                .left(move || -> Length { px((tab_width.get() - TAB_PILL.0) / 2.0).into() })
+                .w(px(TAB_PILL.0))
+                .h(px(TAB_PILL.1))
+                .rounded(px(ui::radius::FULL))
+                .bg(move || theme().muted)
+            },
+        ))
         .children(Tab::ALL.map(|t| {
             let active = move || tab() == t;
             let color = move || {
@@ -443,23 +468,17 @@ fn drawn_tab_bar() -> impl IntoElement {
                 .flex_1()
                 .items_center()
                 .justify_center()
+                .style_when(move || android, |s| s.justify_start().pt(px(TAB_PILL_TOP)))
                 .gap(px(if android { 4.0 } else { 2.0 }))
                 .hover(move |s| s.bg(move || theme().muted.opacity(0.4)))
                 .active(|s| s.scale(ui::motion::PRESS_ICON))
                 .child(
                     view()
-                        .w(px(if android { 60.0 } else { 40.0 }))
-                        .h(px(if android { 32.0 } else { 24.0 }))
+                        .w(px(if android { TAB_PILL.0 } else { 40.0 }))
+                        .h(px(if android { TAB_PILL.1 } else { 24.0 }))
                         .rounded(px(ui::radius::FULL))
                         .items_center()
                         .justify_center()
-                        .bg(move || {
-                            if android && active() {
-                                theme().muted
-                            } else {
-                                theme().muted.opacity(0.0)
-                            }
-                        })
                         .child(ui::icon(sidebar_icon(t), 22.0, color))
                         .child(when(
                             move || t == Tab::History && activity() > 0,
@@ -577,7 +596,25 @@ fn sidebar() -> impl IntoElement {
                         .text_color(move || theme().foreground),
                 ),
         )
-        .children(Tab::ALL.map(nav_item))
+        // The tabs under one selection that slides to the chosen one.
+        .child(
+            view()
+                .gap(px(NAV_GAP))
+                .child(
+                    ui::sliding_selection(
+                        || Tab::ALL.iter().position(|t| *t == tab()).unwrap_or(0),
+                        || NAV_ITEM + NAV_GAP,
+                        true,
+                    )
+                    .left_0()
+                    .right_0()
+                    .top_0()
+                    .h(px(NAV_ITEM))
+                    .rounded(px(ui::radius::md()))
+                    .bg(move || theme().primary.opacity(0.12)),
+                )
+                .children(Tab::ALL.map(nav_item)),
+        )
         .child(view().flex_1())
         .child(device_chip())
 }
@@ -589,6 +626,10 @@ fn sidebar_icon(t: Tab) -> Icon {
         Tab::Settings => Icon::Gear,
     }
 }
+
+/// A sidebar item's height, and the room between items.
+const NAV_ITEM: f32 = 40.0;
+const NAV_GAP: f32 = space::XS;
 
 fn nav_item(t: Tab) -> impl IntoElement {
     let active = move || tab() == t;
@@ -607,16 +648,9 @@ fn nav_item(t: Tab) -> impl IntoElement {
         .flex_row()
         .items_center()
         .gap(px(space::M))
-        .h(px(40.0))
+        .h(px(NAV_ITEM))
         .px(px(space::M))
         .rounded(px(ui::radius::md()))
-        .bg(move || {
-            if active() {
-                theme().primary.opacity(0.12)
-            } else {
-                theme().sidebar.opacity(0.0)
-            }
-        })
         .hover(move |s| s.bg(move || theme().primary.opacity(0.08)))
         .active(move |s| s.bg(move || theme().primary.opacity(0.16)))
         .child(ui::icon(sidebar_icon(t), 20.0, color))

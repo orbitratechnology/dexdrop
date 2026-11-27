@@ -167,3 +167,74 @@ pub fn cover(label: impl Into<SharedString>, content: impl IntoElement) -> impl 
                 ),
         )
 }
+
+/// An action of a [`context_menu`].
+pub struct Action {
+    label: &'static str,
+    destructive: bool,
+    run: std::rc::Rc<dyn Fn()>,
+}
+
+impl Action {
+    pub fn new(label: &'static str, run: impl Fn() + 'static) -> Action {
+        Action {
+            label,
+            destructive: false,
+            run: std::rc::Rc::new(run),
+        }
+    }
+
+    /// Shown in the destructive color (it asks before it removes).
+    pub fn destructive(mut self) -> Action {
+        self.destructive = true;
+        self
+    }
+}
+
+/// A context menu about `trigger` (`nsh_base::context_menu`): a right click
+/// on the desktops, a held finger on touch screens, and Shift+F10 or the
+/// Menu key on the focused trigger open it; the arrows move between its
+/// actions and Return chooses. It grows from where it opens (`motion::SLOW`
+/// in, `motion::BASE` out; at once with reduced motion), as a sheet at the
+/// bottom on phones.
+pub fn context_menu(trigger: impl IntoElement, actions: Vec<Action>) -> impl IntoElement {
+    nsh_base::context_menu()
+        .trigger(trigger)
+        .popup_style(|s| {
+            s.min_w(px(200.0))
+                .p(px(space::XS))
+                .rounded(px(radius::lg()))
+                .bg(move || theme().popover)
+                .shadow_lg()
+                .transition_all()
+                .duration(motion::SLOW)
+                .ease_out()
+        })
+        .popup_starting_style(|s| s.opacity(0.0).scale(0.97))
+        .popup_ending_style(|s| s.opacity(0.0).scale(0.97).duration(motion::BASE))
+        .backdrop_style(|s| s.bg(scrim))
+        .children(actions.into_iter().map(|a| {
+            let run = a.run.clone();
+            let color = move || {
+                if a.destructive {
+                    theme().destructive
+                } else {
+                    theme().popover_foreground
+                }
+            };
+            nsh_base::menu_item()
+                .accessibility_label(a.label)
+                .on_select(move || run())
+                .min_h(px(hit()))
+                .px(px(space::M))
+                .flex_row()
+                .items_center()
+                .rounded(px(radius::sm()))
+                .transition_colors()
+                .duration(motion::INSTANT)
+                .ease_out()
+                .hover(|s| s.bg(move || theme().accent))
+                .focus(|s| s.bg(move || theme().accent))
+                .child(text(a.label).text_size(px(size::BODY)).text_color(color))
+        }))
+}

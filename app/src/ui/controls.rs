@@ -9,7 +9,7 @@
 //! disabled.
 
 use nsh_base::{ButtonElement, theme};
-use nsh_core::prelude::*;
+use nsh_core::{element::PointerEvents, prelude::*};
 
 use super::*;
 
@@ -27,7 +27,7 @@ pub enum Variant {
 }
 
 /// The keyboard's focus ring (PRD 7.5, 7.7): on every focusable control.
-fn ring(s: nsh_core::element::StyleRefinement) -> nsh_core::element::StyleRefinement {
+pub fn ring(s: nsh_core::element::StyleRefinement) -> nsh_core::element::StyleRefinement {
     s.outline(px(2.0)).outline_color(move || theme().ring)
 }
 
@@ -544,6 +544,40 @@ pub fn toggle(
                 "size-5 rounded-full bg-background shadow transition-transform duration-150 checked:translate-x-5",
             )
             .into_element()
+    }
+}
+
+// ---------------------------------------------------------------- selection
+
+/// One selection that slides between equal places `pitch` apart (Design
+/// Guides, "One selection, sliding"): an absolutely placed view at place 0
+/// of its container, moved to place `index()` along x (or y, `vertical`)
+/// in `motion::BASE`, ease-in-out; it jumps with reduced motion and before
+/// the places are measured. The caller sizes, places and colors it.
+pub fn sliding_selection(
+    index: impl Fn() -> usize + 'static,
+    pitch: impl Fn() -> f32 + 'static,
+    vertical: bool,
+) -> View {
+    let at = animated_value(0.0);
+    let measured = std::cell::Cell::new(false);
+    effect(move || {
+        let step = pitch();
+        let to = index() as f32 * step;
+        if reduce_motion() || step <= 0.0 || !measured.replace(true) {
+            at.set(to);
+        } else {
+            let _ = at.timing(to, motion::BASE, Easing::EaseInOut);
+        }
+    });
+    let v = view()
+        .absolute()
+        .accessible(false)
+        .pointer_events(PointerEvents::None);
+    if vertical {
+        v.bind_translate_y(&at)
+    } else {
+        v.bind_translate_x(&at)
     }
 }
 

@@ -68,11 +68,11 @@ selection, shows the radar's still circles, and pulses instead of spinning.
 | `layout` | `hit`, `mobile`, tab-bar heights, `above_tab_bar`, `content_width` |
 | `icons` | `Icon` (one stroke SVG family, `assets/icons`), `icon`, `glyph`, `file_badge`, `kind_glyph`, `soft_glyph`, `os_badge`, `source_badge` |
 | `text` | `title`, `body`, `strong`, `muted`, `section` |
-| `controls` | `pressable` (ring and eased states), `btn`, `icon_btn`, `btn_then`, `hero_btn`, `round_btn`, `captioned_btn`, `link_btn`, `chip`, `field`, `search_field` + `search_bar`, `progress`, `tick`, `toggle`, `switch_row`, `segmented` |
+| `controls` | `pressable` (ring and eased states), `btn`, `icon_btn`, `btn_then`, `hero_btn`, `round_btn`, `captioned_btn`, `link_btn`, `chip`, `field`, `search_field` + `search_bar`, `progress`, `tick`, `toggle`, `switch_row`, `segmented`, `sliding_selection`, `ring` |
 | `surfaces` | `group`, `flat_group`, `tile`, `row`, `nav_row`, `separator`, `pill`, `dot`, `art`, `empty` |
 | `people` | `face`, `avatar`, `far_avatar`, `badge_disc`, `route_label` |
 | `indicators` | `progress_ring`, `radar`, `spinner`, `skeleton`, `skeleton_rows`, `qr` |
-| `dialogs` | `ask`, `confirm` (the system's alerts), `sheet` (`nsh_base::sheet`), `dialog` and `cover` (`nsh_base::dialog`) |
+| `dialogs` | `ask`, `confirm` (the system's alerts), `sheet` (`nsh_base::sheet`), `dialog` and `cover` (`nsh_base::dialog`), `context_menu` + `Action` (`nsh_base::context_menu`) |
 
 Each control wraps its `nsh_base` counterpart: `button`, `input`,
 `progress`, `switch`, `toggle_group` + `toggle`, `sheet`, `dialog`, and
@@ -103,7 +103,8 @@ remaining check.
 | Change | Motion | Reduced |
 |---|---|---|
 | Tab or sidebar item: hover and press | Wash `instant`; tab press 0.95 `fast` | Wash only |
-| Current tab changes | Tab tint fades `fast` (transition_all on `pressable`); the iOS bar is native | Instant |
+| Current tab changes | One selection slides to it (`ui::sliding_selection`, `base`, ease-in-out): Android's pill along the drawn bar, the sidebar's background down the list; tints fade `fast`. The iOS bar is native | Jumps |
+| Context menu (Forget, Remove) | Grows from where it opens, from 0.97 and transparent, `slow`; leaves in `base`; a sheet at the bottom on phones | Appears at once |
 | Page pushed or popped | The native stack's transition | Platform's |
 | Toast arrives and leaves | Slides 16 pt from its edge and fades `fast`; leaves to 0.95 | Instant |
 | Diagnostics dialog | `ui::dialog`: the modal fades, the card rises (FadeInUp) | Appears at once |
@@ -204,10 +205,12 @@ toasts dismiss the newest, and only when nothing is over the page does
 Escape go back (`shell::escape_goes_back`). Arrow keys move inside the
 segmented control.
 
-Not yet met: forgetting a device on Home and removing a past transfer
-take a long press or a right click, with no keyboard path. Moving them
-onto `nsh_base::context_menu` (which opens with Shift+F10 or the Menu key)
-is the next change.
+Actions that a long press or a right click offers (Forget a known device
+on Home, Remove a past transfer) are context menus (`ui::context_menu` on
+`nsh_base::context_menu`), so Shift+F10 or the Menu key on the focused item
+opens them too (VoiceOver's "show menu" on macOS), and the arrows and Return
+choose. Everything that removes something asks first: Forget, Remove,
+Clear History, Reset identity, Stop a transfer, Replace files.
 
 ## Checks
 
