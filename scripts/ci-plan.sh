@@ -40,7 +40,8 @@ map_files() {
         app/nsh.json | app/Cargo.toml | app/e2e/* | scripts/ci-plan.sh)
         out+=(all) ;;
       # Nothing to build.
-      docs/* | *.md | LICENSE* | .claude/* | .gitignore | .github/workflows/native-sim.yml) ;;
+      docs/* | *.md | LICENSE* | .claude/* | .agents/* | skills-lock.json | .gitignore | \
+        .github/workflows/native-sim.yml) ;;
       # A platform's own code and checks.
       crates/dexdrop-net/android/* | crates/dexdrop-net/src/android_service.rs | \
         crates/dexdrop-net/src/jvm.rs | crates/dexdrop-net/src/apps.rs | \
@@ -171,6 +172,7 @@ self_test() {
     fi
   }
   expect "docs/TESTING.md,README.md" "" ""
+  expect ".agents/skills/nsh/SKILL.md,skills-lock.json,.claude/skills/nsh" "" ""
   expect "crates/dexdrop-core/src/manifest.rs" "" "engine app"
   expect "crates/dexdrop-net/android/dev/dexdrop/NsdBridge.java" "" "android engine app"
   expect "crates/dexdrop-photos/src/ios.rs" "" "apple app"
