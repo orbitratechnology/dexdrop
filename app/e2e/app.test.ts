@@ -42,8 +42,18 @@ async function home(options: { colorScheme?: "light" | "dark" } = {}): Promise<A
     await app.waitFor("id:local-network-continue", { state: "gone" });
   }
   await app.waitFor("text:Nearby");
+  // The explanation can come a moment after the status on a slow
+  // simulator: go through it then too.
+  if (app.count("id:local-network-continue") > 0) {
+    await app.press("id:local-network-continue");
+    await app.waitFor("id:local-network-continue", { state: "gone" });
+  }
   return app;
 }
+
+// Opening the app again for a picture boots it once more: on the iOS
+// simulator that alone takes about 20 s.
+const PICTURE_TIMEOUT = 90_000;
 
 describe("DexDrop", () => {
   let app: App;
@@ -77,15 +87,23 @@ describe("DexDrop", () => {
 });
 
 describe("DexDrop's look on this platform", () => {
-  test("a picture of Home in light", async () => {
-    const app = await home({ colorScheme: "light" });
-    await app.waitFor("id:send");
-    await picture(app, "home-light");
-  });
+  test(
+    "a picture of Home in light",
+    async () => {
+      const app = await home({ colorScheme: "light" });
+      await app.waitFor("id:send");
+      await picture(app, "home-light");
+    },
+    PICTURE_TIMEOUT,
+  );
 
-  test("a picture of Home in dark", async () => {
-    const app = await home({ colorScheme: "dark" });
-    await app.waitFor("id:send");
-    await picture(app, "home-dark");
-  });
+  test(
+    "a picture of Home in dark",
+    async () => {
+      const app = await home({ colorScheme: "dark" });
+      await app.waitFor("id:send");
+      await picture(app, "home-dark");
+    },
+    PICTURE_TIMEOUT,
+  );
 });
