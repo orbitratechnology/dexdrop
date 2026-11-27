@@ -54,6 +54,9 @@ map_files() {
         out+=(apple engine) ;;
       scripts/ios-sim-check.sh | scripts/macos-ui-check.sh)
         out+=(apple) ;;
+      # The device checks' test photo.
+      scripts/fixtures/*)
+        out+=(android apple) ;;
       scripts/desktop-check.py)
         out+=(linux windows apple) ;;
       # Shared code: its tests; platforms only for their own lines (below).
@@ -168,6 +171,7 @@ self_test() {
   expect "app/src/ui.rs" '-#[cfg(target_arch = "wasm32")]' "app web"
   expect "scripts/ios-sim-check.sh" "" "apple"
   expect "scripts/desktop-check.py" "" "linux windows apple"
+  expect "scripts/fixtures/dexdrop-check.jpg" "" "android apple"
   expect ".github/workflows/ci.yml" "" "all"
   expect "Cargo.lock" "" "all"
   expect "app/e2e/app.test.ts" "" "all"

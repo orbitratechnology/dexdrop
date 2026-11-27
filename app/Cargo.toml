@@ -34,7 +34,7 @@ nsh-platform-linux = { version = "=0.7.1", default-features = false, features = 
 # Android's runtime permissions (`nsh::permissions`): the media browser's
 # READ_MEDIA_* (src/android.rs).
 [target.'cfg(target_os = "android")'.dependencies]
-nsh-platform-android = { version = "=0.7.0", default-features = false }
+nsh-platform-android = { version = "=0.7.1", default-features = false }
 
 # The photo library as Send's media browser's provider (PhotoKit).
 [target.'cfg(target_os = "ios")'.dependencies]
