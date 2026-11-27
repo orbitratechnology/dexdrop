@@ -1,0 +1,321 @@
+# Connectivity: links, speed and fallbacks
+
+What a peer-to-peer link survey (Wi-Fi Direct, LAN, SoftAP hotspots at
+5 and 2.4 GHz, Bluetooth Classic, BLE) means for DexDrop: what each
+platform lets an app do, what to build, in what order, and what to
+expect. The survey ranks Wi-Fi Direct first. That holds for Android but
+not for a cross-platform app: iOS and macOS expose no Wi-Fi Direct, and
+Windows and Linux expose it unevenly. DexDrop's answer is therefore not
+"Wi-Fi Direct first". It is the survey's own conclusion: a
+transport-independent engine (which DexDrop already has) with more ways
+to get two devices an IP path, picked adaptively.
+
+The speeds below are typical figures for each link, not measurements
+of DexDrop. Real-device numbers are still owed (STATUS, "Benchmarks").
+
+## 1. Where DexDrop is today
+
+| Layer | Today | Survey's advice |
+|---|---|---|
+| Discovery | mDNS/DNS-SD: Bonjour on Apple, NsdManager on Android, mdns-sd elsewhere; QR invitations; 8-character SPAKE2 codes | BLE + mDNS + native peer discovery + QR |
+| Links | The shared LAN; across networks Iroh (QUIC hole punching, then a relay) | Wi-Fi Direct, LAN, hotspot 5 GHz then 2.4 GHz |
+| Session | Mutual TLS 1.3, pinned Ed25519 identities, consent, SPAKE2 codes | Same |
+| Transfer | TCP, 4 MiB chunks, BLAKE3 per chunk and file, chunk-level resume, pipelined disk/hash/TLS (0.9–1.2 GB/s on a RAM disk) | TCP, chunked, TLS 1.3, BLAKE3 or SHA-256, resume |
+| Transport independence | `tls::BoxLink`: TCP or an Iroh stream under the same TLS session | "Keep the transfer engine independent of the link" |
+
+So the session and transfer layers already match the survey. The gaps
+are all in the **link layer**:
+
+- no link when devices share no network, other than going through the
+  internet;
+- no measurement of the link before or while it is used;
+- one weakness in connecting: a sender tries a device's addresses **one
+  after another, with a 4 s timeout each** (`outgoing.rs`, `connect_one`).
+  A dead address (a VPN or Docker interface, a stale IPv6 address, a
+  second Wi-Fi) costs 4 s before the right one is tried.
+
+The transfer engine needs no change for any link below. Each one ends in
+an IP address, and TCP + TLS 1.3 runs over it as it does today.
+
+## 2. What each platform allows
+
+| Capability | Android | iOS | macOS | Windows | Linux |
+|---|---|---|---|---|---|
+| Wi-Fi Direct (P2P group) | Yes: `WifiP2pManager`. Android 10+ can create a group with a chosen name, passphrase and band (`WifiP2pConfig.Builder`, `setGroupOperatingBand` 5 GHz / 2.4 GHz) | No public API | No public API | Yes: `Windows.Devices.WiFiDirect` (WinRT) | `wpa_supplicant` P2P / NetworkManager `wifi-p2p`, usually needing privileges |
+| Host an access point others join | Yes: a Wi-Fi Direct group's credentials let ordinary Wi-Fi clients join it as an access point ("DIRECT-xx"); also `LocalOnlyHotspot` (system picks the SSID and band) | No | No (Internet Sharing is not programmable) | Yes: `WiFiDirectAdvertisementPublisher` with `LegacySettings` (SSID, passphrase) is a soft AP ordinary clients join | Yes: NetworkManager hotspot (`nmcli`, D-Bus) |
+| Join a given network from the app | Android 10+: `WifiNetworkSpecifier` (a system confirmation, an app-bound network the sockets must be bound to) | `NEHotspotConfiguration` (a system prompt; "Hotspot Configuration" entitlement) | CoreWLAN `associate` | WLAN API (`WlanConnect`) | NetworkManager |
+| Apple peer-to-peer Wi-Fi (AWDL) | No | Yes: Bonjour with peer-to-peer included (`kDNSServiceFlagsIncludeP2P` / `includePeerToPeer`) | Yes, the same | No | No |
+| BLE advertise + scan + GATT | Yes (`BLUETOOTH_SCAN`/`ADVERTISE`/`CONNECT`, Android 12+) | Yes (CoreBluetooth; limited advertising in the background) | Yes (CoreBluetooth) | Yes (WinRT advertisement publisher and watcher) | Yes (BlueZ, the `bluer` crate) |
+| Bluetooth Classic data | Yes | No (MFi only) | Yes | Yes | Yes |
+
+NSH has no API for any of these (its hardware docs: an app's own crate
+reaches the system's frameworks). They are engine-side bridges, as
+DexDrop already builds:
+
+- Java bridges in `crates/dexdrop-net/android/`, like `NsdBridge` and
+  `AssetsBridge`;
+- `objc2` on Apple, like `dexdrop-photos` and `bonjour.rs`;
+- the `windows` crate on Windows;
+- `zbus` (already in the lock file) or `bluer` on Linux.
+
+## 3. What DexDrop can link, pair by pair
+
+L = same LAN (today), A = AWDL, D = Wi-Fi Direct, H = one device hosts an
+access point and the other joins it, I = Iroh (today).
+
+| | Android | iPhone | Mac | Windows | Linux |
+|---|---|---|---|---|---|
+| **Android** | L, D (5 GHz → 2.4 GHz), I | L, H (Android hosts, iPhone joins), I | L, H (Android hosts), I | L, D or H (either hosts), I | L, H (either hosts), I |
+| **iPhone** | | L, **A**, I | L, **A**, I | L, H (Windows hosts), I | L, H (Linux hosts), I |
+| **Mac** | | | L, **A**, I | L, H (Windows hosts), I | L, H (Linux hosts), I |
+| **Windows** | | | | L, D, I | L, H, I |
+| **Linux** | | | | | L, H, I |
+
+Every pair gets a nearby link without a shared network. The only
+exception is a desktop and a phone where neither can host. For example,
+a Mac and an iPhone use AWDL, and a Mac with a Linux machine that cannot
+host falls back to Iroh.
+
+## 4. What to build
+
+### 4.1 Quick wins on the links DexDrop has
+
+1. **Race the addresses (Happy Eyeballs, RFC 8305).**
+   - Dial a device's addresses in parallel, each started 250 ms after the
+     last, and keep the first that completes TLS.
+   - Order them Ethernet first, then Wi-Fi, then the rest, and IPv6
+     link-local only with its scope.
+   - Expected: connection setup at the speed of the good address, not
+     4 s per dead one before it.
+   - Also race the LAN against Iroh when the LAN has not answered within
+     about 1 s, rather than after every LAN address has failed.
+   - Effort: small (`outgoing.rs`).
+2. **Keep Android's Wi-Fi awake during a transfer.**
+   - Take a `WifiManager.WifiLock` (`WIFI_MODE_FULL_LOW_LATENCY` on
+     Android 10+, else `FULL_HIGH_PERF`) inside the existing `dataSync`
+     foreground service.
+   - Wi-Fi power save is a common cause of uneven and slow phone
+     transfers.
+   - Expected: steadier throughput on phones; often a large gain on
+     devices that power-save hard.
+   - Effort: small (`TransferService`).
+3. **Measure, then decide.**
+   - Run `dexdrop bench` between real devices for each pair and link:
+     Wi-Fi 5/6 through a router, Ethernet, and later each new link. Record
+     the results in `docs/ARCHITECTURE.md` ("Measured performance").
+   - Also run the owed lossy-Wi-Fi comparison of TCP against QUIC
+     (ADR-001).
+   - Every later decision (parallel streams, link upgrades) depends on
+     these numbers.
+4. **Say what the link is and how fast it goes, live.**
+   - The transfer already reports Nearby, Direct or Relayed. Add the link
+     (LAN, Wi-Fi Direct, hotspot, AWDL) and the live MB/s.
+   - Warn when a LAN transfer is slow, for example under 5 MB/s, which
+     usually means 2.4 GHz or a congested router.
+5. **Detect client isolation.**
+   - Both devices see the same SSID but never discover each other, or
+     discover each other but the connection is refused. This is a guest
+     or public Wi-Fi blocking peer-to-peer traffic.
+   - Say so, and offer the direct link (4.3) instead of failing after
+     timeouts.
+
+### 4.2 Apple ⇄ Apple without a shared network: AWDL
+
+Bonjour can browse, advertise and resolve over Apple's peer-to-peer
+Wi-Fi.
+
+- **How:**
+  - Set `kDNSServiceFlagsIncludeP2P` on DexDrop's existing `dns_sd`
+    browse, register and resolve calls (`bonjour.rs`).
+  - Make the listening socket accept connections on the peer-to-peer
+    interface (`awdl0`). With BSD sockets, Apple's guidance is the
+    `SO_RECV_ANYIF` socket option; confirm this on devices.
+  - The rest (TCP + TLS) is unchanged.
+- **Expected:**
+  - iPhone ⇄ iPhone, iPhone ⇄ Mac and Mac ⇄ Mac transfers with no
+    shared Wi-Fi and no prompt beyond the local-network permission the
+    app already asks for.
+  - Speeds in AirDrop's range, tens of MB/s.
+  - It also covers Apple devices on a network that isolates its clients.
+- **Effort:** small to medium. It is the most coverage for the least
+  work.
+
+### 4.3 The direct link: Wi-Fi Direct, and one device hosting an access point
+
+One mechanism serves every pair in section 3: **one device hosts a
+WPA2 network with credentials chosen for this transfer, and the other
+joins it.**
+
+- **The host:**
+  - Android creates a Wi-Fi Direct group with `WifiP2pConfig.Builder`:
+    a random SSID (`DIRECT-xx-DexDrop`) and passphrase, band 5 GHz first
+    and 2.4 GHz when 5 GHz is refused. It is the survey's "5 GHz hotspot,
+    then 2.4 GHz", done in a way apps may use. (`LocalOnlyHotspot` lets
+    the system choose the band, so it is the last resort.)
+  - Windows hosts with the Wi-Fi Direct publisher in legacy mode, and
+    Linux with a NetworkManager hotspot.
+- **The joiner:**
+  - Android ⇄ Android and Windows ⇄ Windows join as Wi-Fi Direct
+    clients with the credentials. On Android 10+ this should need no
+    invitation dialog; confirm on devices.
+  - Every other platform joins as an ordinary Wi-Fi client:
+    - iPhone: `NEHotspotConfiguration`, with one system prompt;
+    - Mac: CoreWLAN;
+    - Windows: WLAN API;
+    - Linux: NetworkManager;
+    - Android: `WifiNetworkSpecifier`, with one system prompt.
+- **Getting the credentials across:**
+  - Today: a QR code or invitation. Extend the invitation with `ssid`,
+    `psk`, `band` and the host's address.
+  - With 4.4: over BLE, automatically.
+  - Either way the credentials are short-lived, are used for one
+    transfer, and travel only to a device that then proves its identity
+    with TLS.
+- **Binding:**
+  - On Android a joined network is app-bound and has no internet. The
+    engine's sockets must be bound to it (`Network.bindSocket`, through
+    the Java bridge).
+  - Desktops may need the route pinned to that interface.
+- **Permissions, asked only when the user first uses a direct link:**
+  - Android: `NEARBY_WIFI_DEVICES` (13+, `neverForLocation`), or location
+    up to Android 12 with Location turned on.
+  - iOS: the Hotspot Configuration entitlement.
+  - macOS: location permission may be needed for Wi-Fi scanning.
+  - Windows and Linux: none for the user, though Linux may need polkit
+    rules.
+- **Cost:**
+  - A phone that hosts or joins may leave its Wi-Fi network for the
+    duration on devices without simultaneous client and AP or P2P
+    support. Say so before switching, and switch back afterwards.
+- **Expected:**
+  - 5 GHz phone ⇄ phone: typically 20–60 MB/s.
+  - 5 GHz with Wi-Fi 6 hardware: more.
+  - 2.4 GHz fallback: 3–10 MB/s.
+  - Compared with the same two devices both on one Wi-Fi router, a
+    direct link can be up to about twice as fast, because each frame
+    crosses the air once instead of twice. It can also be slower when a
+    phone shares one radio between its router and the group on different
+    channels. This is why 4.5 measures before it switches.
+- **Effort:** medium to large. It is one module per platform behind one
+  `DirectLink` trait (`host()`, `join(credentials)`, `close()`), owned by
+  the engine like discovery.
+
+### 4.4 BLE: finding each other and handing over credentials
+
+BLE does what the survey assigns it, and nothing more.
+
+- **Advertising:**
+  - A DexDrop service UUID and a short rotating ID.
+  - No names: the same privacy rule as the mDNS TXT records.
+- **Exchange:** a GATT characteristic carries what the invitation would:
+  - the device's key fingerprint;
+  - its supported links;
+  - when asked, a direct-link offer (4.3).
+- **What it adds:**
+  - Devices find each other with no shared network and no QR code. A
+    nearby device appears in Nearby as it does on a LAN today.
+  - The direct link is then set up automatically.
+- **Limits:**
+  - iOS limits advertising in the background (the UUID moves to an
+    overflow area that other iOS devices scan only in the foreground).
+    Expect discovery while DexDrop is open, which is how it is used
+    anyway.
+  - Android 12+ needs the Bluetooth permissions above.
+  - Desktops without Bluetooth keep using mDNS and QR.
+- **Effort:** medium to large. Bridges: Android (Java), Apple
+  (CoreBluetooth, `objc2`), Windows (WinRT), Linux (`bluer`).
+
+### 4.5 An adaptive link manager, and upgrades in the middle of a transfer
+
+The engine already picks among links (LAN, then Iroh). Grow that into a
+planner.
+
+1. **Candidates.**
+   - LAN addresses, raced (4.1).
+   - AWDL (Apple).
+   - A direct link, when the other device is nearby: seen over BLE, or
+     with a direct-link offer in its invitation.
+   - Iroh direct, then the Iroh relay.
+2. **The order.**
+   - The same LAN, then AWDL, then the direct link, then Iroh direct,
+     then the relay.
+   - **A device known to be nearby is always offered a direct link
+     before the internet.** Iroh between neighbours runs through their
+     internet uplinks, often 5–50 Mbit/s, may cost mobile data (FR-072
+     asks first), and the relay is rate-limited.
+3. **Upgrade.**
+   - Start on whatever connects first. After a few seconds, if the
+     measured goodput is low (for example under 10 MB/s) and a faster
+     link is possible, set it up beside the running transfer.
+   - Then pause, switch and resume. Chunk-level resume makes the switch
+     cost under one 4 MiB chunk per file.
+   - This is Nearby Connections' "bandwidth upgrade", built on what
+     DexDrop already has.
+4. **Fallback.**
+   - When a direct link fails or drops, resume on the LAN or the
+     internet, and the reverse.
+   - The user sees the route change: "Switched to a direct Wi-Fi link,
+     48 MB/s".
+
+### 4.6 Faster on any link, if the numbers call for it
+
+- **Parallel TCP streams per transfer** (2–4 connections taking chunks
+  from one manifest). A single TCP flow often leaves lossy Wi-Fi
+  underused.
+  - Expected: 10–40% on poor Wi-Fi; nothing on a clean link.
+  - Do it only if 4.1's measurements show a gain (STATUS lists it as
+    partial, pending exactly that).
+- **Adaptive limits:** chunks in flight and requests outstanding from
+  the measured RTT and goodput (STATUS: "Adaptive concurrency: Open").
+- **Socket buffers:** larger send and receive buffers matter only on
+  high-latency paths (Iroh direct). Leave the LAN to the OS's
+  autotuning.
+
+### 4.7 What not to build
+
+- **Bluetooth as a data link** (Classic or BLE L2CAP).
+  - BLE moves about 0.05–0.2 MB/s, so a 100 MB video takes 10 minutes
+    or more.
+  - iOS has no Classic Bluetooth for apps.
+  - At most, a later "send text or a link over Bluetooth" for when
+    nothing else works.
+- **Replacing TCP with QUIC on the LAN** without the lossy-Wi-Fi
+  measurement (ADR-001). Iroh keeps QUIC where it matters: across
+  networks.
+- **Interoperating with Quick Share or AirDrop.** Both are closed
+  protocols.
+
+## 5. Order and expectations
+
+| Step | Builds | Platforms | Effort | Expected improvement |
+|---|---|---|---|---|
+| 1 | Address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
+| 2 | Real-device benchmark matrix (4.1.3), live link and speed in the UI, slow-link and isolation hints (4.1.4–5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
+| 3 | AWDL (4.2) | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
+| 4 | Direct link through QR or invitation (4.3): Android host (5 GHz, then 2.4 GHz), Windows and Linux hosts; joiners on every platform | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
+| 5 | BLE discovery + credential exchange (4.4) | All with Bluetooth | 3–4 weeks | Nearby devices appear and connect with no network and no QR code |
+| 6 | Link manager with upgrades in the middle of a transfer (4.5), parallel streams if measured (4.6) | All | 2–3 weeks | The best measured link, chosen and switched automatically; up to about 2× over a router for two wireless devices |
+
+## 6. The resulting fallback chain
+
+```text
+Discovery: mDNS/Bonjour (+AWDL on Apple) ─┐
+           BLE (nearby, no network)       ├─► candidates for the device
+           QR / invitation / code         ─┘
+
+Connect, racing within each step:
+  1. Same LAN: every address raced, Ethernet first
+  2. Apple ⇄ Apple: AWDL
+  3. Nearby: a direct link: Wi-Fi Direct group 5 GHz → 2.4 GHz,
+     or a desktop-hosted access point (credentials over BLE or the QR code)
+  4. Different places: Iroh direct (hole punching)
+  5. Iroh relay (rate-limited; always shown)
+
+While transferring: measure goodput; upgrade to a faster link when one is
+possible (resume makes the switch cheap); on a drop, resume over the
+next link down.
+```
+
+The session (mutual TLS 1.3, pinned identities, SPAKE2 codes, consent)
+and the transfer (chunks, BLAKE3, resume) stay the same on every link.
+That is what makes the fallbacks safe to add.
