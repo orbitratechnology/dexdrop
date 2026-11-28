@@ -108,7 +108,7 @@ pub(crate) fn allows_peer_to_peer(socket: &impl std::os::fd::AsRawFd) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV6};
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
     fn only_the_peer_to_peer_interface_is_peer_to_peer() {
@@ -138,7 +138,7 @@ mod tests {
                 })
                 .expect("a loopback interface");
             assert!(interface_name(lo).is_some_and(|n| n.starts_with("lo")));
-            let scoped = SocketAddr::V6(SocketAddrV6::new(
+            let scoped = SocketAddr::V6(std::net::SocketAddrV6::new(
                 Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
                 4242,
                 0,
@@ -161,7 +161,7 @@ mod tests {
             eprintln!("no awdl0 on this Mac (no Wi-Fi): skipped");
             return;
         }
-        let peer = SocketAddr::V6(SocketAddrV6::new(
+        let peer = SocketAddr::V6(std::net::SocketAddrV6::new(
             Ipv6Addr::new(0xfe80, 0, 0, 0, 0x1c2b, 0x3aff, 0xfe4d, 0x5e6f),
             4242,
             0,
