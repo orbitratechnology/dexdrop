@@ -3,7 +3,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use dexdrop_core::api::Route;
 use dexdrop_core::protocol::{Pairing, clean_name};
 use dexdrop_core::{
     protocol::{Hello, Message, RejectReason},
@@ -25,8 +24,9 @@ const DECISION: Duration = Duration::from_secs(10 * 60);
 
 /// How a connection arrived.
 pub(crate) enum Via {
-    /// The local network (TCP).
-    Nearby,
+    /// The local network or a device-to-device link (TCP), and the other
+    /// end's address, which says which.
+    Nearby(std::net::SocketAddr),
     /// The internet (Iroh); the connection, to check the sender's key and
     /// follow the route.
     Internet(iroh::endpoint::Connection),
@@ -53,7 +53,7 @@ async fn run(ctx: Arc<Ctx>, link: tls::BoxLink, via: Via) -> Result<(), SessionE
         ));
     }
     let route = match &via {
-        Via::Nearby => Route::Nearby,
+        Via::Nearby(peer) => crate::link::local_route(*peer),
         Via::Internet(conn) => crate::remote::route(conn),
     };
 

@@ -146,7 +146,7 @@ names the test or check; "Gap" is what is still missing.
 | FR-003 Device name | P0 | Done | Generic default (`iPhone DSO6`), rename in Settings (UI test) | |
 | FR-004 Local-network explanation | P0 | Done | iOS/macOS: one screen before discovery starts, then the system prompt (UI test `explains_the_local_network_once`, engine test, seen in the iOS Simulator); plist strings set | Android 17's permission (target API 37) when the target moves |
 | FR-005 Empty states | P0 | Done | Home: looking / blocked network → use a code / after 8 s what to check; History, Trusted devices, browser preview | |
-| FR-010 Discover on LAN | P0 | Done | Bonjour (`dns_sd`) on Apple devices, NsdManager on Android, mdns-sd elsewhere; CI: both directions on Android, iOS, macOS; desktop CLI→app | Real cross-device pairs (phone ⇄ computer) not run |
+| FR-010 Discover on LAN | P0 | Done | Bonjour (`dns_sd`) on Apple devices, NsdManager on Android, mdns-sd elsewhere; CI: both directions on Android, iOS, macOS; desktop CLI→app. Apple devices also find and reach each other over peer-to-peer Wi-Fi (AWDL) with no network in common, shown as "Directly over Wi-Fi" (docs/CONNECTIVITY.md 4.2) | Real cross-device pairs (phone ⇄ computer) not run; AWDL not yet run on two devices (CI's Macs have no Wi-Fi) |
 | FR-011 Device info | P0 | Done | Avatar, name, platform badge; no IP or port in the UI | |
 | FR-012 Deduplicate | P0 | Done | Keyed by peer ID (engine) | |
 | FR-013 Network changes | P0 | Done | Re-advertises on address change (5 s poll); after returning from the background or waking from sleep (NSH `lifecycle`, `wake_count`) it looks again and retries at once the transfers that gave up | |

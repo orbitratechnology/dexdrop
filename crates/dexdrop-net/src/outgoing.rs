@@ -69,9 +69,11 @@ struct Connected {
 
 impl Connected {
     fn route(&self) -> dexdrop_core::api::Route {
-        self.internet
-            .as_ref()
-            .map_or(dexdrop_core::api::Route::Nearby, crate::remote::route)
+        match (&self.internet, self.addr) {
+            (Some(conn), _) => crate::remote::route(conn),
+            (None, Some(addr)) => crate::link::local_route(addr),
+            (None, None) => dexdrop_core::api::Route::Nearby,
+        }
     }
 }
 

@@ -136,6 +136,26 @@ host falls back to Iroh.
 Bonjour can browse, advertise and resolve over Apple's peer-to-peer
 Wi-Fi.
 
+**Built (step 3); owed: a run on two devices with no network in
+common.**
+
+- Every `dns_sd` call (browse, register, resolve, address lookup)
+  passes `kDNSServiceFlagsIncludeP2P` (`discovery/bonjour.rs`).
+- The listener sets `SO_RECV_ANYIF` before it listens
+  (`link::allow_peer_to_peer`, `engine::bind_listener`); a test on the
+  macOS runners reads it back.
+- A connection whose address is scoped to `awdl0` is reported as
+  `Route::PeerToPeer`, shown as "Directly over Wi-Fi" (the CLI says
+  "directly over Wi-Fi"); every other local connection stays `Nearby`.
+- Address racing tries link-local addresses last, so when the devices
+  share a network as well, that network is used and AWDL is the fallback.
+- Cost: browsing with peer-to-peer included keeps AWDL active while
+  DexDrop runs, which can take a little from the Wi-Fi network's
+  throughput, as an open AirDrop window does. DexDrop runs only while its
+  window is open on a Mac (ADR-006) and in the foreground on iOS.
+- CI has no Wi-Fi on its Macs, so it checks the flags, the socket option
+  and the route, not a transfer over AWDL.
+
 - **How:**
   - Set `kDNSServiceFlagsIncludeP2P` on DexDrop's existing `dns_sd`
     browse, register and resolve calls (`bonjour.rs`).
@@ -303,7 +323,7 @@ planner.
 |---|---|---|---|---|
 | 1 | **Done:** address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
 | 2 | **Done:** the CLI's measurement line and the slow-Wi-Fi hint. Owed: the benchmark matrix on real devices (4.1.3) and the isolation hint (4.1.5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
-| 3 | AWDL (4.2) | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
+| 3 | **Built:** AWDL (4.2). Owed: a run on two Apple devices with no shared network | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
 | 4 | Direct link through QR or invitation (4.3): Android host (5 GHz, then 2.4 GHz), Windows and Linux hosts; joiners on every platform | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
 | 5 | BLE discovery + credential exchange (4.4) | All with Bluetooth | 3–4 weeks | Nearby devices appear and connect with no network and no QR code |
 | 6 | Link manager with upgrades in the middle of a transfer (4.5), parallel streams if measured (4.6) | All | 2–3 weeks | The best measured link, chosen and switched automatically; up to about 2× over a router for two wireless devices |

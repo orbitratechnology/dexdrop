@@ -14,6 +14,7 @@ pub mod engine;
 mod incoming;
 #[cfg(target_os = "android")]
 mod jvm;
+mod link;
 pub mod media;
 mod outgoing;
 pub mod pairing;

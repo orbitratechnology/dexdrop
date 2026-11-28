@@ -128,6 +128,9 @@ pub struct Status {
 pub enum Route {
     /// The local network.
     Nearby,
+    /// Wi-Fi from one device straight to the other, with no network in
+    /// common (Apple's peer-to-peer Wi-Fi).
+    PeerToPeer,
     /// The internet, on a direct path.
     Direct,
     /// The internet, through a relay server that forwards encrypted data.

@@ -301,8 +301,12 @@ pub async fn spawn(
                     }
                     let (ctx, per_ip) = (accept_ctx.clone(), per_ip.clone());
                     tokio::spawn(async move {
-                        incoming::handle(ctx, crate::tls::tcp_link(tcp), incoming::Via::Nearby)
-                            .await;
+                        incoming::handle(
+                            ctx,
+                            crate::tls::tcp_link(tcp),
+                            incoming::Via::Nearby(from),
+                        )
+                        .await;
                         let mut counts = lock(&per_ip);
                         if let Some(count) = counts.get_mut(&ip) {
                             *count -= 1;
@@ -360,6 +364,7 @@ fn bind_listener(listen: IpAddr, port: u16) -> std::io::Result<TcpListener> {
         return Ok(listener);
     }
     let listener = std::net::TcpListener::bind(SocketAddr::new(listen, port))?;
+    crate::link::allow_peer_to_peer(&listener)?;
     listener.set_nonblocking(true)?;
     TcpListener::from_std(listener)
 }
@@ -371,6 +376,8 @@ fn bind_dual_stack(port: u16) -> std::io::Result<TcpListener> {
     socket.set_only_v6(false)?;
     #[cfg(unix)]
     socket.set_reuse_address(true)?;
+    // Before listening: connections over Apple's peer-to-peer Wi-Fi too.
+    crate::link::allow_peer_to_peer(&socket)?;
     socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port).into())?;
     socket.listen(1024)?;
     socket.set_nonblocking(true)?;
@@ -2242,4 +2249,29 @@ fn purge_tree(root: &std::path::Path, needed: &[std::path::PathBuf], after: Dura
     }
     // Left empty: gone too (a staging folder of a pick).
     let _ = std::fs::remove_dir(root);
+}
+
+#[cfg(test)]
+mod listener_tests {
+    use super::*;
+
+    /// The listener takes connections over Apple's peer-to-peer Wi-Fi as
+    /// well (`SO_RECV_ANYIF`), dual-stack or not: what Bonjour advertises
+    /// there must be reachable.
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
+    async fn the_listener_accepts_over_peer_to_peer_wifi() {
+        let dual = bind_listener(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0).unwrap();
+        assert!(crate::link::allows_peer_to_peer(&dual));
+        let v4 = bind_listener(IpAddr::V4(Ipv4Addr::LOCALHOST), 0).unwrap();
+        assert!(crate::link::allows_peer_to_peer(&v4));
+    }
+
+    /// Allowing peer-to-peer Wi-Fi (nothing to do off Apple) leaves the
+    /// listener binding everywhere.
+    #[tokio::test]
+    async fn the_listener_binds() {
+        let listener = bind_listener(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0).unwrap();
+        assert_ne!(listener.local_addr().unwrap().port(), 0);
+    }
 }

@@ -83,14 +83,18 @@ punching, port mapping) and a relay fallback when no direct path exists.
   internet speeds the extra CPU does not matter.
 - **Order.** Outgoing transfers try the local network first (discovered
   addresses, invitation addresses, raced the Happy Eyeballs way: see
-  docs/CONNECTIVITY.md 4.1), then the internet when the other device's
+  docs/CONNECTIVITY.md 4.1; on Apple devices Bonjour also resolves
+  addresses on peer-to-peer Wi-Fi, tried after the shared network's,
+  4.2), then the internet when the other device's
   key is known. Without a pairing proof the internet starts beside the
   network after a 1.5 s head start, and the first connection made wins.
   The key comes from an invitation (which now carries the key and
   home relay) or from `known-devices.json`, the devices this one exchanged
   files with. Codes stay local: a typed code has no room for a key, and
   looking codes up remotely would need a rendezvous service.
-- **Route.** Each transfer reports `Nearby`, `Direct` or `Relayed`, and
+- **Route.** Each transfer reports `Nearby`, `PeerToPeer` (Apple's
+  peer-to-peer Wi-Fi: the address is scoped to `awdl0`), `Direct` or
+  `Relayed`, and
   follows Iroh moving from the relay to a direct path; the UI always says
   when a relay carries the data (PRD 9.5).
 - **Relays.** n0's public relays by default, which are rate-limited and have

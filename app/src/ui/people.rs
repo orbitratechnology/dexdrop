@@ -116,6 +116,7 @@ pub fn route_label(route: dexdrop_core::api::Route) -> (&'static str, Icon) {
     use dexdrop_core::api::Route;
     match route {
         Route::Nearby => ("On this network", Icon::Wifi),
+        Route::PeerToPeer => ("Directly over Wi-Fi", Icon::Wifi),
         Route::Direct => ("Over the internet", Icon::Globe),
         Route::Relayed => ("Over the internet, through a relay", Icon::Globe),
     }
@@ -143,4 +144,29 @@ pub fn far_avatar(
                     icon(Icon::Globe, badge * 0.62, move || theme().foreground),
                 ))
         }))
+}
+
+#[cfg(test)]
+mod tests {
+    use dexdrop_core::api::Route;
+
+    /// Each route says how the data goes in words of its own; a
+    /// device-to-device link is not "this network", which there may not be.
+    #[test]
+    fn every_route_says_how_the_data_goes() {
+        let routes = [
+            Route::Nearby,
+            Route::PeerToPeer,
+            Route::Direct,
+            Route::Relayed,
+        ];
+        let words: Vec<_> = routes.iter().map(|r| super::route_label(*r).0).collect();
+        assert_eq!(
+            super::route_label(Route::PeerToPeer).0,
+            "Directly over Wi-Fi"
+        );
+        for (i, w) in words.iter().enumerate() {
+            assert!(!words[i + 1..].contains(w), "{w} is said twice");
+        }
+    }
 }

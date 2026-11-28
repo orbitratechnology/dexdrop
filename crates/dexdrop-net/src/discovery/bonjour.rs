@@ -11,6 +11,12 @@
 //! code opened or closed later is seen), then its host name is looked up for
 //! addresses. iOS asks the user for local-network access on first use;
 //! `Info.plist` names the service type (`NSBonjourServices`).
+//!
+//! Every operation includes Apple's peer-to-peer Wi-Fi (AWDL,
+//! `kDNSServiceFlagsIncludeP2P`): an iPhone and a Mac with no network in
+//! common find each other as AirDrop does, and the addresses resolved there
+//! are link-local IPv6 ones on `awdl0` (their scope says so). The listener
+//! accepts on that interface (`engine::allow_peer_to_peer`).
 
 use std::{
     collections::{HashMap, HashSet},
@@ -38,6 +44,12 @@ type DNSServiceRef = *mut c_void;
 
 const FLAGS_ADD: u32 = 0x2;
 const FLAGS_SHARE_CONNECTION: u32 = 0x4000;
+/// `kDNSServiceFlagsIncludeP2P`: Apple's peer-to-peer Wi-Fi (AWDL) too,
+/// so two Apple devices find each other with no shared network.
+const FLAGS_INCLUDE_P2P: u32 = 0x20000;
+/// Every operation's flags: on the shared connection, peer-to-peer
+/// included (docs/CONNECTIVITY.md, 4.2).
+const FLAGS: u32 = FLAGS_SHARE_CONNECTION | FLAGS_INCLUDE_P2P;
 const PROTOCOL_IPV4: u32 = 0x01;
 const PROTOCOL_IPV6: u32 = 0x02;
 const ERR_NO_ERROR: i32 = 0;
@@ -350,7 +362,7 @@ extern "C" fn on_browse(
     let started = unsafe {
         DNSServiceResolve(
             &mut resolve,
-            FLAGS_SHARE_CONNECTION,
+            FLAGS,
             0,
             name,
             regtype,
@@ -433,7 +445,7 @@ extern "C" fn on_resolve(
         let started = unsafe {
             DNSServiceGetAddrInfo(
                 &mut lookup,
-                FLAGS_SHARE_CONNECTION,
+                FLAGS,
                 0,
                 PROTOCOL_IPV4 | PROTOCOL_IPV6,
                 host,
@@ -549,7 +561,7 @@ impl Discovery {
         let err = unsafe {
             DNSServiceBrowse(
                 &mut browse,
-                FLAGS_SHARE_CONNECTION,
+                FLAGS,
                 0,
                 regtype.as_ptr(),
                 ptr::null(),
@@ -632,7 +644,7 @@ impl Discovery {
         let err = unsafe {
             DNSServiceRegister(
                 &mut sd,
-                FLAGS_SHARE_CONNECTION,
+                FLAGS,
                 0,
                 name.as_ptr(),
                 regtype.as_ptr(),
@@ -849,5 +861,12 @@ mod tests {
         // Truncated or malformed records never panic.
         assert!(decode_txt(&[9, b'a']).is_empty());
         assert_eq!(regtype().to_str().unwrap(), "_dexdrop._tcp");
+    }
+
+    /// The flags every operation passes, as `dns_sd.h` defines them:
+    /// peer-to-peer Wi-Fi included, on the shared connection.
+    #[test]
+    fn operations_include_peer_to_peer() {
+        assert_eq!(FLAGS, 0x20000 | 0x4000);
     }
 }

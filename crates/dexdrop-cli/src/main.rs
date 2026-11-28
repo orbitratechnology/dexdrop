@@ -189,6 +189,7 @@ fn measured(t: &dexdrop_net::TransferSnapshot) -> Option<String> {
     let rate = t.average_rate?;
     let route = match t.route? {
         dexdrop_core::api::Route::Nearby => "on this network",
+        dexdrop_core::api::Route::PeerToPeer => "directly over Wi-Fi",
         dexdrop_core::api::Route::Direct => "over the internet, direct",
         dexdrop_core::api::Route::Relayed => "through a relay",
     };
