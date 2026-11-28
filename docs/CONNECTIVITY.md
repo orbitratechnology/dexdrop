@@ -301,8 +301,21 @@ section).
      NetworkManager returns to it. Desktop sessions may change networks
      without a password (NetworkManager's polkit defaults); a refusal is
      said. Offered only where NetworkManager has a Wi-Fi device (an access
-     point needs its AP capability). **Windows** (the Wi-Fi Direct
-     publisher in legacy mode, the WLAN API to join) is next.
+     point needs its AP capability).
+     **Windows built; owed: a run on a PC with Wi-Fi** (`direct/win.rs`):
+     hosting starts the Wi-Fi Direct advertisement publisher in legacy
+     mode, a soft access point with DexDrop's name and passphrase that any
+     device joins as a WPA2 network; Windows chooses its band and serves
+     its addresses (the host's is the IPv4 address that appears, usually
+     192.168.137.1/24). The publisher lives on a thread of its own until
+     stopped. Joining saves a WLAN profile for the network (WPA2, AES,
+     joined by hand only), connects, waits for an address on the host's
+     /24, and deletes the profile when the transfer is over, so Windows
+     returns to its own network. Windows 11 may want location access for
+     desktop apps before they change Wi-Fi; that refusal says where to
+     allow it. CI's Windows runners have no Wi-Fi: it compiles and lints
+     this code there, and the profile and address logic is tested on
+     every host.
   4. Joining on Apple devices: `NEHotspotConfiguration` on iOS (its
      entitlement and one system prompt), CoreWLAN on a Mac.
   5. Hosting from the sender's side too, for pairs where only the sender
@@ -401,7 +414,7 @@ planner.
 | 1 | **Done:** address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
 | 2 | **Done:** the CLI's measurement line and the slow-Wi-Fi hint. Owed: the benchmark matrix on real devices (4.1.3) and the isolation hint (4.1.5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
 | 3 | **Built:** AWDL (4.2). Owed: a run on two Apple devices with no shared network | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
-| 4 | Direct link through QR or invitation (4.3). **Phases 1 and 2 built, Linux of 3:** the engine, the invitation, Receive, tests; Android hosting (5 GHz, then 2.4 GHz) and joining (owed: two phones); Linux through NetworkManager (owed: a computer with Wi-Fi). Next: Windows, then the Apple joiners | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
+| 4 | Direct link through QR or invitation (4.3). **Phases 1 to 3 built:** the engine, the invitation, Receive, tests; Android hosting (5 GHz, then 2.4 GHz) and joining (owed: two phones); Linux through NetworkManager and Windows through Wi-Fi Direct and the WLAN API (owed: computers with Wi-Fi). Next: the Apple joiners | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
 | 5 | BLE discovery + credential exchange (4.4) | All with Bluetooth | 3–4 weeks | Nearby devices appear and connect with no network and no QR code |
 | 6 | Link manager with upgrades in the middle of a transfer (4.5), parallel streams if measured (4.6) | All | 2–3 weeks | The best measured link, chosen and switched automatically; up to about 2× over a router for two wireless devices |
 

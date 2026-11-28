@@ -660,3 +660,7 @@ Status: accepted (phase 1 built; platforms follow, docs/CONNECTIVITY.md 4.3).
 - **Linux** (phase 3): NetworkManager over D-Bus (`zbus`, which the
   keyring already builds), not `nmcli`: an access point with shared IPv4,
   or a client connection, each added for the transfer and deleted after.
+- **Windows** (phase 3): the Wi-Fi Direct advertisement publisher in
+  legacy mode, a soft access point any device joins, rather than Mobile
+  Hotspot (which shares the internet connection and needs one); the WLAN
+  API with a profile made for the transfer to join, deleted after.

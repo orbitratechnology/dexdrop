@@ -41,6 +41,18 @@ mdns-sd = { version = "0.22.0", features = ["async"] }
 # Android reaches the system's NsdManager through JNI (the version NSH uses),
 # with the Java VM and application Context NSH puts in ndk-context (which
 # Iroh's DNS resolver and network watcher read too).
+# Windows' direct link (src/direct/win.rs): the Wi-Fi Direct publisher in
+# legacy mode (a soft access point) and the WLAN API, with the windows
+# crate the app's NSH backend already builds.
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62", features = [
+    "Devices_WiFiDirect",
+    "Security_Credentials",
+    "Win32_Foundation",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WiFi",
+] }
+
 # Linux's direct link (src/direct/linux.rs): NetworkManager on the system
 # bus, with the zbus the keyring already builds.
 [target."cfg(target_os = \"linux\")".dependencies]

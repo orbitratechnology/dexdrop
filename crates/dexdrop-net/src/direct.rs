@@ -28,10 +28,15 @@ pub use android::AndroidLink;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::NetworkManagerLink;
+#[cfg(any(windows, test))]
+mod win;
+#[cfg(windows)]
+pub use win::WindowsLink;
 
 /// This platform's direct link, if it has one yet (docs/CONNECTIVITY.md
 /// 4.3, phases): Android's from the app's Java VM on; NetworkManager's on
-/// Linux (offered only where it finds a Wi-Fi device).
+/// Linux and the Wi-Fi Direct publisher and WLAN API on Windows (each
+/// offered only where it finds a Wi-Fi device).
 pub fn platform() -> Option<std::sync::Arc<dyn DirectLink>> {
     #[cfg(target_os = "android")]
     if crate::jvm::has_context() {
@@ -39,6 +44,8 @@ pub fn platform() -> Option<std::sync::Arc<dyn DirectLink>> {
     }
     #[cfg(target_os = "linux")]
     return Some(std::sync::Arc::new(NetworkManagerLink::default()));
+    #[cfg(windows)]
+    return Some(std::sync::Arc::new(WindowsLink::default()));
     #[allow(unreachable_code)]
     None
 }
