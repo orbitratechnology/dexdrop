@@ -158,7 +158,7 @@ fn transfer_service() {
     #[cfg(target_os = "android")]
     {
         let shown = computed(|| {
-            engine::transfers().with(|engine::Transfers(transfers)| service_status(&transfers))
+            engine::transfers().with(|engine::Transfers(transfers)| service_status(transfers))
         });
         effect(move || match shown.get() {
             Some(status) => {

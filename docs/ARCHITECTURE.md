@@ -650,3 +650,10 @@ Status: accepted (phase 1 built; platforms follow, docs/CONNECTIVITY.md 4.3).
 - **Lifetime:** hosting ends when the user stops it or leaves Receive,
   but never under a transfer that uses it.
 - **Route:** `PeerToPeer` ("Directly over Wi-Fi"), as for AWDL.
+- **Android** (phase 2): a Wi-Fi Direct group the phone owns, which any
+  device joins as an ordinary WPA2 network, so one host serves every
+  platform; `WifiNetworkSpecifier` to join, with the engine's sockets
+  bound to the joined network. Its runtime permission is asked only when
+  the user starts a direct link. The permissions that need manifest
+  attributes come from a small `.aar` (`android/direct-link.aar`),
+  because NSH's manifest keys take names only.

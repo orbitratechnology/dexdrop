@@ -307,6 +307,31 @@ send_with "$invitation" invitation "$dev/note.bin" ||
   fail "sending with the invitation link did not reach the app (cli-send-invitation.log)"
 note "- 200 KB sent with the invitation link, accepted, $(received_intact "$dev/note.bin")"
 
+# 2b. The direct link (docs/CONNECTIVITY.md 4.3) through Android's Wi-Fi
+#     Direct bridge. An emulator image may have no Wi-Fi Direct; then
+#     Receive offers none. Where it offers one, starting it after the
+#     system's nearby-devices prompt either comes up or says why, and the
+#     app does not crash. A transfer over it needs two phones.
+open_sheet 08a-receive-direct
+if grep -q 'Start a direct link' "$out/08a-receive-direct.txt"; then
+  tap "Start a direct link" || fail "could not tap Start a direct link"
+  ad alert accept >/dev/null 2>&1 || true # Nearby devices: Allow
+  if ad wait text "Direct link on" 30000 >/dev/null 2>&1; then
+    step 08b-direct-on
+    note "- Direct link hosted by Wi-Fi Direct: $(grep -oE 'Direct link on[^"]*' "$out/08b-direct-on.txt" | head -1)"
+    tap "Stop the direct link" || warn "could not tap Stop the direct link"
+  else
+    step 08b-direct-not-on
+    why=$(grep -oE 'The direct link could not start[^"]*' "$out/08b-direct-not-on.txt" | head -1)
+    [ -n "$why" ] || fail "the direct link neither started nor said why (08b-direct-not-on)"
+    note "- Direct link offered; this emulator could not host it: $why"
+  fi
+  crash=$(app_crash)
+  [ -z "$crash" ] || fail "the app crashed starting a direct link: $crash"
+else
+  note "- No direct link offered: this emulator image has no Wi-Fi Direct"
+fi
+
 # 3. Sending from the app, with Pause and Resume (only a sender can pause):
 #    a file picked in Android's file picker goes to a CLI receiver that
 #    accepts on its own and reads at 1 MB/s, so there is time to pause.

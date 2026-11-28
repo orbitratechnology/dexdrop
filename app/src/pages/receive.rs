@@ -163,6 +163,26 @@ fn code_card() -> impl IntoElement {
         }))
 }
 
+/// Starts hosting; on Android once the system allows nearby Wi-Fi devices
+/// (location before Android 13), which it asks for the first time.
+fn start_direct_link() {
+    #[cfg(target_os = "android")]
+    Owner::detached().run(|| {
+        spawn(async {
+            if crate::android::ask_direct_link().await {
+                bridge::send(Command::HostDirectLink);
+            } else {
+                crate::state::toast(
+                    dexdrop_core::api::NoticeKind::Error,
+                    "A direct link needs Nearby devices allowed for DexDrop.",
+                );
+            }
+        });
+    });
+    #[cfg(not(target_os = "android"))]
+    bridge::send(Command::HostDirectLink);
+}
+
 /// The band's name, as the hosted network says it.
 fn band_words(band: Band) -> &'static str {
     match band {
@@ -195,7 +215,7 @@ fn direct_link() -> impl IntoElement {
                 .child(
                     ui::icon_btn(Icon::Wifi, "Start a direct link", Variant::Plain)
                         .test_id("direct-link")
-                        .on_press(|| bridge::send(Command::HostDirectLink)),
+                        .on_press(start_direct_link),
                 )
                 .into_element(),
         ),
@@ -252,7 +272,7 @@ fn direct_link() -> impl IntoElement {
                 .child(
                     ui::icon_btn(Icon::Refresh, "Try again", Variant::Plain)
                         .test_id("direct-link")
-                        .on_press(|| bridge::send(Command::HostDirectLink)),
+                        .on_press(start_direct_link),
                 )
                 .into_element(),
         ),

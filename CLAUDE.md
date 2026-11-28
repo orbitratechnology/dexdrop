@@ -51,7 +51,8 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
 ## Platform notes
 
 - Android manifest entries live with the code that needs them: the
-  engine's (Java bridges `android/nsd.dex`, `<queries>`, the foreground
+  engine's (Java bridges `android/nsd.dex`; the direct link's permissions
+  with attributes in `android/direct-link.aar`; `<queries>`, the foreground
   service)
   in `crates/dexdrop-net/Cargo.toml` `[package.metadata.nsh.android]`, the
   app's in `app/nsh.json` (`android.permissions`, `icon.android`,
@@ -62,7 +63,7 @@ state changes, update `docs/STATUS.md`; when a design decision changes,
   bridges, `android_service.rs`) and the identity keystore (Android
   Keystore) read it from then on. After changing the Java in
   `crates/dexdrop-net/android/`, run `scripts/build-nsd-dex.sh` and commit
-  `nsd.dex`.
+  `nsd.dex` (and `direct-link.aar`, which it writes too).
 - Phones browse their media in the app and send items in place
   (`docs/ARCHITECTURE.md` ADR-009, `docs/FILE_SELECTION.md`): the granular
   `READ_MEDIA_*` on Android (never `MANAGE_EXTERNAL_STORAGE`) and PhotoKit

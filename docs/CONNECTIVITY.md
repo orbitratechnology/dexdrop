@@ -263,10 +263,30 @@ section).
   the engine like discovery.
 - **Phases:**
   1. **Done:** the engine, the invitation, Receive, tests (above).
-  2. Android: hosting a Wi-Fi Direct group (5 GHz, then 2.4 GHz) and
-     joining with `WifiNetworkSpecifier`, sockets bound to the network,
-     `NEARBY_WIFI_DEVICES`. Android is the host for most pairs in
-     section 3, and phone ⇄ phone needs nothing else.
+  2. **Built; owed: a run on two phones.** Android
+     (`direct/android.rs`, `DirectLinkBridge.java`):
+     - Hosting: a Wi-Fi Direct group with DexDrop's name, passphrase and
+       band (`WifiP2pConfig.Builder`, Android 10+), 5 GHz first and
+       2.4 GHz when 5 GHz is refused; before Android 10 the system
+       chooses all three. The group's owner address (192.168.49.1,
+       a /24) is the invitation's host.
+     - Joining (Android 10+): `WifiNetworkSpecifier` with the name and
+       passphrase; the system asks the user once. The engine's sockets to
+       the host are bound to that network with the NDK's
+       `android_setsocknetwork`, as a joined network has no internet and
+       is not the default; leaving releases the request.
+     - Permission: hosting asks for Nearby devices
+       (`NEARBY_WIFI_DEVICES`, Android 13+) or fine location (Android 12
+       and earlier) the first time; a refusal says so. NSH's manifest
+       keys take permission names only, so the two with attributes
+       (`neverForLocation`; location only up to Android 12) come from
+       `android/direct-link.aar`'s manifest; CI's APK check reads both
+       attributes back.
+     - CI: the emulator check starts a direct link where its image offers
+       Wi-Fi Direct and expects it on or a reason, with no crash. A
+       transfer over it needs two phones.
+     - Android is the host for most pairs in section 3, and phone ⇄
+       phone needs nothing else.
   3. Linux (NetworkManager hotspot and join over D-Bus) and Windows (the
      Wi-Fi Direct publisher in legacy mode, the WLAN API to join).
   4. Joining on Apple devices: `NEHotspotConfiguration` on iOS (its
@@ -367,7 +387,7 @@ planner.
 | 1 | **Done:** address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
 | 2 | **Done:** the CLI's measurement line and the slow-Wi-Fi hint. Owed: the benchmark matrix on real devices (4.1.3) and the isolation hint (4.1.5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
 | 3 | **Built:** AWDL (4.2). Owed: a run on two Apple devices with no shared network | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
-| 4 | Direct link through QR or invitation (4.3). **Phase 1 done:** the engine, the invitation, Receive, tests. Next: Android host (5 GHz, then 2.4 GHz) and joiner, then Windows and Linux hosts, then the Apple joiners | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
+| 4 | Direct link through QR or invitation (4.3). **Phases 1 and 2 built:** the engine, the invitation, Receive, tests; Android hosting (5 GHz, then 2.4 GHz) and joining (owed: two phones). Next: Windows and Linux hosts, then the Apple joiners | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
 | 5 | BLE discovery + credential exchange (4.4) | All with Bluetooth | 3–4 weeks | Nearby devices appear and connect with no network and no QR code |
 | 6 | Link manager with upgrades in the middle of a transfer (4.5), parallel streams if measured (4.6) | All | 2–3 weeks | The best measured link, chosen and switched automatically; up to about 2× over a router for two wireless devices |
 

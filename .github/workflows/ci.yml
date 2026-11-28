@@ -272,9 +272,20 @@ jobs:
             grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
           done
           ! grep -q 'android.permission.MANAGE_EXTERNAL_STORAGE"' <<<"$manifest" || { echo "::error::the manifest asks for MANAGE_EXTERNAL_STORAGE"; exit 1; }
+          # The direct link (docs/CONNECTIVITY.md 4.3): Wi-Fi Direct and
+          # network requests; NEARBY_WIFI_DEVICES never for location and
+          # fine location only up to Android 12 (android/direct-link.aar),
+          # so Android 13+ never asks for location.
+          for want in CHANGE_WIFI_STATE ACCESS_WIFI_STATE CHANGE_NETWORK_STATE NEARBY_WIFI_DEVICES; do
+            grep -q "$want" <<<"$manifest" || { echo "::error::the manifest lacks $want"; exit 1; }
+          done
+          grep -A3 'NEARBY_WIFI_DEVICES"' <<<"$manifest" | grep -q usesPermissionFlags || { echo "::error::NEARBY_WIFI_DEVICES lost its neverForLocation flag"; exit 1; }
+          if grep -q 'ACCESS_FINE_LOCATION"' <<<"$manifest"; then
+            grep -A3 'ACCESS_FINE_LOCATION"' <<<"$manifest" | grep -q maxSdkVersion || { echo "::error::ACCESS_FINE_LOCATION is not limited to Android 12"; exit 1; }
+          fi
           "$aapt2" dump resources "$apk" | grep -q "ic_launcher" || { echo "::error::no launcher icon"; exit 1; }
           unzip -o -q "$apk" 'classes*.dex' -d "$RUNNER_TEMP/dex"
-          for class in NsdBridge TransferService AssetsBridge PickerActivity; do
+          for class in NsdBridge TransferService AssetsBridge PickerActivity DirectLinkBridge; do
             grep -qa "Ldev/dexdrop/$class;" "$RUNNER_TEMP"/dex/classes*.dex || { echo "::error::dev.dexdrop.$class (dexdrop-net's nsd.dex) is not in the APK"; exit 1; }
           done
       - uses: actions/upload-artifact@v4

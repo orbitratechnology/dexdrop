@@ -20,6 +20,21 @@ use std::{
 
 pub use dexdrop_core::invitation::{Band, DirectHint};
 
+#[cfg(any(target_os = "android", test))]
+mod android;
+#[cfg(target_os = "android")]
+pub use android::AndroidLink;
+
+/// This platform's direct link, if it has one yet (docs/CONNECTIVITY.md
+/// 4.3, phases): Android's from the app's Java VM on.
+pub fn platform() -> Option<std::sync::Arc<dyn DirectLink>> {
+    #[cfg(target_os = "android")]
+    if crate::jvm::has_context() {
+        return Some(std::sync::Arc::new(AndroidLink::default()));
+    }
+    None
+}
+
 /// A platform's way of hosting and joining a network for one transfer.
 pub trait DirectLink: Send + Sync + std::fmt::Debug + 'static {
     /// This device can host a network others join.

@@ -50,9 +50,9 @@ ndk-context = "0.1.1"
 # links this crate (https://nsh.dev/docs/nshm.md#what-the-packaged-app-needs).
 [package.metadata.nsh.android]
 # The Java bridges (android/dev/dexdrop, scripts/build-nsd-dex.sh): NsdManager
-# discovery, the installed apps (src/jvm.rs, src/apps.rs), and the foreground
+# discovery, the direct link (src/direct/android.rs), the installed apps (src/jvm.rs, src/apps.rs), and the foreground
 # service that keeps transfers going (src/android_service.rs).
-libraries = ["android/nsd.dex"]
+libraries = ["android/nsd.dex", "android/direct-link.aar"]
 # Android 11+ shows an app only the apps it queries: the launcher apps
 # Send › Apps lists (src/apps.rs).
 queries = ['<intent><action android:name="android.intent.action.MAIN"/></intent>']
@@ -68,6 +68,14 @@ permissions = [
     "FOREGROUND_SERVICE_DATA_SYNC",
     # TransferService's Wi-Fi locks while files move (no prompt).
     "WAKE_LOCK",
+    # The direct link (src/direct/android.rs, docs/CONNECTIVITY.md 4.3):
+    # hosting a Wi-Fi Direct group and joining a network for one transfer
+    # (no prompt for these; NEARBY_WIFI_DEVICES and location up to Android
+    # 12 come with their attributes from android/direct-link.aar).
+    "ACCESS_WIFI_STATE",
+    "CHANGE_WIFI_STATE",
+    "ACCESS_NETWORK_STATE",
+    "CHANGE_NETWORK_STATE",
     "READ_MEDIA_IMAGES",
     "READ_MEDIA_VIDEO",
     "READ_MEDIA_AUDIO",

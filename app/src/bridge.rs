@@ -107,13 +107,13 @@ mod native {
             },
             ..Default::default()
         });
-        // The direct link (docs/CONNECTIVITY.md 4.3): each platform's
-        // hosting and joining comes with its own module; until then, the
-        // loopback stand-in for headless tests.
-        if std::env::var("DEXDROP_DIRECT_LINK").as_deref() == Ok("loopback") {
-            config.direct_link =
-                Some(std::sync::Arc::new(dexdrop_net::direct::Loopback::default()));
-        }
+        // The direct link (docs/CONNECTIVITY.md 4.3): the platform's where it
+        // has one (Android), or the loopback stand-in for headless tests.
+        config.direct_link = if std::env::var("DEXDROP_DIRECT_LINK").as_deref() == Ok("loopback") {
+            Some(std::sync::Arc::new(dexdrop_net::direct::Loopback::default()))
+        } else {
+            dexdrop_net::direct::platform()
+        };
         if let Some(port) = std::env::var("DEXDROP_PORT")
             .ok()
             .and_then(|p| p.parse().ok())

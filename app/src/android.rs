@@ -1,8 +1,8 @@
 //! Android: what the app asks of the system through NSH's Android backend
 //! (`nsh-platform-android`, whose library is `nsh`): the runtime
 //! permissions to read photos, videos and audio for Send's media browser
-//! (`pages::library`), asked for and answered from Rust with the activity in
-//! front.
+//! (`pages::library`), and to host a direct link (`pages::receive`), asked
+//! for and answered from Rust with the activity in front.
 
 use dexdrop_net::assets::{self, Access};
 use nsh::permissions::{self, Permission};
@@ -34,4 +34,31 @@ pub async fn ask_media() -> Result<Access, String> {
         .await
         .map(|states| assets::android_access(names(), &granted(&states)))
         .map_err(|err| err.to_string())
+}
+
+/// What hosting a direct link (a Wi-Fi Direct group) needs: nearby Wi-Fi
+/// devices from Android 13 (declared never for location), fine location
+/// before (the manifest limits it to Android 12).
+fn direct_link_permissions() -> &'static [&'static str] {
+    if assets::android_api_level() >= 33 {
+        &["android.permission.NEARBY_WIFI_DEVICES"]
+    } else {
+        &["android.permission.ACCESS_FINE_LOCATION"]
+    }
+}
+
+/// Asks for what hosting a direct link needs, unless it is allowed
+/// already; whether it is allowed now.
+pub async fn ask_direct_link() -> bool {
+    let names = direct_link_permissions();
+    if permissions::states(names).is_ok_and(|s| s.iter().all(|s| *s == Permission::Granted)) {
+        return true;
+    }
+    match permissions::request(names).await {
+        Ok(states) => states.iter().all(|s| *s == Permission::Granted),
+        Err(err) => {
+            log::warn!("direct link: {err}");
+            false
+        }
+    }
 }
