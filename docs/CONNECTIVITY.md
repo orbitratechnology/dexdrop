@@ -119,6 +119,9 @@ host falls back to Iroh.
    - The transfer page shows a hint (`id:slow-link`): "This Wi-Fi is
      slow. Both devices on 5 GHz Wi-Fi, nearer the router, or on a cable
      go faster."
+   - It sits below Pause and Stop, so showing it never moves them
+     (run 121: above them, it pushed Pause under the tab bar of a
+     320 × 640 phone just as the emulator check tapped it).
    - It appears when a transfer on this network stays under 5 MB/s once
      its rate is steady, with 10 s or more left (`transfer::slow_nearby`).
    - The route was already shown (on this network, over the internet,

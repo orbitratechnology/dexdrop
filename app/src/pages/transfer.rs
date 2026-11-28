@@ -406,6 +406,20 @@ fn progress(id: TransferId) -> impl IntoElement {
                 )),
         )
         .child(peer_card(s))
+        .child(dynamic(move || {
+            let failures = s().failures;
+            (!failures.is_empty()).then(|| {
+                ui::tile().self_stretch().gap(px(space::XS)).children(
+                    failures.into_iter().take(5).map(|(path, why)| {
+                        muted(format!("{path}: {why}")).text_color(move || theme().destructive)
+                    }),
+                )
+            })
+        }))
+        .child(controls(id, s))
+        // Below the controls: shown a few seconds into a transfer, it must
+        // not move Pause and Stop as a finger reaches for them (run 121's
+        // emulator tapped where Pause had been and hit the tab bar).
         .child(when(
             move || slow_nearby(&s()),
             || {
@@ -427,17 +441,6 @@ fn progress(id: TransferId) -> impl IntoElement {
                     )
             },
         ))
-        .child(dynamic(move || {
-            let failures = s().failures;
-            (!failures.is_empty()).then(|| {
-                ui::tile().self_stretch().gap(px(space::XS)).children(
-                    failures.into_iter().take(5).map(|(path, why)| {
-                        muted(format!("{path}: {why}")).text_color(move || theme().destructive)
-                    }),
-                )
-            })
-        }))
-        .child(controls(id, s))
         .child(when(finished, move || after(s)))
         .child(file_section(s))
 }
