@@ -108,11 +108,13 @@ mod native {
             ..Default::default()
         });
         // The direct link (docs/CONNECTIVITY.md 4.3): the platform's where it
-        // has one (Android), or the loopback stand-in for headless tests.
-        config.direct_link = if std::env::var("DEXDROP_DIRECT_LINK").as_deref() == Ok("loopback") {
-            Some(std::sync::Arc::new(dexdrop_net::direct::Loopback::default()))
-        } else {
-            dexdrop_net::direct::platform()
+        // has one (Android, Linux), the loopback stand-in for headless tests,
+        // or none (`DEXDROP_DIRECT_LINK=none`: tests that must not find this
+        // computer's Wi-Fi).
+        config.direct_link = match std::env::var("DEXDROP_DIRECT_LINK").as_deref() {
+            Ok("loopback") => Some(std::sync::Arc::new(dexdrop_net::direct::Loopback::default())),
+            Ok("none") => None,
+            _ => dexdrop_net::direct::platform(),
         };
         if let Some(port) = std::env::var("DEXDROP_PORT")
             .ok()

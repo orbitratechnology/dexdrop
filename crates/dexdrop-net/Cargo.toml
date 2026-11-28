@@ -41,6 +41,11 @@ mdns-sd = { version = "0.22.0", features = ["async"] }
 # Android reaches the system's NsdManager through JNI (the version NSH uses),
 # with the Java VM and application Context NSH puts in ndk-context (which
 # Iroh's DNS resolver and network watcher read too).
+# Linux's direct link (src/direct/linux.rs): NetworkManager on the system
+# bus, with the zbus the keyring already builds.
+[target."cfg(target_os = \"linux\")".dependencies]
+zbus = "5"
+
 [target."cfg(target_os = \"android\")".dependencies]
 jni = "0.21"
 ndk-context = "0.1.1"

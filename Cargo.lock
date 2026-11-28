@@ -1564,6 +1564,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "zbus",
 ]
 
 [[package]]

@@ -657,3 +657,6 @@ Status: accepted (phase 1 built; platforms follow, docs/CONNECTIVITY.md 4.3).
   the user starts a direct link. The permissions that need manifest
   attributes come from a small `.aar` (`android/direct-link.aar`),
   because NSH's manifest keys take names only.
+- **Linux** (phase 3): NetworkManager over D-Bus (`zbus`, which the
+  keyring already builds), not `nmcli`: an access point with shared IPv4,
+  or a client connection, each added for the transfer and deleted after.

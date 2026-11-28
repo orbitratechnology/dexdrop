@@ -24,14 +24,22 @@ pub use dexdrop_core::invitation::{Band, DirectHint};
 mod android;
 #[cfg(target_os = "android")]
 pub use android::AndroidLink;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::NetworkManagerLink;
 
 /// This platform's direct link, if it has one yet (docs/CONNECTIVITY.md
-/// 4.3, phases): Android's from the app's Java VM on.
+/// 4.3, phases): Android's from the app's Java VM on; NetworkManager's on
+/// Linux (offered only where it finds a Wi-Fi device).
 pub fn platform() -> Option<std::sync::Arc<dyn DirectLink>> {
     #[cfg(target_os = "android")]
     if crate::jvm::has_context() {
         return Some(std::sync::Arc::new(AndroidLink::default()));
     }
+    #[cfg(target_os = "linux")]
+    return Some(std::sync::Arc::new(NetworkManagerLink::default()));
+    #[allow(unreachable_code)]
     None
 }
 

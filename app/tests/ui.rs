@@ -28,6 +28,8 @@ fn open(dir: &tempfile::TempDir) -> Headless {
         std::env::set_var("DEXDROP_NO_DISCOVERY", "1");
         // Keys stay in the test's files, not the machine's keyring.
         std::env::set_var("DEXDROP_KEY_STORE", "file");
+        // No direct link, whatever this computer's Wi-Fi can do.
+        std::env::set_var("DEXDROP_DIRECT_LINK", "none");
     }
     let mut config = EngineConfig::new(Root::of::<dexdrop_app::App>());
     config.data_dir = Some(dir.path().to_path_buf());
@@ -124,7 +126,7 @@ fn receive_shows_a_code_and_closes_it() {
     app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
         .unwrap();
     app.wait_for("id:copy-invitation").unwrap();
-    // No direct link where the platform has none (tests/direct.rs has one).
+    // No direct link without one (tests/direct.rs has one).
     assert!(app.screen().id("id:direct-link").is_err());
     app.press_key("escape").unwrap();
     app.wait_for_gone("Ready to receive", Duration::from_secs(5))
