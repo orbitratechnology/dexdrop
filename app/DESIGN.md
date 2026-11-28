@@ -159,6 +159,7 @@ remaining check.
 | Waiting | Radar pings around the avatar | Still circles |
 | Code refreshes | Text changes in place (a value) | — |
 | Copy invitation: press | Scale 0.97 | — |
+| Direct link: off → starting → on (or why not) | The row's content swaps in place; a spinner while it starts | The spinner stays still |
 
 ### Incoming request (sheet)
 

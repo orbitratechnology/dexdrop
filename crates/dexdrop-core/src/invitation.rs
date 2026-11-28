@@ -45,6 +45,69 @@ pub struct Invitation {
     pub expires: u64,
     /// How to reach the device over the internet, when it can be.
     pub remote: Option<RemoteHint>,
+    /// A network the device hosts for this transfer, for a device with no
+    /// network in common to join (docs/CONNECTIVITY.md 4.3). Last, so an
+    /// older version reads the rest and ignores it.
+    pub direct: Option<DirectHint>,
+}
+
+/// Invitations as versions before the direct link wrote them.
+#[derive(Deserialize)]
+struct InvitationV1 {
+    peer_id: PeerId,
+    name: String,
+    addrs: Vec<SocketAddr>,
+    token: [u8; 16],
+    expires: u64,
+    remote: Option<RemoteHint>,
+}
+
+impl From<InvitationV1> for Invitation {
+    fn from(v1: InvitationV1) -> Self {
+        Invitation {
+            peer_id: v1.peer_id,
+            name: v1.name,
+            addrs: v1.addrs,
+            token: v1.token,
+            expires: v1.expires,
+            remote: v1.remote,
+            direct: None,
+        }
+    }
+}
+
+/// A Wi-Fi network one device hosts for one transfer (a Wi-Fi Direct
+/// group, or an access point), with the credentials to join it. It travels
+/// only in an invitation, which the receiver shows to the sender; the
+/// device that joins still proves who it is with TLS.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectHint {
+    pub ssid: String,
+    pub passphrase: String,
+    pub band: Band,
+    /// The host's address on that network, where it listens.
+    pub host: SocketAddr,
+}
+
+impl DirectHint {
+    /// A name a Wi-Fi network can have (1 to 32 bytes) and a WPA2
+    /// passphrase (8 to 63 printable ASCII characters).
+    pub fn is_valid(&self) -> bool {
+        (1..=32).contains(&self.ssid.len())
+            && (8..=63).contains(&self.passphrase.len())
+            && self.passphrase.bytes().all(|b| (0x20..0x7f).contains(&b))
+    }
+}
+
+/// The band a hosted network uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Band {
+    /// 5 GHz: faster, shorter range.
+    Ghz5,
+    /// 2.4 GHz, when 5 GHz is not allowed.
+    Ghz2_4,
+    /// The system chose.
+    Auto,
 }
 
 /// The internet address of an invited device: its raw Ed25519 public key
@@ -95,10 +158,17 @@ impl Invitation {
         let bytes = BASE32_NOPAD
             .decode(body.as_bytes())
             .map_err(|_| InviteError::Malformed)?;
-        let invitation: Invitation =
-            postcard::from_bytes(&bytes).map_err(|_| InviteError::Malformed)?;
+        let invitation: Invitation = match postcard::from_bytes(&bytes) {
+            Ok(invitation) => invitation,
+            Err(_) => postcard::from_bytes::<InvitationV1>(&bytes)
+                .map_err(|_| InviteError::Malformed)?
+                .into(),
+        };
         if invitation.addrs.len() > 16
-            || (invitation.addrs.is_empty() && invitation.remote.is_none())
+            || (invitation.addrs.is_empty()
+                && invitation.remote.is_none()
+                && invitation.direct.is_none())
+            || invitation.direct.as_ref().is_some_and(|d| !d.is_valid())
         {
             return Err(InviteError::Malformed);
         }
@@ -187,6 +257,7 @@ impl InvitationBook {
             token: random_bytes::<16>(),
             expires: unix_now() + ttl,
             remote,
+            direct: None,
         };
         self.open.push(Open {
             token: invitation.token,
@@ -357,7 +428,94 @@ mod tests {
             token: [5; 16],
             expires,
             remote: None,
+            direct: None,
         }
+    }
+
+    fn hint() -> DirectHint {
+        DirectHint {
+            ssid: "DIRECT-k7-DexDrop".into(),
+            passphrase: "QX9MK7P2RT4V".into(),
+            band: Band::Ghz5,
+            host: "192.168.49.1:47820".parse().unwrap(),
+        }
+    }
+
+    /// A direct link's network travels in the invitation, alone if the
+    /// device has no other address.
+    #[test]
+    fn a_direct_link_travels_in_the_invitation() {
+        let mut inv = sample(u64::MAX / 2);
+        inv.addrs.clear();
+        inv.direct = Some(hint());
+        let back = Invitation::decode(&inv.encode(), 0).unwrap();
+        assert_eq!(back.direct, Some(hint()));
+    }
+
+    /// Credentials no Wi-Fi network can have make the invitation invalid.
+    #[test]
+    fn a_direct_link_must_be_joinable() {
+        for broken in [
+            DirectHint {
+                ssid: String::new(),
+                ..hint()
+            },
+            DirectHint {
+                ssid: "x".repeat(33),
+                ..hint()
+            },
+            DirectHint {
+                passphrase: "short".into(),
+                ..hint()
+            },
+            DirectHint {
+                passphrase: "tab\there!".into(),
+                ..hint()
+            },
+        ] {
+            let mut inv = sample(u64::MAX / 2);
+            inv.direct = Some(broken);
+            assert_eq!(
+                Invitation::decode(&inv.encode(), 0),
+                Err(InviteError::Malformed)
+            );
+        }
+    }
+
+    /// An invitation from a version before the direct link still reads,
+    /// and one with a direct link reads in such a version, the link left
+    /// out.
+    #[test]
+    fn invitations_read_across_versions() {
+        #[derive(Serialize)]
+        struct Old<'a> {
+            peer_id: PeerId,
+            name: &'a str,
+            addrs: Vec<SocketAddr>,
+            token: [u8; 16],
+            expires: u64,
+            remote: Option<RemoteHint>,
+        }
+        let new = sample(u64::MAX / 2);
+        let old = Old {
+            peer_id: new.peer_id,
+            name: &new.name,
+            addrs: new.addrs.clone(),
+            token: new.token,
+            expires: new.expires,
+            remote: None,
+        };
+        let text = format!(
+            "{PREFIX}{}",
+            BASE32_NOPAD.encode(&postcard::to_stdvec(&old).unwrap())
+        );
+        assert_eq!(Invitation::decode(&text, 0).unwrap(), new);
+
+        let mut with_link = sample(u64::MAX / 2);
+        with_link.direct = Some(hint());
+        let bytes = postcard::to_stdvec(&with_link).unwrap();
+        let read: InvitationV1 = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(Invitation::from(read), sample(u64::MAX / 2));
     }
 
     #[test]

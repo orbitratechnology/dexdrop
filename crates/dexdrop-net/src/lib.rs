@@ -9,6 +9,7 @@
 pub mod android_service;
 pub mod apps;
 pub mod assets;
+pub mod direct;
 pub mod discovery;
 pub mod engine;
 mod incoming;

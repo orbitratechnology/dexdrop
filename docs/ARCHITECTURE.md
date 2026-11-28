@@ -629,3 +629,24 @@ DexDrop was audited against them; the decisions:
   - Desktop "Open With" by file type: Windows and Linux match by extension,
     and DexDrop takes any file, so it lists none (docs/PACKAGING.md).
   - No updater yet: it matters once desktop builds are distributed.
+
+## ADR-011: The direct link — the receiver hosts, the invitation carries it
+
+Status: accepted (phase 1 built; platforms follow, docs/CONNECTIVITY.md 4.3).
+
+- **One mechanism.** One device hosts a WPA2 network with credentials made
+  for one transfer and the other joins it, whatever the platforms
+  (`direct::DirectLink`, one module per platform, owned by the engine).
+- **The receiver hosts, when asked.** The device showing the QR code is
+  the one the sender must reach, so it hosts and its invitation carries
+  the network. Hosting is the user's choice on Receive, never automatic:
+  a phone that hosts may leave its own Wi-Fi.
+- **The credentials go only in the invitation.** They are random,
+  short-lived, used for one transfer, and the device that joins still
+  proves itself with TLS and the invitation's token.
+- **Order:** the network in common, then the direct link, then the
+  internet; one at a time, so an invitation's proof goes on one
+  connection only.
+- **Lifetime:** hosting ends when the user stops it or leaves Receive,
+  but never under a transfer that uses it.
+- **Route:** `PeerToPeer` ("Directly over Wi-Fi"), as for AWDL.

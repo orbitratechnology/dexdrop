@@ -3,6 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use dexdrop_core::api::Route;
 use dexdrop_core::protocol::{Pairing, clean_name};
 use dexdrop_core::{
     protocol::{Hello, Message, RejectReason},
@@ -53,6 +54,15 @@ async fn run(ctx: Arc<Ctx>, link: tls::BoxLink, via: Via) -> Result<(), SessionE
         ));
     }
     let route = match &via {
+        // A device that joined the network this one hosts came over the
+        // direct link.
+        Via::Nearby(peer)
+            if crate::engine::lock(&ctx.hosted)
+                .as_ref()
+                .is_some_and(|h| h.contains(peer.ip())) =>
+        {
+            Route::PeerToPeer
+        }
         Via::Nearby(peer) => crate::link::local_route(*peer),
         Via::Internet(conn) => crate::remote::route(conn),
     };

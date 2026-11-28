@@ -229,6 +229,7 @@ Audited 2026-11-23 against the PRD's technology stack.
 | Separate modules | discovery / connection / orchestration / streaming | `discovery/`, `tls.rs` + `remote.rs` (connection), `engine.rs` (orchestration), `session.rs` (streaming); sessions run over any `AsyncRead + AsyncWrite` (`BoxLink`), so a transport is swappable | Done |
 | Discovery | mDNS + DNS-SD, Bonjour, Android NSD | Bonjour on Apple, NSD on Android, mdns-sd on Windows and Linux (not Avahi's API; it shares the port) | Done |
 | QR / short codes | QR + codes | QR invitations (shown, copied, imported from an image or a photo taken with the camera) and 8-character codes proven with SPAKE2 | Done |
+| Direct link (no network in common) | — | The engine's side built (ADR-011): the receiver hosts a network for one transfer, the invitation carries it, the sender joins it, the route says "Directly over Wi-Fi"; tested with a loopback stand-in | Platforms owed: Android first (Wi-Fi Direct group and `WifiNetworkSpecifier`), then Linux and Windows, then the Apple joiners (docs/CONNECTIVITY.md 4.3) |
 | BLE | optional | — | Planned after v1: discovery and credentials for a direct link, never the data (docs/CONNECTIVITY.md, 4.4) |
 | Identity | public-key | Ed25519 device key in the OS keystore, pinned certificates, verification number, trust list | Done |
 | Encryption | TLS 1.3 | rustls, TLS 1.3 only, mutual | Done |

@@ -1,7 +1,10 @@
 //! Receiving: this device on a radar, ready for nearby devices, with a
 //! code and a QR code for devices that cannot see it (FR-020).
 
-use dexdrop_core::api::Command;
+use dexdrop_core::{
+    api::{Command, DirectState},
+    invitation::Band,
+};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
@@ -138,6 +141,8 @@ fn code_card() -> impl IntoElement {
                     .on_press(|| bridge::send(Command::CreateCode))
             },
         ))
+        // Before the QR code, which it then explains, and above the fold.
+        .child(direct_link())
         .child(dynamic(move || {
             invitation().map(|inv| {
                 // The link first: on a short phone the QR code may need a
@@ -156,6 +161,102 @@ fn code_card() -> impl IntoElement {
                     .child(ui::qr(inv.qr_width, inv.qr_modules.clone(), 188.0))
             })
         }))
+}
+
+/// The band's name, as the hosted network says it.
+fn band_words(band: Band) -> &'static str {
+    match band {
+        Band::Ghz5 => " (5 GHz)",
+        Band::Ghz2_4 => " (2.4 GHz)",
+        Band::Auto => "",
+    }
+}
+
+/// A network this device hosts for one transfer (docs/CONNECTIVITY.md
+/// 4.3), for a device with no network in common: its QR code then carries
+/// the network, and the other device joins it when it scans the code. Only
+/// where this device can host one; nothing changes elsewhere.
+fn direct_link() -> impl IntoElement {
+    let state = computed(move || {
+        engine::status().with(|engine::EngineStatus(status)| {
+            status
+                .as_ref()
+                .map(|s| s.direct.clone())
+                .unwrap_or_default()
+        })
+    });
+    dynamic(move || match state.get() {
+        DirectState::Unavailable => None,
+        DirectState::Off => Some(
+            view()
+                .items_center()
+                .gap(px(space::XS))
+                .child(muted("Not on the same Wi-Fi?"))
+                .child(
+                    ui::icon_btn(Icon::Wifi, "Start a direct link", Variant::Plain)
+                        .test_id("direct-link")
+                        .on_press(|| bridge::send(Command::HostDirectLink)),
+                )
+                .into_element(),
+        ),
+        DirectState::Starting => Some(
+            view()
+                .flex_row()
+                .items_center()
+                .gap(px(space::S))
+                .child(ui::spinner(16.0))
+                .child(muted("Starting a direct link…"))
+                .into_element(),
+        ),
+        DirectState::Hosting { band, .. } => Some(
+            view()
+                .self_stretch()
+                .items_center()
+                .gap(px(space::S))
+                .child(
+                    view()
+                        .test_id("direct-link-on")
+                        .flex_row()
+                        .items_center()
+                        .gap(px(space::S))
+                        .child(ui::icon(Icon::Wifi, 16.0, move || {
+                            ui::tone_color(ui::Tone::Success)
+                        }))
+                        .child(
+                            muted(format!(
+                                "Direct link on{}. The other device joins it when it scans \
+                                 this QR code.",
+                                band_words(band)
+                            ))
+                            .flex_1(),
+                        ),
+                )
+                .child(
+                    ui::icon_btn(Icon::X, "Stop the direct link", Variant::Plain)
+                        .test_id("direct-link-stop")
+                        .on_press(|| bridge::send(Command::StopDirectLink)),
+                )
+                .into_element(),
+        ),
+        DirectState::Failed(why) => Some(
+            view()
+                .self_stretch()
+                .items_center()
+                .gap(px(space::S))
+                .child(
+                    muted(format!("The direct link could not start. {why}"))
+                        .text_color(move || theme().destructive)
+                        .w_full()
+                        .text_center(),
+                )
+                .child(
+                    ui::icon_btn(Icon::Refresh, "Try again", Variant::Plain)
+                        .test_id("direct-link")
+                        .on_press(|| bridge::send(Command::HostDirectLink)),
+                )
+                .into_element(),
+        ),
+    })
 }
 
 #[cfg(test)]

@@ -178,6 +178,36 @@ One mechanism serves every pair in section 3: **one device hosts a
 WPA2 network with credentials chosen for this transfer, and the other
 joins it.**
 
+**Phase 1 built: the engine's side, on every platform.** What each
+platform's radio does comes next (see "Phases" at the end of this
+section).
+
+- `direct::DirectLink` (`host`, `stop`, `join`; `can_host`, `can_join`)
+  is what a platform implements; the engine owns it
+  (`EngineConfig::direct_link`) and calls it on blocking threads.
+  `direct::Loopback` stands in for a radio in tests.
+- The receiver hosts: Receive shows "Not on the same Wi-Fi? Start a
+  direct link" where the device can host one (`Command::HostDirectLink`,
+  `Status::direct`). Once the network is up, a new invitation carries it
+  (`Invitation::direct`: name, passphrase, band, the host's address), so
+  the QR code the sender scans holds everything needed to join.
+- Invitations stay readable across versions: an older version reads one
+  with a direct link and ignores the link, and this one reads older ones.
+- The sender tries, one at a time: the network in common (there may be
+  one after all), then joins the hosted network and connects through
+  what the join returned (`Joined::prepare`, where Android will bind the
+  socket), then the internet. The joined network is kept for the
+  transfer's reconnections and left when it ends.
+- Both ends report the route as `PeerToPeer`, "Directly over Wi-Fi": the
+  receiver recognizes devices that joined its network by their address.
+- Hosting stops when the user stops it or leaves Receive, but never under
+  a transfer that uses it: then it stops when that transfer ends.
+- Tests: `tests/direct.rs` in the engine (a transfer over the hosted
+  network with nothing else in common; hosting outliving the invitation
+  while a transfer runs; a network that cannot start says why; nothing
+  without a link) and in the app (Receive's states, pictures in
+  `target/shots/direct`).
+
 - **The host:**
   - Android creates a Wi-Fi Direct group with `WifiP2pConfig.Builder`:
     a random SSID (`DIRECT-xx-DexDrop`) and passphrase, band 5 GHz first
@@ -231,6 +261,19 @@ joins it.**
 - **Effort:** medium to large. It is one module per platform behind one
   `DirectLink` trait (`host()`, `join(credentials)`, `close()`), owned by
   the engine like discovery.
+- **Phases:**
+  1. **Done:** the engine, the invitation, Receive, tests (above).
+  2. Android: hosting a Wi-Fi Direct group (5 GHz, then 2.4 GHz) and
+     joining with `WifiNetworkSpecifier`, sockets bound to the network,
+     `NEARBY_WIFI_DEVICES`. Android is the host for most pairs in
+     section 3, and phone ⇄ phone needs nothing else.
+  3. Linux (NetworkManager hotspot and join over D-Bus) and Windows (the
+     Wi-Fi Direct publisher in legacy mode, the WLAN API to join).
+  4. Joining on Apple devices: `NEHotspotConfiguration` on iOS (its
+     entitlement and one system prompt), CoreWLAN on a Mac.
+  5. Hosting from the sender's side too, for pairs where only the sender
+     can host (an iPhone receiving from an Android phone): with BLE (4.4)
+     or a QR code the sender shows.
 
 ### 4.4 BLE: finding each other and handing over credentials
 
@@ -324,7 +367,7 @@ planner.
 | 1 | **Done:** address racing + LAN/Iroh race (4.1.1), Android WifiLock (4.1.2) | All, Android | Days | Setup from seconds to under one when a device has several addresses; steadier and often faster Android transfers |
 | 2 | **Done:** the CLI's measurement line and the slow-Wi-Fi hint. Owed: the benchmark matrix on real devices (4.1.3) and the isolation hint (4.1.5) | All | Days | Numbers for every later decision; users told why a transfer is slow |
 | 3 | **Built:** AWDL (4.2). Owed: a run on two Apple devices with no shared network | iOS, macOS | 1–2 weeks | Apple devices transfer with no shared network, at AirDrop-like speeds |
-| 4 | Direct link through QR or invitation (4.3): Android host (5 GHz, then 2.4 GHz), Windows and Linux hosts; joiners on every platform | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
+| 4 | Direct link through QR or invitation (4.3). **Phase 1 done:** the engine, the invitation, Receive, tests. Next: Android host (5 GHz, then 2.4 GHz) and joiner, then Windows and Linux hosts, then the Apple joiners | All | 3–5 weeks | Every pair in section 3 works with no shared network or internet, typically 20–60 MB/s at 5 GHz; no mobile data spent between nearby devices |
 | 5 | BLE discovery + credential exchange (4.4) | All with Bluetooth | 3–4 weeks | Nearby devices appear and connect with no network and no QR code |
 | 6 | Link manager with upgrades in the middle of a transfer (4.5), parallel streams if measured (4.6) | All | 2–3 weeks | The best measured link, chosen and switched automatically; up to about 2× over a router for two wireless devices |
 

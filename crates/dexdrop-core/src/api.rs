@@ -67,6 +67,11 @@ pub enum Command {
     /// This device's avatar ([`crate::avatar`]); `None`: its initial.
     SetAvatar(Option<String>),
     SetVisible(bool),
+    /// Hosts a direct link (a network for one transfer) and shows a new
+    /// invitation carrying it.
+    HostDirectLink,
+    /// Stops hosting once no transfer uses it.
+    StopDirectLink,
     SetDownloadDir(Option<PathBuf>),
     SetAutoAcceptTrusted(bool),
     SetKeepHistory(bool),
@@ -120,6 +125,29 @@ pub struct Status {
     /// endpoint started).
     pub internet: bool,
     pub avatar: Option<String>,
+    /// The network this device can host for one transfer.
+    pub direct: DirectState,
+    /// This device can join a network another device hosts.
+    pub direct_join: bool,
+}
+
+/// This device's direct link (docs/CONNECTIVITY.md 4.3): a Wi-Fi network
+/// it hosts for one transfer, which a device with no network in common
+/// joins with the credentials in the invitation.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DirectState {
+    /// This device cannot host one.
+    #[default]
+    Unavailable,
+    Off,
+    Starting,
+    /// Up: its name, which the invitation now carries, and its band.
+    Hosting {
+        ssid: String,
+        band: crate::invitation::Band,
+    },
+    /// It could not start; why, in words for the user.
+    Failed(String),
 }
 
 /// How a connection reaches the other device. A relay is always shown
@@ -129,7 +157,8 @@ pub enum Route {
     /// The local network.
     Nearby,
     /// Wi-Fi from one device straight to the other, with no network in
-    /// common (Apple's peer-to-peer Wi-Fi).
+    /// common: Apple's peer-to-peer Wi-Fi, or a network one of them hosts
+    /// (a direct link).
     PeerToPeer,
     /// The internet, on a direct path.
     Direct,

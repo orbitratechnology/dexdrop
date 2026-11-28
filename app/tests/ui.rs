@@ -124,6 +124,8 @@ fn receive_shows_a_code_and_closes_it() {
     app.wait_for_within("label:QR code invitation", Duration::from_secs(10))
         .unwrap();
     app.wait_for("id:copy-invitation").unwrap();
+    // No direct link where the platform has none (tests/direct.rs has one).
+    assert!(app.screen().id("id:direct-link").is_err());
     app.press_key("escape").unwrap();
     app.wait_for_gone("Ready to receive", Duration::from_secs(5))
         .unwrap();

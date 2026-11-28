@@ -71,6 +71,9 @@ pub struct EngineConfig {
     /// Where a new identity's private key is kept (and where an existing
     /// one moves to): the platform's choice unless set.
     pub key_storage: dexdrop_core::keystore::KeyStorage,
+    /// Hosting and joining a network for one transfer (the direct link,
+    /// docs/CONNECTIVITY.md 4.3); `None` where the platform has none yet.
+    pub direct_link: Option<Arc<dyn crate::direct::DirectLink>>,
 }
 
 impl EngineConfig {
@@ -93,6 +96,7 @@ impl EngineConfig {
             max_send_rate: None,
             max_receive_rate: None,
             key_storage: dexdrop_core::keystore::KeyStorage::platform_default(),
+            direct_link: None,
         }
     }
 }
@@ -251,6 +255,8 @@ pub async fn spawn(
         internal: internal_tx.clone(),
         remote: remote.clone(),
         known: Mutex::new(dexdrop_core::store::KnownPeers::load(&state.known())),
+        direct: config.direct_link.clone(),
+        hosted: Mutex::new(None),
     });
 
     // Incoming internet connections: the same handler as local ones, a
@@ -343,7 +349,12 @@ pub async fn spawn(
         internal: None,
         group_manifest: None,
         selected: Vec::new(),
+        direct_state: DirectState::Unavailable,
+        direct_stop: false,
     };
+    if actor.ctx.direct.as_ref().is_some_and(|d| d.can_host()) {
+        actor.direct_state = DirectState::Off;
+    }
     actor.boot(internal_tx);
     tokio::spawn(async move {
         actor.run(cmd_rx, internal_rx).await;
@@ -414,6 +425,10 @@ pub(crate) struct Ctx {
     pub remote: Option<iroh::Endpoint>,
     /// Devices this one exchanged files with: reachable over the internet.
     pub known: Mutex<dexdrop_core::store::KnownPeers>,
+    /// The platform's direct link, if it has one.
+    pub direct: Option<Arc<dyn crate::direct::DirectLink>>,
+    /// The network this device hosts now, if any.
+    pub hosted: Mutex<Option<crate::direct::Hosted>>,
 }
 
 impl Ctx {
@@ -503,6 +518,10 @@ pub(crate) enum Internal {
         id: TransferId,
         state: TransferState,
     },
+    /// Hosting a direct link started, or could not.
+    DirectHosted(Result<crate::direct::Hosted, String>),
+    /// The platform stopped hosting.
+    DirectStopped,
 }
 
 struct Transfer {
@@ -609,6 +628,9 @@ struct Actor {
     group_manifest: Option<(TransferId, Vec<PathBuf>, Arc<Manifest>)>,
     /// What the app has selected to send (`Command::KeepPicked`).
     selected: Vec<PathBuf>,
+    direct_state: DirectState,
+    /// Hosting stops once no incoming transfer uses the network.
+    direct_stop: bool,
 }
 
 const MAX_PENDING_REQUESTS: usize = 8;
@@ -874,6 +896,11 @@ impl Actor {
             }
         }
         self.shutdown();
+        if lock(&self.ctx.hosted).take().is_some()
+            && let Some(link) = self.ctx.direct.clone()
+        {
+            let _ = tokio::task::spawn_blocking(move || link.stop()).await;
+        }
         // Iroh says goodbye to peers and relays before the runtime stops.
         if let Some(endpoint) = self.ctx.remote.clone() {
             let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.close()).await;
@@ -957,7 +984,11 @@ impl Actor {
                 lock(&self.ctx.invitations).clear();
                 self.readvertise();
                 self.emit(Event::InvitationsClosed);
+                // No one else can join without an invitation.
+                self.stop_hosting_when_idle();
             }
+            Command::HostDirectLink => self.host_direct_link(),
+            Command::StopDirectLink => self.stop_hosting_when_idle(),
             Command::SetDeviceName(name) => {
                 let name: String = name.trim().chars().take(48).collect();
                 if name.is_empty() {
@@ -1347,7 +1378,16 @@ impl Actor {
             .take(4)
             .map(|ip| SocketAddr::new(*ip, self.port))
             .collect();
-        if addrs.is_empty() && self.ctx.remote.is_none() {
+        let direct =
+            lock(&self.ctx.hosted)
+                .as_ref()
+                .map(|h| dexdrop_core::invitation::DirectHint {
+                    ssid: h.ssid.clone(),
+                    passphrase: h.passphrase.clone(),
+                    band: h.band,
+                    host: SocketAddr::new(h.ip, self.port),
+                });
+        if addrs.is_empty() && self.ctx.remote.is_none() && direct.is_none() {
             self.notice(
                 NoticeKind::Error,
                 "This device is not connected to a network.",
@@ -1361,13 +1401,14 @@ impl Actor {
                 relay: crate::remote::home_relay(endpoint),
             })
         });
-        let inv = lock(&self.ctx.invitations).create(
+        let mut inv = lock(&self.ctx.invitations).create(
             self.ctx.identity.peer_id(),
             &name,
             addrs,
             remote,
             DEFAULT_TTL_SECS,
         );
+        inv.direct = direct;
         let text = inv.encode();
         let (qr_width, qr_modules) = invitation::qr_matrix(&text).unwrap_or((0, Vec::new()));
         self.emit(Event::Invitation(InvitationView {
@@ -1376,6 +1417,101 @@ impl Actor {
             qr_modules,
             expires: inv.expires,
         }));
+    }
+
+    // ------------------------------------------------------------ direct link
+
+    /// Starts hosting a network for one transfer (off the engine's thread:
+    /// the platform's call blocks); a new invitation carries it once up.
+    fn host_direct_link(&mut self) {
+        let Some(link) = self.ctx.direct.clone().filter(|d| d.can_host()) else {
+            self.notice(NoticeKind::Error, "This device cannot host a direct link.");
+            return;
+        };
+        self.direct_stop = false;
+        match self.direct_state {
+            DirectState::Starting => return,
+            // Up (not on its way down): a new invitation is all it takes.
+            DirectState::Hosting { .. } if lock(&self.ctx.hosted).is_some() => {
+                self.create_invitation();
+                return;
+            }
+            _ => {}
+        }
+        self.direct_state = DirectState::Starting;
+        self.emit_status();
+        let internal = self.ctx.internal.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = internal.send(Internal::DirectHosted(link.host()));
+        });
+    }
+
+    fn direct_hosted(&mut self, result: Result<crate::direct::Hosted, String>) {
+        match result {
+            // Stopped while it started: it ends at once.
+            Ok(_) if self.direct_stop || self.direct_state != DirectState::Starting => {
+                self.stop_link();
+                self.direct_stop = false;
+                self.direct_state = DirectState::Off;
+            }
+            Ok(hosted) => {
+                self.direct_state = DirectState::Hosting {
+                    ssid: hosted.ssid.clone(),
+                    band: hosted.band,
+                };
+                *lock(&self.ctx.hosted) = Some(hosted);
+                // Said before the new invitation that carries it.
+                self.emit_status();
+                self.create_invitation();
+                return;
+            }
+            Err(why) => self.direct_state = DirectState::Failed(why),
+        }
+        self.emit_status();
+    }
+
+    /// Stops hosting once no incoming transfer runs over the network (a
+    /// transfer that started keeps it until it ends).
+    fn stop_hosting_when_idle(&mut self) {
+        match self.direct_state {
+            DirectState::Starting => {
+                self.direct_stop = true;
+                return;
+            }
+            DirectState::Hosting { .. } => {}
+            DirectState::Failed(_) => {
+                self.direct_state = DirectState::Off;
+                self.emit_status();
+                return;
+            }
+            DirectState::Off | DirectState::Unavailable => return,
+        }
+        let in_use = self.transfers.values().any(|t| {
+            t.snap.direction == dexdrop_core::store::Direction::Incoming
+                && t.running
+                && t.snap.route == Some(Route::PeerToPeer)
+        });
+        if in_use {
+            self.direct_stop = true;
+            return;
+        }
+        self.direct_stop = false;
+        // No new invitation carries it from now on; the state says Off once
+        // the platform has stopped it (`Internal::DirectStopped`).
+        lock(&self.ctx.hosted).take();
+        self.stop_link();
+    }
+
+    /// Stops the platform's network off the engine's thread, then says so.
+    fn stop_link(&self) {
+        let Some(link) = self.ctx.direct.clone() else {
+            return;
+        };
+        let internal = self.ctx.internal.clone();
+        tokio::task::spawn_blocking(move || {
+            link.stop();
+            let _ = internal.send(Internal::DirectStopped);
+        });
     }
 
     // ------------------------------------------------------------ internal
@@ -1406,7 +1542,21 @@ impl Actor {
                 id,
                 result,
                 journal,
-            } => self.incoming_ended(id, result, *journal),
+            } => {
+                self.incoming_ended(id, result, *journal);
+                if self.direct_stop {
+                    self.stop_hosting_when_idle();
+                }
+            }
+            Internal::DirectHosted(result) => self.direct_hosted(result),
+            Internal::DirectStopped => {
+                if lock(&self.ctx.hosted).is_none()
+                    && matches!(self.direct_state, DirectState::Hosting { .. })
+                {
+                    self.direct_state = DirectState::Off;
+                    self.emit_status();
+                }
+            }
             Internal::ManifestReady {
                 ids,
                 group,
@@ -1871,6 +2021,8 @@ impl Actor {
             discovery: self.discovery_status.clone(),
             internet: self.ctx.remote.is_some(),
             avatar: settings.avatar,
+            direct: self.direct_state.clone(),
+            direct_join: self.ctx.direct.as_ref().is_some_and(|d| d.can_join()),
         }));
     }
 

@@ -65,11 +65,14 @@ struct Connected {
     addr: Option<SocketAddr>,
     /// The internet connection, to follow its route.
     internet: Option<iroh::endpoint::Connection>,
+    /// It goes over a network the other device hosts (the direct link).
+    direct: bool,
 }
 
 impl Connected {
     fn route(&self) -> dexdrop_core::api::Route {
         match (&self.internet, self.addr) {
+            _ if self.direct => dexdrop_core::api::Route::PeerToPeer,
             (Some(conn), _) => crate::remote::route(conn),
             (None, Some(addr)) => crate::link::local_route(addr),
             (None, None) => dexdrop_core::api::Route::Nearby,
@@ -97,6 +100,10 @@ struct Route {
     /// The device's internet address (raw Ed25519 key) and relay hint, from
     /// an invitation; for a known device it is looked up when dialing.
     remote: Option<([u8; 32], Option<String>)>,
+    /// A network the device hosts for this transfer, from an invitation.
+    direct: Option<dexdrop_core::invitation::DirectHint>,
+    /// That network, once joined: kept for the transfer, left when it ends.
+    joined: Option<Arc<dyn crate::direct::Joined>>,
 }
 
 fn route_of(target: &Target) -> Result<Route, String> {
@@ -107,6 +114,8 @@ fn route_of(target: &Target) -> Result<Route, String> {
             pairing: None,
             code: None,
             remote: None,
+            direct: None,
+            joined: None,
         },
         Target::Invitation(text) => {
             let inv = Invitation::decode(text, unix_now()).map_err(|e| e.to_string())?;
@@ -116,6 +125,8 @@ fn route_of(target: &Target) -> Result<Route, String> {
                 pairing: Some(Proof::Token(inv.token)),
                 code: None,
                 remote: inv.remote.map(|r| (r.key, r.relay)),
+                direct: inv.direct,
+                joined: None,
             }
         }
         Target::Code(code) => Route {
@@ -124,6 +135,8 @@ fn route_of(target: &Target) -> Result<Route, String> {
             pairing: None,
             code: Some(normalize_code(code).ok_or("Codes have 8 letters and digits.")?),
             remote: None,
+            direct: None,
+            joined: None,
         },
         Target::Address { addr, peer_id } => Route {
             pinned: *peer_id,
@@ -131,6 +144,8 @@ fn route_of(target: &Target) -> Result<Route, String> {
             pairing: None,
             code: None,
             remote: None,
+            direct: None,
+            joined: None,
         },
     })
 }
@@ -157,7 +172,7 @@ async fn drive(ctx: &Arc<Ctx>, job: &mut Job) -> TransferState {
             return TransferState::Cancelled { by_peer: false };
         }
         report(ctx, job.id, TransferState::Connecting);
-        let connected = connect(ctx, &route).await;
+        let connected = connect(ctx, &mut route).await;
         let mut c = match connected {
             Ok(c) => c,
             Err(ConnectError::Rejected(RejectReason::Busy)) => {
@@ -384,7 +399,7 @@ async fn wait_for_run(control: &mut watch::Receiver<Control>) -> Control {
     }
 }
 
-async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
+async fn connect(ctx: &Ctx, route: &mut Route) -> Result<Connected, ConnectError> {
     if let Some(code) = &route.code {
         let candidates: Vec<_> = lock(&ctx.peers)
             .values()
@@ -439,6 +454,36 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
         (Some(endpoint), Some((key, relay))) => Some((endpoint, key, relay)),
         _ => None,
     };
+    // A network the device hosts for this transfer (the direct link): the
+    // network in common first, as there may be one after all, then the
+    // direct link, then the internet. One at a time, so an invitation's
+    // proof goes on one connection only.
+    if let Some(hint) = route
+        .direct
+        .clone()
+        .filter(|_| ctx.direct.as_ref().is_some_and(|d| d.can_join()))
+    {
+        if !addrs.is_empty() {
+            match connect_raced(ctx, addrs, route.pinned, route.pairing.clone()).await {
+                Ok(c) => return Ok(c),
+                Err(err @ ConnectError::Rejected(_)) => return Err(err),
+                // The direct link's error says more than this network's.
+                Err(_) => {}
+            }
+        }
+        let last = match connect_direct(ctx, route, &hint).await {
+            Ok(c) => return Ok(c),
+            Err(err @ ConnectError::Rejected(_)) => return Err(err),
+            Err(err) => err,
+        };
+        return match internet {
+            Some((endpoint, key, relay)) => pick(
+                last,
+                connect_remote(ctx, endpoint, &key, relay.as_deref(), route).await,
+            ),
+            None => Err(last),
+        };
+    }
     let lan = connect_raced(ctx, addrs.clone(), route.pinned, route.pairing.clone());
     let Some((endpoint, key, relay)) = internet else {
         return lan.await;
@@ -485,6 +530,57 @@ async fn connect(ctx: &Ctx, route: &Route) -> Result<Connected, ConnectError> {
             },
         },
     }
+}
+
+/// Joins the network the device hosts (once for the transfer: later
+/// connections reuse it) and connects to the device there.
+async fn connect_direct(
+    ctx: &Ctx,
+    route: &mut Route,
+    hint: &dexdrop_core::invitation::DirectHint,
+) -> Result<Connected, ConnectError> {
+    let joined = match &route.joined {
+        Some(joined) => joined.clone(),
+        None => {
+            let link = ctx.direct.clone().ok_or_else(|| {
+                ConnectError::Unreachable("This device cannot join a direct link.".into())
+            })?;
+            let wanted = hint.clone();
+            let joined = tokio::task::spawn_blocking(move || link.join(&wanted))
+                .await
+                .map_err(|e| ConnectError::Unreachable(e.to_string()))?
+                .map_err(|why| {
+                    ConnectError::Unreachable(format!("The direct link could not be joined: {why}"))
+                })?;
+            let joined: Arc<dyn crate::direct::Joined> = Arc::from(joined);
+            route.joined = Some(joined.clone());
+            joined
+        }
+    };
+    let tcp = tcp_through(hint.host, joined.as_ref()).await.map_err(|e| {
+        ConnectError::Unreachable(format!(
+            "The device could not be reached on the direct link ({e})."
+        ))
+    })?;
+    let mut c = handshake(ctx, tls::tcp_link(tcp), route.pinned, route.pairing.clone()).await?;
+    c.direct = true;
+    Ok(c)
+}
+
+/// A TCP connection to `addr` from a socket the joined network prepared
+/// (bound to it where the system keeps it apart).
+async fn tcp_through(
+    addr: SocketAddr,
+    joined: &dyn crate::direct::Joined,
+) -> std::io::Result<TcpStream> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
+    joined.prepare(&socket)?;
+    socket.set_nonblocking(true)?;
+    let socket = tokio::net::TcpSocket::from_std_stream(socket.into());
+    tokio::time::timeout(CONNECT, socket.connect(addr))
+        .await
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out"))?
 }
 
 /// The error to report when the network failed with `lan` and the internet
@@ -716,6 +812,7 @@ async fn handshake(
                 hello,
                 addr: None,
                 internet: None,
+                direct: false,
             })
         }
         Ok(Message::Reject(reason)) => Err(ConnectError::Rejected(reason)),
