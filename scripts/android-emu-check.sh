@@ -318,7 +318,7 @@ if grep -q 'Start a direct link' "$out/08a-receive-direct.txt"; then
   ad alert accept >/dev/null 2>&1 || true # Nearby devices: Allow
   if ad wait text "Direct link on" 30000 >/dev/null 2>&1; then
     step 08b-direct-on
-    note "- Direct link hosted by Wi-Fi Direct: $(grep -oE 'Direct link on[^"]*' "$out/08b-direct-on.txt" | head -1)"
+    note "- Direct link hosted by Wi-Fi Direct: $(grep -oE 'Direct link on( \([0-9.]+ GHz\))?' "$out/08b-direct-on.txt" | head -1)"
     tap "Stop the direct link" || warn "could not tap Stop the direct link"
   else
     step 08b-direct-not-on

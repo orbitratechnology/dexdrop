@@ -283,8 +283,11 @@ section).
        `android/direct-link.aar`'s manifest; CI's APK check reads both
        attributes back.
      - CI: the emulator check starts a direct link where its image offers
-       Wi-Fi Direct and expects it on or a reason, with no crash. A
-       transfer over it needs two phones.
+       Wi-Fi Direct and expects it on or a reason, with no crash. The
+       Android 14 emulator hosts it (run 125: "Direct link on (2.4 GHz)",
+       5 GHz refused there and 2.4 GHz taken), and CI's APK check found
+       `neverForLocation` and the location cap in the packaged manifest.
+       A transfer over it needs two phones.
      - Android is the host for most pairs in section 3, and phone ⇄
        phone needs nothing else.
   3. **Linux built; owed: a run on a computer with Wi-Fi.** Linux
