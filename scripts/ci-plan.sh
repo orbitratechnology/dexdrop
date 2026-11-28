@@ -69,8 +69,12 @@ map_files() {
         out+=(all) ;;
     esac
   done
-  # Lines of a platform's own (`cfg(target_os = …)`) in the Rust changed.
-  local d="${DIFF:-}"
+  # Lines of a platform's own (`cfg(target_os = …)`) in the Rust changed:
+  # PLAN_DIFF, a plain shell variable, so a large diff never reaches a
+  # command's environment (exported, it made every grep fail with
+  # "Argument list too long" and the plan came out empty: CI run 119);
+  # DIFF for the self-test's small ones.
+  local d="${PLAN_DIFF:-${DIFF:-}}"
   grep -q 'target_os = "android"' <<<"$d" && out+=(android)
   grep -qE 'target_os = "(ios|macos)"|target_vendor = "apple"' <<<"$d" && out+=(apple)
   grep -q 'target_os = "windows"' <<<"$d" && out+=(windows)
@@ -153,7 +157,15 @@ plan() {
   local files diff areas
   files=$(git diff --name-only "$base" HEAD)
   diff=$(git diff -U8 "$base" HEAD -- '*.rs' | grep -E '^[-+ ]' || true)
-  areas=$(DIFF="$diff" map_files <<<"$files")
+  PLAN_DIFF=$diff
+  areas=$(map_files <<<"$files")
+  # A plan that found changed files but no area to run is suspect (a
+  # failed command inside it): run everything rather than nothing.
+  if [ -z "${areas// /}" ] && grep -qvE '^(docs/|\.claude/|\.agents/|LICENSE|skills-lock\.json|\.gitignore|.*\.md$|\.github/workflows/native-sim\.yml$)' <<<"$files"; then
+    echo "reason=changed since ${base:0:7}: no area found for code changes: everything" >&2
+    emit "$(normalize all)" "$checks"
+    return
+  fi
   echo "reason=changed since ${base:0:7}: $(grep -c . <<<"$files" || true) files -> ${areas:-nothing}" >&2
   emit "$(normalize "$areas")" "$checks"
 }
@@ -187,6 +199,16 @@ self_test() {
   expect "Cargo.lock" "" "all"
   expect "app/e2e/app.test.ts" "" "all"
   expect "somewhere/new.txt" "" "all"
+  # A diff far larger than a command's environment may hold (CI run 119).
+  local big
+  big=$(head -c 3000000 /dev/zero | tr '\0' 'x')
+  big+=$'\n+    #[cfg(target_os = "android")]'
+  got=$(PLAN_DIFF="$big"; map_files <<<"app/src/pages/send.rs" 2>&1)
+  got=$(normalize "$got")
+  if [ "$got" != "$(normalize "app android")" ]; then
+    echo "FAIL: a large diff -> '$got', expected 'app android'" >&2
+    failed=1
+  fi
   # The outputs: a manual Android build without checks.
   local out
   out=$(EVENT=workflow_dispatch PLATFORMS=android CHECKS=false plan 2>/dev/null)
