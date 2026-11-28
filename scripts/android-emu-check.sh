@@ -71,6 +71,15 @@ tap() { # tap <label>: scroll down once if it is not on screen yet
 tap_only() { click1 "$1"; }
 # The app in front again if something sent it away.
 front() { ad open "$pkg" >/dev/null 2>&1 || true; }
+# The emulator's own apps sometimes stop answering under CI's load and
+# Android puts "<app> isn't responding" over everything (run 120: Pixel
+# Launcher, while DexDrop was opening). Answer "Wait" (closing it can take
+# the launcher's state with it), then bring DexDrop back to the front.
+system_dialog_away() {
+  ad click 'label="Wait"' --settle >/dev/null 2>&1 &&
+    note "- (an emulator app had stopped answering; its dialog was dismissed)"
+  front
+}
 
 note "## Android emulator check (agent-device)"
 note ""
@@ -92,7 +101,10 @@ sh_ pm grant "$pkg" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || tru
 note "- App installed ($(basename "$apk"))"
 ad open "$pkg" --relaunch >/dev/null || fail "the app did not open"
 ad alert accept >/dev/null 2>&1 || true
-ad wait text "Nearby" 60000 >/dev/null || { step 00-launch-failed; fail "the home screen did not appear"; }
+ad wait text "Nearby" 60000 >/dev/null || {
+  system_dialog_away
+  ad wait text "Nearby" 30000 >/dev/null
+} || { step 00-launch-failed; fail "the home screen did not appear"; }
 step 01-nearby
 # The identity key is in the Android Keystore (android-native-keyring-store,
 # with the context NSH sets in ndk-context): the identity file holds only
